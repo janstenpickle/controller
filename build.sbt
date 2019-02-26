@@ -187,3 +187,8 @@ lazy val activity = (project in file("modules/activity"))
   .settings(commonSettings)
   .settings(name := "controller-activity")
   .dependsOn(`macro`)
+
+lazy val poller = (project in file("modules/poller"))
+  .settings(commonSettings)
+  .settings(name := "controller-poller", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(catsEffect)

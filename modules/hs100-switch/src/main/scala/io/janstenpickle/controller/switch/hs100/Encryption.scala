@@ -6,6 +6,7 @@ import java.nio.ByteBuffer
 import cats.effect.Sync
 import io.janstenpickle.catseffect.CatsEffect._
 
+import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
 
 object Encryption {
@@ -34,17 +35,20 @@ object Encryption {
 
   def decrypt[F[_]](inputStream: InputStream)(implicit F: Sync[F]): F[String] =
     suspendErrors {
-      val buffer = ArrayBuffer.newBuilder[Byte].result()
-      var continue = true
-
-      while (continue) {
+      @tailrec
+      def loop(buffer: ArrayBuffer[Byte]): ArrayBuffer[Byte] = {
         val array: Array[Byte] = Array.fill(4096)(1)
         inputStream.read(array)
         if (array.last == 1 || array.last == -1) {
           buffer.appendAll(array.dropRight(1).filterNot(_ == 1))
-          continue = false
-        } else buffer.appendAll(array)
+          buffer
+        } else {
+          buffer.appendAll(array)
+          loop(buffer)
+        }
       }
+
+      val buffer = loop(ArrayBuffer.newBuilder[Byte].result())
 
       val response = buffer
         .foldLeft((decryptKey, new StringBuilder)) {
