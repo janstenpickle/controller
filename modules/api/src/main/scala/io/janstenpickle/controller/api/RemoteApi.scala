@@ -8,10 +8,10 @@ import eu.timepit.refined._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.api.error.ControlError
-import io.janstenpickle.controller.view.View
+import io.janstenpickle.controller.remotecontrol.RemoteControls
 import org.http4s.{HttpRoutes, Response}
 
-class RemoteApi[F[_]: Sync](view: View[EitherT[F, ControlError, ?]]) extends Common[F] {
+class RemoteApi[F[_]: Sync](remotes: RemoteControls[EitherT[F, ControlError, ?]]) extends Common[F] {
 
   def refineOrBadReq(name: String, device: String, command: String)(
     f: (NonEmptyString, NonEmptyString, NonEmptyString) => F[Response[F]]
@@ -27,8 +27,8 @@ class RemoteApi[F[_]: Sync](view: View[EitherT[F, ControlError, ?]]) extends Com
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / name / device / command / "send" =>
-      refineOrBadReq(name, device, command)((n, d, c) => handleControlError(view.send(n, d, c)))
+      refineOrBadReq(name, device, command)((n, d, c) => handleControlError(remotes.send(n, d, c)))
     case POST -> Root / name / device / command / "learn" =>
-      refineOrBadReq(name, device, command)((n, d, c) => handleControlError(view.learn(n, d, c)))
+      refineOrBadReq(name, device, command)((n, d, c) => handleControlError(remotes.learn(n, d, c)))
   }
 }

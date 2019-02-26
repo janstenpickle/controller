@@ -52,9 +52,7 @@ object FileActivityStore {
             case false => Option.empty[NonEmptyString].pure
           })
         }
-        }
       }
     }
-
   }
 }

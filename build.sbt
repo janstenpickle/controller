@@ -77,7 +77,7 @@ lazy val api = (project in file("modules/api"))
       "org.http4s"     %% "http4s-dsl"           % http4sVer
     )
   )
-  .dependsOn(hs100Switch, rm2Remote, fileStore, remoteControl, extruderConfigSource, view)
+  .dependsOn(hs100Switch, rm2Remote, fileStore, remoteControl, extruderConfigSource, `macro`, activity)
 
 lazy val catsEffect = (project in file("modules/cats-effect"))
   .settings(commonSettings)
@@ -162,11 +162,10 @@ lazy val fileStore = (project in file("modules/file-store"))
   .settings(
     name := "controller-file-store",
     libraryDependencies ++= Seq(
-      "commons-codec" % "commons-codec"        % "1.12",
-      "commons-io"    % "commons-io"           % "2.6",
-      "extruder"      %% "extruder-circe-yaml" % extruderVer,
-      "extruder"      %% "extruder-refined"    % extruderVer,
-      "eu.timepit"    %% "refined"             % refinedVer
+      "commons-io" % "commons-io"           % "2.6",
+      "extruder"   %% "extruder-circe-yaml" % extruderVer,
+      "extruder"   %% "extruder-refined"    % extruderVer,
+      "eu.timepit" %% "refined"             % refinedVer
     )
   )
   .dependsOn(catsEffect, store)
@@ -179,7 +178,12 @@ lazy val remoteControl = (project in file("modules/remote-control"))
   )
   .dependsOn(remote, store)
 
-lazy val view = (project in file("modules/view"))
+lazy val `macro` = (project in file("modules/macro"))
   .settings(commonSettings)
-  .settings(name := "controller-view", libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % catsEffectVer))
+  .settings(name := "controller-macro", libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % catsEffectVer))
   .dependsOn(remoteControl, switch, store, configSource)
+
+lazy val activity = (project in file("modules/activity"))
+  .settings(commonSettings)
+  .settings(name := "controller-activity")
+  .dependsOn(`macro`)

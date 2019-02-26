@@ -14,12 +14,12 @@ object Server extends IOApp {
 
 class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
   val run: Stream[F, ExitCode] = components.flatMap {
-    case (server, configSource, view) =>
+    case (server, activity, configSource, macros, remotes, switches) =>
       val router = Router(
-        "/control/remote" -> new RemoteApi[F](view).routes,
-        "/control/switch" -> new SwitchApi[F](view).routes,
-        "/control/macro" -> new MacroApi[F](view).routes,
-        "/control/activity" -> new ActivityApi[F](view).routes,
+        "/control/remote" -> new RemoteApi[F](remotes).routes,
+        "/control/switch" -> new SwitchApi[F](switches).routes,
+        "/control/macro" -> new MacroApi[F](macros).routes,
+        "/control/activity" -> new ActivityApi[F](activity).routes,
         "/config" -> new ConfigApi[F](configSource).routes
       )
 

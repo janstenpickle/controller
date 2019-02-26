@@ -4,7 +4,7 @@ import cats.FlatMap
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.remote.Remote
-import io.janstenpickle.controller.store.Store
+import io.janstenpickle.controller.store.RemoteCommandStore
 
 trait RemoteControl[F[_]] {
   def learn(device: NonEmptyString, name: NonEmptyString): F[Unit]
@@ -12,7 +12,7 @@ trait RemoteControl[F[_]] {
 }
 
 object RemoteControl {
-  def apply[F[_]: FlatMap](remote: Remote[F], store: Store[F])(
+  def apply[F[_]: FlatMap, T](remote: Remote[F, T], store: RemoteCommandStore[F, T])(
     implicit errors: RemoteControlErrors[F]
   ): RemoteControl[F] = new RemoteControl[F] {
     override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =

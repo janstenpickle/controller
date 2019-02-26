@@ -12,7 +12,7 @@ import extruder.typesafe._
 import extruder.refined._
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
-import io.janstenpickle.controller.store.file.FileStore
+import io.janstenpickle.controller.store.file.{FileActivityStore, FileMacroStore, FileRemoteCommandStore}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 
 import scala.util.Try
@@ -20,7 +20,9 @@ import scala.util.Try
 object Configuration {
   case class Config(
     rm2: Rm2Remote.Config,
-    fileStore: FileStore.Config,
+    activityStore: FileActivityStore.Config,
+    macroStore: FileMacroStore.Config,
+    remoteCommandStore: FileRemoteCommandStore.Config,
     hs100: HS100SmartPlug.Config,
     data: ExtruderConfigSource.Config,
     server: Server

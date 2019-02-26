@@ -21,17 +21,17 @@ import javax.xml.bind.DatatypeConverter
 object Rm2Remote {
   case class Config(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeoutMillis: PosInt = refineMV(100))
 
-  def apply[F[_]: Sync: ContextShift: Timer](config: Config): Resource[F, Remote[F]] =
+  def apply[F[_]: Sync: ContextShift: Timer](config: Config): Resource[F, Remote[F, CommandPayload]] =
     cachedExecutorResource.evalMap(apply(config, _))
 
   def apply[F[_]](
     config: Config,
     ec: ExecutionContext
-  )(implicit F: Sync[F], cs: ContextShift[F], timer: Timer[F]): F[Remote[F]] = {
+  )(implicit F: Sync[F], cs: ContextShift[F], timer: Timer[F]): F[Remote[F, CommandPayload]] = {
     def suspendErrorsEval[A](fa: A): F[A] = suspendErrorsEvalOn(fa, ec)
 
     suspendErrors(new RM2Device(config.host.value, config.mac)).map { device =>
-      new Remote[F] {
+      new Remote[F, CommandPayload] {
         override def name: NonEmptyString = config.name
 
         override def learn: F[Option[CommandPayload]] =
@@ -45,12 +45,12 @@ object Rm2Remote {
           } yield data
 
         override def sendCommand(payload: CommandPayload): F[Unit] =
-          suspendErrors(device.auth()) *> suspendErrorsEval(
+          suspendErrorsEval(device.auth()) *> suspendErrorsEval(
             device.sendCmdPkt(
               config.timeoutMillis.value,
               new SendDataCmdPayload(DatatypeConverter.parseHexBinary(payload.hexValue))
             )
-          ).map(println)
+          )
       }
     }
   }

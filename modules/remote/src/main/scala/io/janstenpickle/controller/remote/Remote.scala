@@ -1,10 +1,9 @@
 package io.janstenpickle.controller.remote
 
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.CommandPayload
 
-trait Remote[F[_]] {
+trait Remote[F[_], T] {
   def name: NonEmptyString
-  def learn: F[Option[CommandPayload]]
-  def sendCommand(payload: CommandPayload): F[Unit]
+  def learn: F[Option[T]]
+  def sendCommand(payload: T): F[Unit]
 }

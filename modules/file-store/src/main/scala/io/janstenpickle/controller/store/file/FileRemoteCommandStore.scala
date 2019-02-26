@@ -52,11 +52,7 @@ object FileRemoteCommandStore {
           } yield ())
         }
 
-        override def loadCode(
-          remote: NonEmptyString,
-          device: NonEmptyString,
-          name: NonEmptyString
-        ): F[Option[T]] = {
+        override def loadCode(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Option[T]] = {
           lazy val file = Paths.get(config.location.toString, remote.value, device.value, name.value)
 
           lazy val load: F[Option[T]] =

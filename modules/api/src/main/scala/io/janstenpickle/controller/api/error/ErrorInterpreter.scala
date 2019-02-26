@@ -8,14 +8,16 @@ import extruder.core.ExtruderErrors
 import io.circe.CursorOp
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.hs100.HS100Errors
-import io.janstenpickle.controller.view.ViewErrors
+import io.janstenpickle.controller.`macro`.MacroErrors
 import org.slf4j.LoggerFactory
 import cats.syntax.functor._
 import io.circe
 import io.janstenpickle.catseffect.CatsEffect._
+import io.janstenpickle.controller.switch.SwitchErrors
 
 class ErrorInterpreter[F[_]](implicit F: Sync[F])
-    extends ViewErrors[EitherT[F, ControlError, ?]]
+    extends MacroErrors[EitherT[F, ControlError, ?]]
+    with SwitchErrors[EitherT[F, ControlError, ?]]
     with RemoteControlErrors[EitherT[F, ControlError, ?]]
     with HS100Errors[EitherT[F, ControlError, ?]]
     with ExtruderErrors[EitherT[F, ControlError, ?]] {
@@ -34,8 +36,6 @@ class ErrorInterpreter[F[_]](implicit F: Sync[F])
     raise(ControlError.Missing(s"Remote '$name' not found"))
   override def missingSwitch[A](name: NonEmptyString): EitherT[F, ControlError, A] =
     raise(ControlError.Missing(s"Switch '$name' not found"))
-  override def missingActivity[A](name: NonEmptyString): EitherT[F, ControlError, A] =
-    raise(ControlError.Missing(s"Activity '$name' not found"))
 
   override def decodingFailure[A](name: NonEmptyString, error: circe.Error): EitherT[F, ControlError, A] =
     raise(ControlError.Internal(s"Failed to decode response from smart plug '$name': ${error.getMessage}"))
