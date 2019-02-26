@@ -4,11 +4,12 @@ import cats.FlatMap
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.remote.Remote
-import io.janstenpickle.controller.store.RemoteCommandStore
+import io.janstenpickle.controller.store.{RemoteCommand, RemoteCommandStore}
 
 trait RemoteControl[F[_]] {
   def learn(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def sendCommand(device: NonEmptyString, name: NonEmptyString): F[Unit]
+  def listCommands: F[List[RemoteCommand]]
 }
 
 object RemoteControl {
@@ -18,13 +19,15 @@ object RemoteControl {
     override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
       remote.learn.flatMap {
         case None => errors.learnFailure(remote.name, device, name)
-        case Some(payload) => store.storeCode(remote.name, device, name, payload)
+        case Some(payload) => store.storeCommand(remote.name, device, name, payload)
       }
 
     override def sendCommand(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-      store.loadCode(remote.name, device, name).flatMap {
+      store.loadCommand(remote.name, device, name).flatMap {
         case None => errors.commandNotFound(remote.name, device, name)
         case Some(payload) => remote.sendCommand(payload)
       }
+
+    override def listCommands: F[List[RemoteCommand]] = store.listCommands
   }
 }

@@ -88,7 +88,10 @@ class HS100SmartPlug[F[_]](config: HS100SmartPlug.Config, ec: ExecutionContext)(
 }
 
 object HS100SmartPlug {
-  implicit val stateDecoder: Decoder[State] = Decoder.decodeInt.map(State.parse)
+  implicit val stateDecoder: Decoder[State] = Decoder.decodeInt.map {
+    case 1 => State.On
+    case _ => State.Off
+  }
 
   case class Config(name: NonEmptyString, host: NonEmptyString, port: PortNumber = refineMV(9999))
 

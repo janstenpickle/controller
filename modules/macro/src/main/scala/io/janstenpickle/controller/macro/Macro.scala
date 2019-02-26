@@ -46,4 +46,6 @@ class Macro[F[_]: Monad](macroStore: MacroStore[F], remotes: RemoteControls[F], 
           }
           .map(_ => ())
     }
+
+  def listMacros: F[List[NonEmptyString]] = macroStore.listMacros
 }

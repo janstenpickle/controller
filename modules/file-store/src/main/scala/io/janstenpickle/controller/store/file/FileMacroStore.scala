@@ -15,6 +15,11 @@ import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.model.Command
 import io.janstenpickle.controller.store.MacroStore
 import org.apache.commons.io.FileUtils
+import cats.syntax.traverse._
+import cats.instances.list._
+import eu.timepit.refined._
+import eu.timepit.refined.collection.NonEmpty
+import cats.syntax.either._
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -25,7 +30,9 @@ object FileMacroStore {
   def apply[F[_]: Concurrent: ContextShift: Timer](config: Config): Resource[F, MacroStore[F]] =
     cachedExecutorResource.evalMap(apply(config, _))
 
-  def apply[F[_]: Concurrent: ContextShift: Timer](config: Config, ec: ExecutionContext): F[MacroStore[F]] = {
+  def apply[F[_]: ContextShift: Timer](config: Config, ec: ExecutionContext)(
+    implicit F: Concurrent[F]
+  ): F[MacroStore[F]] = {
     def eval[A](fa: F[A]): F[A] = evalOn(fa, ec)
 
     Semaphore[F](1).map { semaphore =>
@@ -57,9 +64,14 @@ object FileMacroStore {
 
           eval(suspendErrors(Files.exists(file)).flatMap {
             case true => load
-            case false => Option.empty[NonEmptyList[Command]].pure
+            case false => Option.empty[NonEmptyList[Command]].pure[F]
           })
         }
+
+        override def listMacros: F[List[NonEmptyString]] =
+          suspendErrorsEvalOn(Option(config.location.toFile.list()).toList.flatten, ec).flatMap(_.traverse { m =>
+            F.fromEither(refineV[NonEmpty](m).leftMap(new RuntimeException(_)))
+          })
       }
     }
 

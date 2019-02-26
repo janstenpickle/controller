@@ -5,9 +5,13 @@ import cats.syntax.functor._
 import cats.{Functor, Invariant}
 import io.janstenpickle.catseffect.CatsEffect._
 
-trait CommandSerde[F[_], T] {
+trait CommandSerde[F[_], T] { outer =>
   def serialize(data: T): F[Array[Byte]]
   def deserialize(data: Array[Byte]): F[T]
+  def imap[A](f: T => A)(g: A => T)(implicit F: Functor[F]): CommandSerde[F, A] = new CommandSerde[F, A] {
+    override def serialize(data: A): F[Array[Byte]] = outer.serialize(g(data))
+    override def deserialize(data: Array[Byte]): F[A] = outer.deserialize(data).map(f)
+  }
 }
 
 object CommandSerde {
@@ -19,10 +23,6 @@ object CommandSerde {
   }
 
   implicit def commandSerdeInvariant[F[_]: Functor]: Invariant[CommandSerde[F, ?]] = new Invariant[CommandSerde[F, ?]] {
-    override def imap[A, B](fa: CommandSerde[F, A])(f: A => B)(g: B => A): CommandSerde[F, B] =
-      new CommandSerde[F, B] {
-        override def serialize(data: B): F[Array[Byte]] = fa.serialize(g(data))
-        override def deserialize(data: Array[Byte]): F[B] = fa.deserialize(data).map(f)
-      }
+    override def imap[A, B](fa: CommandSerde[F, A])(f: A => B)(g: B => A): CommandSerde[F, B] = fa.imap(f)(g)
   }
 }

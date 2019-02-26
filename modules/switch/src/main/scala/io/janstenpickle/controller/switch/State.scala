@@ -7,14 +7,9 @@ sealed trait State {
 
 object State {
   case object On extends State {
-    override val value: String = "ON"
+    override val value: String = "on"
   }
   case object Off extends State {
-    override val value: String = "OFF"
-  }
-
-  val parse: Int => State = {
-    case 1 => On
-    case _ => Off
+    override val value: String = "off"
   }
 }

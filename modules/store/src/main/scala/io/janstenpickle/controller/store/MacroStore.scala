@@ -7,4 +7,5 @@ import io.janstenpickle.controller.model.Command
 trait MacroStore[F[_]] {
   def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit]
   def loadMacro(name: NonEmptyString): F[Option[NonEmptyList[Command]]]
+  def listMacros: F[List[NonEmptyString]]
 }
