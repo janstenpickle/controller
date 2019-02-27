@@ -64,12 +64,12 @@ class ErrorInterpreter[F[_]](implicit F: Sync[F])
   ): EitherT[F, ControlError, A] =
     raise(ControlError.Internal(s"Failed to learn command '$name' for device '$device' on remote '$remote'"))
 
-  override def pollError(
+  override def pollError[A](
     switch: NonEmptyString,
     value: State,
     lastUpdated: Long,
     error: Throwable
-  ): EitherT[F, ControlError, Unit] =
+  ): EitherT[F, ControlError, A] =
     raise(
       ControlError
         .Internal(s"Failed to update switch '$switch' state. Current value: '${value.value}'. Last updated at ${Instant

@@ -114,7 +114,7 @@ lazy val extruderConfigSource = (project in file("modules/extruder-config-source
       "extruder" %% "extruder-typesafe"    % extruderVer
     )
   )
-  .dependsOn(catsEffect, configSource)
+  .dependsOn(catsEffect, configSource, poller)
 
 lazy val remote = (project in file("modules/remote"))
   .settings(commonSettings)

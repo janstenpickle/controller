@@ -64,3 +64,5 @@ object Button {
     coloured: Option[Boolean]
   ) extends Macro
 }
+
+case class Buttons(buttons: List[Buttons], error: Option[String])

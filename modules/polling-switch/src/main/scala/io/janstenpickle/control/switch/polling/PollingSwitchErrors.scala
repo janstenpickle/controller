@@ -4,5 +4,5 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.switch.State
 
 trait PollingSwitchErrors[F[_]] {
-  def pollError(switch: NonEmptyString, value: State, lastUpdated: Long, error: Throwable): F[Unit]
+  def pollError[A](switch: NonEmptyString, value: State, lastUpdated: Long, error: Throwable): F[A]
 }

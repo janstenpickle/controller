@@ -12,8 +12,8 @@ import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
-import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
+import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControls}
@@ -51,16 +51,34 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
 
   def components: Stream[
     F,
-    (Configuration.Server, Activity[ET], ConfigSource[ET], Macro[ET], RemoteControls[ET], Switches[ET])
+    (
+      Configuration.Server,
+      Activity[ET],
+      Macro[ET],
+      RemoteControls[ET],
+      Switches[ET],
+      ActivityConfigSource[F],
+      ButtonConfigSource[F],
+      RemoteConfigSource[F]
+    )
   ] =
     for {
       config <- Stream.eval(Configuration.load[ConfigResult].value).evalMap(configOrError)
       executor <- Stream.resource(cachedExecutorResource[F])
+
+      configFileSource <- Stream.resource(
+        ConfigFileSource.polling[F](config.config.file, config.config.pollInterval, executor)
+      )
+      activityConfig <- Stream.resource(
+        ExtruderActivityConfigSource.polling[F](configFileSource, config.config.activity)
+      )
+      buttonConfig <- Stream.resource(ExtruderButtonConfigSource.polling[F](configFileSource, config.config.button))
+      remoteConfig <- Stream.resource(ExtruderRemoteConfigSource.polling[F](configFileSource, config.config.remote))
+
       activityStore <- evalControlError(FileActivityStore[ET](config.activityStore, executor))
       macroStore <- evalControlError(FileMacroStore[ET](config.macroStore, executor))
       commandStore <- evalControlError(FileRemoteCommandStore[ET, CommandPayload](config.remoteCommandStore, executor))
       rm2 <- evalControlError(Rm2Remote[ET](config.rm2, executor))
-      configSource = ExtruderConfigSource[ET](config.data, executor)
       remoteControls = new RemoteControls[ET](
         Map(config.rm2.name -> RemoteControl[ET, CommandPayload](rm2, commandStore))
       )
@@ -70,5 +88,5 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       switches = new Switches[ET](Map(config.hs100.config.name -> hs100))
       macros = new Macro[ET](macroStore, remoteControls, switches)
       activity = new Activity[ET](activityStore, macros)
-    } yield (config.server, activity, configSource, macros, remoteControls, switches)
+    } yield (config.server, activity, macros, remoteControls, switches, activityConfig, buttonConfig, remoteConfig)
 }

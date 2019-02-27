@@ -10,11 +10,12 @@ import eu.timepit.refined.types.net.PortNumber
 import extruder.core.{ExtruderErrors, Parser}
 import extruder.typesafe._
 import extruder.refined._
-import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.store.file.{FileActivityStore, FileMacroStore, FileRemoteCommandStore}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 
+import scala.concurrent.duration._
 import scala.util.Try
 
 object Configuration {
@@ -24,8 +25,16 @@ object Configuration {
     macroStore: FileMacroStore.Config,
     remoteCommandStore: FileRemoteCommandStore.Config,
     hs100: HS100,
-    data: ExtruderConfigSource.Config,
+    config: ConfigData,
     server: Server
+  )
+
+  case class ConfigData(
+    file: Path,
+    pollInterval: FiniteDuration = 10.seconds,
+    activity: ExtruderActivityConfigSource.PollingConfig,
+    button: ExtruderButtonConfigSource.PollingConfig,
+    remote: ExtruderRemoteConfigSource.PollingConfig
   )
 
   case class HS100(config: HS100SmartPlug.Config, polling: HS100SmartPlug.PollingConfig)
