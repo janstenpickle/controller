@@ -140,6 +140,11 @@ lazy val switch = (project in file("modules/switch"))
     libraryDependencies ++= Seq("org.typelevel" %% "cats-core" % catsVer, "eu.timepit" %% "refined" % refinedVer)
   )
 
+lazy val pollingSwitch = (project in file("modules/polling-switch"))
+  .settings(commonSettings)
+  .settings(name := "controller-polling-switch")
+  .dependsOn(switch, poller)
+
 lazy val hs100Switch = (project in file("modules/hs100-switch"))
   .settings(commonSettings)
   .settings(
@@ -150,7 +155,7 @@ lazy val hs100Switch = (project in file("modules/hs100-switch"))
       "eu.timepit" %% "refined"      % refinedVer
     )
   )
-  .dependsOn(catsEffect, switch)
+  .dependsOn(catsEffect, pollingSwitch)
 
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)

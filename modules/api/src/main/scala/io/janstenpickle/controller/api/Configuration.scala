@@ -23,10 +23,12 @@ object Configuration {
     activityStore: FileActivityStore.Config,
     macroStore: FileMacroStore.Config,
     remoteCommandStore: FileRemoteCommandStore.Config,
-    hs100: HS100SmartPlug.Config,
+    hs100: HS100,
     data: ExtruderConfigSource.Config,
     server: Server
   )
+
+  case class HS100(config: HS100SmartPlug.Config, polling: HS100SmartPlug.PollingConfig)
 
   case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8080))
 

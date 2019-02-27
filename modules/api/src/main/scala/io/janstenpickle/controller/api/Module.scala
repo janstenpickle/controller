@@ -2,6 +2,8 @@ package io.janstenpickle.controller.api
 
 import cats.data.EitherT
 import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.~>
+import cats.syntax.flatMap._
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
@@ -16,7 +18,7 @@ import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControls}
 import io.janstenpickle.controller.store.file.{CommandSerde, FileActivityStore, FileMacroStore, FileRemoteCommandStore}
-import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.switch.{Switch, Switches}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 
 abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
@@ -37,6 +39,13 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       case Right(a) => F.pure(a)
     }
 
+  def translateF: ET ~> F = new (ET ~> F) {
+    override def apply[A](fa: ET[A]): F[A] = fa.value.flatMap {
+      case Left(err) => F.raiseError(err)
+      case Right(a) => F.pure(a)
+    }
+  }
+
   implicit val commandPayloadSerde: CommandSerde[ET, CommandPayload] =
     CommandSerde[ET, String].imap(CommandPayload)(_.hexValue)
 
@@ -55,7 +64,10 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       remoteControls = new RemoteControls[ET](
         Map(config.rm2.name -> RemoteControl[ET, CommandPayload](rm2, commandStore))
       )
-      switches = new Switches[ET](Map(config.hs100.name -> HS100SmartPlug[ET](config.hs100, executor)))
+      hs100 <- Stream
+        .resource[ET, Switch[ET]](HS100SmartPlug.polling[ET](config.hs100.config, config.hs100.polling, executor))
+        .translate(translateF)
+      switches = new Switches[ET](Map(config.hs100.config.name -> hs100))
       macros = new Macro[ET](macroStore, remoteControls, switches)
       activity = new Activity[ET](activityStore, macros)
     } yield (config.server, activity, configSource, macros, remoteControls, switches)

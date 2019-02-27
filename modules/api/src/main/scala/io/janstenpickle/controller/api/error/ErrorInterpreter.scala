@@ -1,5 +1,7 @@
 package io.janstenpickle.controller.api.error
 
+import java.time.Instant
+
 import cats.data.EitherT
 import cats.effect.Sync
 import cats.syntax.flatMap._
@@ -13,13 +15,15 @@ import org.slf4j.LoggerFactory
 import cats.syntax.functor._
 import io.circe
 import io.janstenpickle.catseffect.CatsEffect._
-import io.janstenpickle.controller.switch.SwitchErrors
+import io.janstenpickle.control.switch.polling.PollingSwitchErrors
+import io.janstenpickle.controller.switch.{State, SwitchErrors}
 
 class ErrorInterpreter[F[_]](implicit F: Sync[F])
     extends MacroErrors[EitherT[F, ControlError, ?]]
     with SwitchErrors[EitherT[F, ControlError, ?]]
     with RemoteControlErrors[EitherT[F, ControlError, ?]]
     with HS100Errors[EitherT[F, ControlError, ?]]
+    with PollingSwitchErrors[EitherT[F, ControlError, ?]]
     with ExtruderErrors[EitherT[F, ControlError, ?]] {
 
   private val log = LoggerFactory.getLogger(getClass)
@@ -60,6 +64,18 @@ class ErrorInterpreter[F[_]](implicit F: Sync[F])
   ): EitherT[F, ControlError, A] =
     raise(ControlError.Internal(s"Failed to learn command '$name' for device '$device' on remote '$remote'"))
 
+  override def pollError(
+    switch: NonEmptyString,
+    value: State,
+    lastUpdated: Long,
+    error: Throwable
+  ): EitherT[F, ControlError, Unit] =
+    raise(
+      ControlError
+        .Internal(s"Failed to update switch '$switch' state. Current value: '${value.value}'. Last updated at ${Instant
+          .ofEpochMilli(lastUpdated)}. Error message: '${error.getMessage}'")
+    )
+
   override def missing[A](message: String): EitherT[F, ControlError, A] =
     raise(ControlError.Internal(s"Failed to load config data: $message"))
 
@@ -73,4 +89,5 @@ class ErrorInterpreter[F[_]](implicit F: Sync[F])
     fa: EitherT[F, ControlError, A]
   )(thunk: => EitherT[F, ControlError, A]): EitherT[F, ControlError, A] =
     EitherT(fa.value.flatMap(_.fold(_ => thunk.value, a => F.pure(Right(a)))))
+
 }

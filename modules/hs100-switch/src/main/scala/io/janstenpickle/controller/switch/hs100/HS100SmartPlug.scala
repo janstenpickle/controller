@@ -3,19 +3,22 @@ package io.janstenpickle.controller.switch.hs100
 import java.io.{InputStream, OutputStream}
 import java.net.Socket
 
-import cats.effect.{ContextShift, Resource, Sync}
+import cats.effect._
 import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined._
 import eu.timepit.refined.types.net.PortNumber
+import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.{parser, Decoder, Json}
 import io.janstenpickle.catseffect.CatsEffect._
+import io.janstenpickle.control.switch.polling.{PollingSwitch, PollingSwitchErrors}
 import io.janstenpickle.controller.switch.hs100.Encryption._
 import io.janstenpickle.controller.switch.{State, Switch}
 
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 class HS100SmartPlug[F[_]](config: HS100SmartPlug.Config, ec: ExecutionContext)(
   implicit F: Sync[F],
@@ -34,7 +37,7 @@ class HS100SmartPlug[F[_]](config: HS100SmartPlug.Config, ec: ExecutionContext)(
     getInfo.flatMap { json =>
       val cursor = json.hcursor
         .downField(System)
-        .downField("get_sysinfo")
+        .downField(GetSysInfo)
         .downField("relay_state")
 
       cursor.focus.fold[F[State]](errors.missingJson(name, cursor.history))(
@@ -49,7 +52,7 @@ class HS100SmartPlug[F[_]](config: HS100SmartPlug.Config, ec: ExecutionContext)(
     eval(sendCommand(SwitchOffCommand)).flatMap(parseSetResponse)
 
   private def parseSetResponse(json: Json): F[Unit] = {
-    val cursor = json.hcursor.downField(System).downField("set_relay_state").downField("err_code")
+    val cursor = json.hcursor.downField(System).downField(SetRelayState).downField("err_code")
 
     cursor.focus
       .fold[F[Unit]](errors.missingJson(name, cursor.history))(_.as[Int] match {
@@ -88,12 +91,21 @@ class HS100SmartPlug[F[_]](config: HS100SmartPlug.Config, ec: ExecutionContext)(
 }
 
 object HS100SmartPlug {
+  private val System = "system"
+  private val SetRelayState = "set_relay_state"
+  private val GetSysInfo = "get_sysinfo"
+
+  private val InfoCommand = s"""{"$System":{"$GetSysInfo":null}}"""
+  private val SwitchOnCommand = s"""{"$System":{"$SetRelayState":{"state":1}}}}"""
+  private val SwitchOffCommand = s"""{"$System":{"$SetRelayState":{"state":0}}}}"""
+
   implicit val stateDecoder: Decoder[State] = Decoder.decodeInt.map {
     case 1 => State.On
     case _ => State.Off
   }
 
   case class Config(name: NonEmptyString, host: NonEmptyString, port: PortNumber = refineMV(9999))
+  case class PollingConfig(pollInterval: FiniteDuration = 2.seconds, errorThreshold: PosInt = PosInt(2))
 
   def apply[F[_]: Sync: ContextShift: HS100Errors](config: Config, ec: ExecutionContext): HS100SmartPlug[F] =
     new HS100SmartPlug[F](config, ec)
@@ -101,9 +113,21 @@ object HS100SmartPlug {
   def apply[F[_]: Sync: ContextShift: HS100Errors](config: Config): Resource[F, HS100SmartPlug[F]] =
     cachedExecutorResource.map(apply[F](config, _))
 
-  private val InfoCommand = """{"system":{"get_sysinfo":null}}"""
-  private val SwitchOnCommand = """{"system":{"set_relay_state":{"state":1}}}}"""
-  private val SwitchOffCommand = """{"system":{"set_relay_state":{"state":0}}}}"""
+  private def poller[F[_]: Concurrent: Timer: PollingSwitchErrors](
+    config: PollingConfig,
+    switch: HS100SmartPlug[F]
+  ): Resource[F, Switch[F]] =
+    PollingSwitch[F](switch, config.pollInterval, config.errorThreshold)
 
-  private val System = "system"
+  def polling[F[_]: Concurrent: ContextShift: Timer: HS100Errors: PollingSwitchErrors](
+    config: Config,
+    pollingConfig: PollingConfig,
+    ec: ExecutionContext
+  ): Resource[F, Switch[F]] = poller(pollingConfig, apply[F](config, ec))
+
+  def polling[F[_]: Concurrent: ContextShift: Timer: HS100Errors: PollingSwitchErrors](
+    config: Config,
+    pollingConfig: PollingConfig
+  ): Resource[F, Switch[F]] = apply[F](config).flatMap(poller(pollingConfig, _))
+
 }
