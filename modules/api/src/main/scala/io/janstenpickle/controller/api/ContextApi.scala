@@ -3,18 +3,16 @@ package io.janstenpickle.controller.api
 import cats.data.{EitherT, NonEmptyList}
 import cats.effect.Sync
 import eu.timepit.refined.types.string.NonEmptyString
+import extruder.circe.instances._
+import extruder.refined._
 import io.janstenpickle.controller.model.{Command, ContextButtonMapping}
 import io.janstenpickle.controller.`macro`.Macro
 import org.http4s.{EntityDecoder, EntityEncoder, HttpRoutes}
-import io.circe.generic.auto._
-import io.circe.refined._
 import io.janstenpickle.controller.model
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ActivityConfigSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import org.http4s.circe.jsonOf
-import org.http4s.circe.jsonEncoderOf
 
 class ContextApi[F[_]: Sync](
   activities: Activity[EitherT[F, ControlError, ?]],
@@ -22,8 +20,8 @@ class ContextApi[F[_]: Sync](
   remotes: RemoteControls[EitherT[F, ControlError, ?]],
   activitySource: ActivityConfigSource[F]
 ) extends Common[F] {
-  implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = jsonOf[F, NonEmptyList[Command]]
-  implicit val macrosEncoder: EntityEncoder[F, List[NonEmptyString]] = jsonEncoderOf[F, List[NonEmptyString]]
+  implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
+  implicit val macrosEncoder: EntityEncoder[F, List[NonEmptyString]] = extruderEncoder[List[NonEmptyString]]
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / name =>

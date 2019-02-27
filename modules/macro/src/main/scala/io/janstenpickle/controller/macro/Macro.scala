@@ -35,12 +35,12 @@ class Macro[F[_]: Monad](macroStore: MacroStore[F], remotes: RemoteControls[F], 
       case Some(commands) =>
         commands
           .traverse[F, Unit] {
-            case Command.RemoteCommand(remote, device, n) =>
+            case Command.Remote(remote, device, n) =>
               remotes.send(remote, device, n)
             case Command.Sleep(millis) => timer.sleep(millis.milliseconds)
             case Command.ToggleSwitch(switch) =>
               switches.toggle(switch)
-            case Command.MacroCommand(n) =>
+            case Command.Macro(n) =>
               if (n == name) ().pure
               else executeMacro(n)
           }

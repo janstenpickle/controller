@@ -2,11 +2,10 @@ package io.janstenpickle.controller.api
 
 import cats.effect.Sync
 import cats.syntax.flatMap._
-import io.circe.generic.auto._
-import io.circe.refined._
+import extruder.circe.instances._
+import extruder.refined._
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
 import io.janstenpickle.controller.model._
-import org.http4s.circe.jsonEncoderOf
 import org.http4s.{EntityEncoder, HttpRoutes}
 
 class ConfigApi[F[_]: Sync](
@@ -16,9 +15,9 @@ class ConfigApi[F[_]: Sync](
 ) extends Common[F] {
 
   implicit val activitiesEncoder: EntityEncoder[F, Activities] =
-    jsonEncoderOf[F, Activities]
-  implicit val remotesEncoder: EntityEncoder[F, Remotes] = jsonEncoderOf[F, Remotes]
-  implicit val buttonsEncoder: EntityEncoder[F, Buttons] = jsonEncoderOf[F, Buttons]
+    extruderEncoder[Activities]
+  implicit val remotesEncoder: EntityEncoder[F, Remotes] = extruderEncoder[Remotes]
+  implicit val buttonsEncoder: EntityEncoder[F, Buttons] = extruderEncoder[Buttons]
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case GET -> Root / "activities" => activity.getActivities.flatMap(Ok(_))

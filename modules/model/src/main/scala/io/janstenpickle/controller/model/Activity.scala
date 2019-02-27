@@ -2,11 +2,7 @@ package io.janstenpickle.controller.model
 
 import eu.timepit.refined.types.string.NonEmptyString
 
-case class Activity(
-  name: NonEmptyString,
-  label: NonEmptyString,
-  contextButtons: List[ContextButtonMapping] = List.empty[ContextButtonMapping]
-)
+case class Activity(name: NonEmptyString, label: NonEmptyString, contextButtons: List[ContextButtonMapping])
 
 case class Activities(activities: List[Activity], error: Option[String])
 

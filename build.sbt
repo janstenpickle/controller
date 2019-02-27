@@ -79,9 +79,8 @@ lazy val api = (project in file("modules/api"))
   .settings(
     name := "controller-api",
     libraryDependencies ++= Seq(
-      "io.circe"       %% "circe-generic"        % circeVer,
-      "io.circe"       %% "circe-refined"        % circeVer,
       "extruder"       %% "extruder-cats-effect" % extruderVer,
+      "extruder"       %% "extruder-circe"       % extruderVer,
       "extruder"       %% "extruder-refined"     % extruderVer,
       "extruder"       %% "extruder-typesafe"    % extruderVer,
       "ch.qos.logback" % "logback-classic"       % "1.2.3",
