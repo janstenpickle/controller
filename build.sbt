@@ -58,7 +58,21 @@ val commonSettings = Seq(
 lazy val root = (project in file("."))
   .settings(commonSettings)
   .settings(name := "controller")
-  .aggregate(model, remote, rm2Remote, store, fileStore, remoteControl)
+  .aggregate(
+    model,
+    remote,
+    rm2Remote,
+    store,
+    fileStore,
+    remoteControl,
+    extruderConfigSource,
+    `macro`,
+    activity,
+    hs100Switch,
+    poller,
+    pollingSwitch,
+    switch
+  )
 
 lazy val api = (project in file("modules/api"))
   .settings(commonSettings)

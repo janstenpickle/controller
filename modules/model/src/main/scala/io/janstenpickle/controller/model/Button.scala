@@ -14,7 +14,7 @@ object Button {
     def device: NonEmptyString
   }
 
-  case class RemoteButtonIcon(
+  case class RemoteIcon(
     remote: NonEmptyString,
     device: NonEmptyString,
     name: NonEmptyString,
@@ -23,7 +23,7 @@ object Button {
     coloured: Option[Boolean]
   ) extends Remote
 
-  case class RemoteButtonLabel(
+  case class RemoteLabel(
     remote: NonEmptyString,
     device: NonEmptyString,
     name: NonEmptyString,
@@ -34,14 +34,10 @@ object Button {
 
   sealed trait Switch extends Button
 
-  case class SwitchButtonIcon(
-    name: NonEmptyString,
-    icon: NonEmptyString,
-    newRow: Option[Boolean],
-    coloured: Option[Boolean]
-  ) extends Switch
+  case class SwitchIcon(name: NonEmptyString, icon: NonEmptyString, newRow: Option[Boolean], coloured: Option[Boolean])
+      extends Switch
 
-  case class SwitchButtonLabel(
+  case class SwitchLabel(
     name: NonEmptyString,
     label: NonEmptyString,
     newRow: Option[Boolean],
@@ -50,19 +46,23 @@ object Button {
 
   sealed trait Macro extends Button
 
-  case class MacroButtonIcon(
-    name: NonEmptyString,
-    icon: NonEmptyString,
-    newRow: Option[Boolean],
-    coloured: Option[Boolean]
-  ) extends Macro
+  case class MacroIcon(name: NonEmptyString, icon: NonEmptyString, newRow: Option[Boolean], coloured: Option[Boolean])
+      extends Macro
 
-  case class MacroButtonLabel(
+  case class MacroLabel(name: NonEmptyString, label: NonEmptyString, newRow: Option[Boolean], coloured: Option[Boolean])
+      extends Macro
+
+  sealed trait Context extends Button
+
+  case class ContextIcon(name: NonEmptyString, icon: NonEmptyString, newRow: Option[Boolean], coloured: Option[Boolean])
+      extends Context
+
+  case class ContextLabel(
     name: NonEmptyString,
     label: NonEmptyString,
     newRow: Option[Boolean],
     coloured: Option[Boolean]
-  ) extends Macro
+  ) extends Context
 }
 
-case class Buttons(buttons: List[Buttons], error: Option[String])
+case class Buttons(buttons: List[Button], error: Option[String])

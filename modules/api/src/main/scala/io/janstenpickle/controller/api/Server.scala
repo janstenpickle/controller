@@ -19,7 +19,8 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
         "/control/remote" -> new RemoteApi[F](remotes).routes,
         "/control/switch" -> new SwitchApi[F](switches).routes,
         "/control/macro" -> new MacroApi[F](macros).routes,
-        "/control/activity" -> new ActivityApi[F](activity).routes,
+        "/control/activity" -> new ActivityApi[F](activity, activityConfig).routes,
+        //     "/control/context" -> new ContextApi[F](activity, macros, remotes, activityConfig).routes,
         "/config" -> new ConfigApi[F](activityConfig, buttonConfig, remoteConfig).routes
       )
 
