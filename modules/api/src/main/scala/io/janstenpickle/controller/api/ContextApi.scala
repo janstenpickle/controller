@@ -18,7 +18,7 @@ class ContextApi[F[_]: Sync](
   activities: Activity[EitherT[F, ControlError, ?]],
   macros: Macro[EitherT[F, ControlError, ?]],
   remotes: RemoteControls[EitherT[F, ControlError, ?]],
-  activitySource: ActivityConfigSource[F]
+  activitySource: ActivityConfigSource[EitherT[F, ControlError, ?]]
 ) extends Common[F] {
   implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
   implicit val macrosEncoder: EntityEncoder[F, List[NonEmptyString]] = extruderEncoder[List[NonEmptyString]]
@@ -29,8 +29,7 @@ class ContextApi[F[_]: Sync](
         val activity: EitherT[F, ControlError, model.Activity] = activities.getActivity.flatMap {
           case None => EitherT.leftT[F, model.Activity](ControlError.Missing("Activity not currently set"))
           case Some(act) =>
-            EitherT
-              .liftF[F, ControlError, model.Activities](activitySource.getActivities)
+            activitySource.getActivities
               .map(_.activities.groupBy(_.name).mapValues(_.headOption).get(act).flatten)
               .flatMap {
                 case None =>

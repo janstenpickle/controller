@@ -38,8 +38,8 @@ class ErrorInterpreter[F[_]](implicit F: Sync[F])
     raise(ControlError.Missing(s"Macro '$name' not found"))
   override def missingRemote[A](name: NonEmptyString): EitherT[F, ControlError, A] =
     raise(ControlError.Missing(s"Remote '$name' not found"))
-  override def missingSwitch[A](name: NonEmptyString): EitherT[F, ControlError, A] =
-    raise(ControlError.Missing(s"Switch '$name' not found"))
+  override def missingSwitch[A](device: NonEmptyString, name: NonEmptyString): EitherT[F, ControlError, A] =
+    raise(ControlError.Missing(s"Switch of type '$device' named '$name' not found"))
 
   override def decodingFailure[A](name: NonEmptyString, error: circe.Error): EitherT[F, ControlError, A] =
     raise(ControlError.Internal(s"Failed to decode response from smart plug '$name': ${error.getMessage}"))
@@ -90,4 +90,7 @@ class ErrorInterpreter[F[_]](implicit F: Sync[F])
   )(thunk: => EitherT[F, ControlError, A]): EitherT[F, ControlError, A] =
     EitherT(fa.value.flatMap(_.fold(_ => thunk.value, a => F.pure(Right(a)))))
 
+  override def macroAlreadyExists[A](name: NonEmptyString): EitherT[F, ControlError, A] = ???
+
+  override def learningNotSupported[A](remote: NonEmptyString): EitherT[F, ControlError, A] = ???
 }

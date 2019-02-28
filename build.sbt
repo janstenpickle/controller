@@ -4,7 +4,7 @@ import sbt.url
 val catsVer = "1.6.0"
 val catsEffectVer = "1.2.0"
 val circeVer = "0.11.1"
-val extruderVer = "0.9.3-7-41cfb983-dirty-SNAPSHOT"
+val extruderVer = "0.9.3-9-f269cf82-SNAPSHOT"
 val http4sVer = "0.20.0-M6"
 val refinedVer = "0.9.4"
 val scalaCheckVer = "1.13.5"
@@ -29,7 +29,7 @@ val commonSettings = Seq(
     "UTF-8"
   ),
   addCompilerPlugin(("org.spire-math" % "kind-projector" % "0.9.9").cross(CrossVersion.binary)),
-  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
+//  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
   publishMavenStyle := true,
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
   homepage := Some(url("https://github.com/janstenpickle/extruder")),
@@ -52,7 +52,8 @@ val commonSettings = Seq(
   scalafmtTestOnCompile := true,
   parallelExecution in ThisBuild := true,
   logBuffered in Test := false,
-  libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalaTestVer % Test)
+  libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalaTestVer % Test),
+  test in assembly := {}
 )
 
 lazy val root = (project in file("."))
@@ -71,7 +72,8 @@ lazy val root = (project in file("."))
     hs100Switch,
     poller,
     pollingSwitch,
-    switch
+    switch,
+    sonosClientSubmodule
   )
 
 lazy val api = (project in file("modules/api"))
@@ -90,7 +92,7 @@ lazy val api = (project in file("modules/api"))
       "org.http4s"     %% "http4s-dsl"           % http4sVer
     )
   )
-  .dependsOn(hs100Switch, rm2Remote, fileStore, remoteControl, extruderConfigSource, `macro`, activity)
+  .dependsOn(hs100Switch, rm2Remote, fileStore, remoteControl, extruderConfigSource, `macro`, activity, sonos)
 
 lazy val catsEffect = (project in file("modules/cats-effect"))
   .settings(commonSettings)
@@ -210,3 +212,28 @@ lazy val poller = (project in file("modules/poller"))
   .settings(commonSettings)
   .settings(name := "controller-poller", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
   .dependsOn(catsEffect)
+
+lazy val sonos = (project in file("modules/sonos"))
+  .settings(commonSettings)
+  .settings(name := "controller-sonos")
+  .dependsOn(sonosClientSubmodule, remoteControl, switch, configSource, poller)
+
+lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
+  .settings(commonSettings)
+  .settings(
+    organization := "com.vmichalak",
+    name := "sonos-controller",
+    libraryDependencies ++= Seq(
+      "com.squareup.okhttp3" % "okhttp"                         % "3.9.0",
+      "org.apache.commons"   % "commons-text"                   % "1.1",
+      "junit"                % "junit"                          % "4.11" % Test,
+      "org.mockito"          % "mockito-core"                   % "1.10.8" % Test,
+      "org.powermock"        % "powermock-mockito-release-full" % "1.6.4" % Test,
+      "org.slf4j"            % "slf4j-api"                      % "1.7.10" % Test
+    )
+  )
+  .dependsOn(ssdpClientSubmodule)
+
+lazy val ssdpClientSubmodule = (project in file("submodules/sonos-controller/lib/ssdp-client"))
+  .settings(commonSettings)
+  .settings(organization := "com.vmichalak", name := "ssdp-client")

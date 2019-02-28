@@ -28,8 +28,9 @@ object DataPoller {
         current <- dataRef.get
         data <- getData(current)
         _ <- dataRef.set(Data(data, now))
-      } yield
-        ()).handleErrorWith(th => dataRef.tryUpdate(d => d.copy(errorCount = d.errorCount + 1, error = Some(th))).void)
+      } yield ()).handleErrorWith(
+        th => dataRef.tryUpdate(d => d.copy(errorCount = d.errorCount + 1, error = Some(th))).void.handleError(_ => ())
+      )
 
     def loop(now: Long): F[Unit] = (update(now) *> timer.sleep(pollInterval)) *> timeNow.flatMap(loop)
 

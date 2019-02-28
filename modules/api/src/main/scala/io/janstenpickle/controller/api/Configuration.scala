@@ -12,6 +12,7 @@ import extruder.typesafe._
 import extruder.refined._
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
+import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.store.file.{FileActivityStore, FileMacroStore, FileRemoteCommandStore}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 
@@ -25,6 +26,7 @@ object Configuration {
     macroStore: FileMacroStore.Config,
     remoteCommandStore: FileRemoteCommandStore.Config,
     hs100: HS100,
+    sonos: SonosComponents.Config,
     config: ConfigData,
     server: Server
   )

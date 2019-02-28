@@ -6,4 +6,5 @@ trait RemoteControlErrors[F[_]] {
   def commandNotFound[A](remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[A]
   def learnFailure[A](remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[A]
   def missingRemote[A](remote: NonEmptyString): F[A]
+  def learningNotSupported[A](remote: NonEmptyString): F[A]
 }

@@ -9,14 +9,14 @@ import org.http4s.HttpRoutes
 
 class ActivityApi[F[_]: Sync](
   activities: Activity[EitherT[F, ControlError, ?]],
-  activitySource: ActivityConfigSource[F]
+  activitySource: ActivityConfigSource[EitherT[F, ControlError, ?]]
 ) extends Common[F] {
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case GET -> Root =>
       handleControlError(activities.getActivity.map(_.fold("")(_.value)))
     case req @ POST -> Root =>
       req.decode[String](refineOrBadReq(_) { activity =>
-        handleControlError(EitherT.liftF(activitySource.getActivities).flatMap { acts =>
+        handleControlError(activitySource.getActivities.flatMap { acts =>
           if (acts.activities.map(_.name).contains(activity)) activities.setActivity(activity)
           else
             EitherT

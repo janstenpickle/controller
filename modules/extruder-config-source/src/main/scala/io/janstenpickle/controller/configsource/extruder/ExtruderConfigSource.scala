@@ -10,14 +10,13 @@ import eu.timepit.refined.types.numeric.PosInt
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.circe.yaml.instances._
-import extruder.core.{DecoderT, Settings}
+import extruder.core.{Decoder, Settings}
 import extruder.data.ValidationErrors
 import extruder.typesafe._
 import io.circe.Json
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
 
 object ExtruderConfigSource {
@@ -26,7 +25,7 @@ object ExtruderConfigSource {
     pollError: (A, Option[Throwable]) => A,
     extruderError: (A, ValidationErrors) => A
   )(
-    implicit decoder: DecoderT[
+    implicit decoder: Decoder[
       EffectValidation[F, ?],
       ((Settings, CirceSettings), CirceSettings),
       A,
@@ -53,7 +52,7 @@ object ExtruderConfigSource {
     configSourceError: (A, Option[Throwable]) => A,
     extruderError: (A, ValidationErrors) => A
   )(
-    implicit decoder: DecoderT[
+    implicit decoder: Decoder[
       EffectValidation[F, ?],
       ((Settings, CirceSettings), CirceSettings),
       A,
@@ -70,7 +69,7 @@ object ExtruderConfigSource {
     extruderError: (A, ValidationErrors) => A
   )(
     implicit F: Concurrent[F],
-    decoder: DecoderT[EffectValidation[F, ?], ((Settings, CirceSettings), CirceSettings), A, ((TConfig, Json), Json)]
+    decoder: Decoder[EffectValidation[F, ?], ((Settings, CirceSettings), CirceSettings), A, ((TConfig, Json), Json)]
   ): Resource[F, () => F[A]] = {
     val source = make[F, A](configFileSource, pollError, extruderError)
 

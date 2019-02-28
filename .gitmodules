@@ -1,0 +1,4 @@
+[submodule "submodules/sonos-controller"]
+	path = submodules/sonos-controller
+	url = https://github.com/vmichalak/sonos-controller.git
+	ignore = dirty

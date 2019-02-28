@@ -6,19 +6,20 @@ import cats.~>
 import cats.syntax.flatMap._
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
-import extruder.data.ValidationErrors
 import fs2.Stream
 import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
+import io.janstenpickle.controller.api.view.ConfigView
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControls}
+import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.store.file.{CommandSerde, FileActivityStore, FileMacroStore, FileRemoteCommandStore}
-import io.janstenpickle.controller.switch.{Switch, Switches}
+import io.janstenpickle.controller.switch.{Switch, SwitchKey, SwitchProvider, Switches}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 
 abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
@@ -27,19 +28,20 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
 
   implicit val errors: ErrorInterpreter[F] = new ErrorInterpreter[F]()
 
-  def configOrError(result: Either[ValidationErrors, Configuration.Config]): F[Configuration.Config] =
-    result.fold(
-      errs => F.raiseError(ValidationErrorsToThrowable.defaultValidationErrorsThrowable.convertErrors(errs)),
-      F.pure
+  def configOrError(result: ConfigResult[Configuration.Config]): ET[Configuration.Config] =
+    EitherT(
+      result.value.flatMap(
+        _.fold[EitherT[F, ControlError, Configuration.Config]](
+          errs =>
+            EitherT.liftF[F, ControlError, Configuration.Config](
+              F.raiseError(ValidationErrorsToThrowable.defaultValidationErrorsThrowable.convertErrors(errs))
+          ),
+          EitherT.pure(_)
+        ).value
+      )
     )
 
-  def evalControlError[A](fa: EitherT[F, ControlError, A]): Stream[F, A] =
-    Stream.eval(fa.value).evalMap[F, A] {
-      case Left(err) => F.raiseError(err)
-      case Right(a) => F.pure(a)
-    }
-
-  def translateF: ET ~> F = new (ET ~> F) {
+  val translateF: ET ~> F = new (ET ~> F) {
     override def apply[A](fa: ET[A]): F[A] = fa.value.flatMap {
       case Left(err) => F.raiseError(err)
       case Right(a) => F.pure(a)
@@ -50,43 +52,68 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
     CommandSerde[ET, String].imap(CommandPayload)(_.hexValue)
 
   def components: Stream[
-    F,
+    ET,
     (
       Configuration.Server,
       Activity[ET],
       Macro[ET],
       RemoteControls[ET],
       Switches[ET],
-      ActivityConfigSource[F],
-      ButtonConfigSource[F],
-      RemoteConfigSource[F]
+      ActivityConfigSource[ET],
+      ConfigView[ET]
     )
   ] =
     for {
-      config <- Stream.eval(Configuration.load[ConfigResult].value).evalMap(configOrError)
-      executor <- Stream.resource(cachedExecutorResource[F])
+      config <- Stream.eval[ET, Configuration.Config](configOrError(Configuration.load[ConfigResult]))
+      executor <- Stream.resource(cachedExecutorResource[ET])
 
-      configFileSource <- Stream.resource(
-        ConfigFileSource.polling[F](config.config.file, config.config.pollInterval, executor)
+      configFileSource <- Stream.resource[ET, ConfigFileSource[ET]](
+        ConfigFileSource.polling[ET](config.config.file, config.config.pollInterval, executor)
       )
-      activityConfig <- Stream.resource(
-        ExtruderActivityConfigSource.polling[F](configFileSource, config.config.activity)
+      activityConfig <- Stream.resource[ET, ActivityConfigSource[ET]](
+        ExtruderActivityConfigSource.polling[ET](configFileSource, config.config.activity)
       )
-      buttonConfig <- Stream.resource(ExtruderButtonConfigSource.polling[F](configFileSource, config.config.button))
-      remoteConfig <- Stream.resource(ExtruderRemoteConfigSource.polling[F](configFileSource, config.config.remote))
+      buttonConfig <- Stream.resource[ET, ButtonConfigSource[ET]](
+        ExtruderButtonConfigSource.polling[ET](configFileSource, config.config.button)
+      )
+      remoteConfig <- Stream.resource[ET, RemoteConfigSource[ET]](
+        ExtruderRemoteConfigSource.polling[ET](configFileSource, config.config.remote)
+      )
 
-      activityStore <- evalControlError(FileActivityStore[ET](config.activityStore, executor))
-      macroStore <- evalControlError(FileMacroStore[ET](config.macroStore, executor))
-      commandStore <- evalControlError(FileRemoteCommandStore[ET, CommandPayload](config.remoteCommandStore, executor))
-      rm2 <- evalControlError(Rm2Remote[ET](config.rm2, executor))
-      remoteControls = new RemoteControls[ET](
-        Map(config.rm2.name -> RemoteControl[ET, CommandPayload](rm2, commandStore))
-      )
+      activityStore <- Stream.eval(FileActivityStore[ET](config.activityStore, executor))
+      macroStore <- Stream.eval(FileMacroStore[ET](config.macroStore, executor))
+      commandStore <- Stream.eval(FileRemoteCommandStore[ET, CommandPayload](config.remoteCommandStore, executor))
+      rm2 <- Stream.eval(Rm2Remote[ET](config.rm2, executor))
       hs100 <- Stream
         .resource[ET, Switch[ET]](HS100SmartPlug.polling[ET](config.hs100.config, config.hs100.polling, executor))
-        .translate(translateF)
-      switches = new Switches[ET](Map(config.hs100.config.name -> hs100))
+
+      sonosComponents <- Stream.resource[ET, SonosComponents[ET]](SonosComponents[ET](config.sonos, executor))
+
+      combinedActivityConfig = ActivityConfigSource.combined[ET](activityConfig, sonosComponents.activityConfig)
+      combinedRemoteConfig = RemoteConfigSource.combined[ET](sonosComponents.remoteConfig, remoteConfig)
+      remoteControls = RemoteControls[ET](
+        Map(
+          config.rm2.name -> RemoteControl[ET, CommandPayload](rm2, commandStore),
+          config.sonos.remote -> sonosComponents.remote
+        )
+      )
+
+      combinedSwitchProvider = SwitchProvider
+        .combined[ET](
+          SwitchProvider[ET](Map(SwitchKey(hs100.device, config.hs100.config.name) -> hs100)),
+          sonosComponents.switches
+        )
+
+      switches = new Switches[ET](combinedSwitchProvider)
       macros = new Macro[ET](macroStore, remoteControls, switches)
       activity = new Activity[ET](activityStore, macros)
-    } yield (config.server, activity, macros, remoteControls, switches, activityConfig, buttonConfig, remoteConfig)
+      configView = new ConfigView(
+        combinedActivityConfig,
+        buttonConfig,
+        combinedRemoteConfig,
+        macroStore,
+        activityStore,
+        switches
+      )
+    } yield (config.server, activity, macros, remoteControls, switches, combinedActivityConfig, configView)
 }

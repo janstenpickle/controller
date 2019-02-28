@@ -24,6 +24,7 @@ object PollingSwitch {
     ) { (get, update) =>
       new Switch[F] {
         override def name: NonEmptyString = underlying.name
+        override def device: NonEmptyString = underlying.device
         override def getState: F[State] = get()
         override def switchOn: F[Unit] = underlying.switchOn *> update(State.On)
         override def switchOff: F[Unit] = underlying.switchOff *> update(State.Off)

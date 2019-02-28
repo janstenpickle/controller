@@ -1,35 +1,35 @@
 package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect._
-import cats.syntax.functor._
 import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.typesafe.instances._
 import extruder.circe.yaml.instances._
-import extruder.core.{DecoderT, Settings}
+import extruder.core.{Decoder, Settings}
+import extruder.data.Validation
 import extruder.refined._
 import io.circe.Json
 import io.janstenpickle.controller.configsource.ActivityConfigSource
-import io.janstenpickle.controller.model.{Activities, ActivitiesMap}
+import io.janstenpickle.controller.model.Activities
 import io.janstenpickle.controller.poller.Empty
 
 import scala.concurrent.duration._
 
 object ExtruderActivityConfigSource {
-  implicit val empty: Empty[Activities] = Empty(Activities(List.empty, None))
+  implicit val empty: Empty[Activities] = Empty(Activities(List.empty, List.empty))
 
   case class PollingConfig(pollInterval: FiniteDuration = 10.seconds)
 
   def apply[F[_]: Sync](config: ConfigFileSource[F]): ActivityConfigSource[F] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: DecoderT[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
-      DecoderT[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)]
+    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
+      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)]
 
     val source = ExtruderConfigSource[F, Activities](
       config,
-      (current, error) => current.copy(error = error.map(_.getMessage)),
-      (current, errors) => current.copy(error = Some(errors.map(_.message).toList.mkString(","))),
+      (current, error) => current.copy(errors = error.fold(List.empty[String])(th => List(th.getMessage))),
+      (current, errors) => current.copy(errors = errors.toList.map(_.message))
     )(Sync[F], decoder, empty)
 
     new ActivityConfigSource[F] {
@@ -42,15 +42,15 @@ object ExtruderActivityConfigSource {
     pollingConfig: PollingConfig
   ): Resource[F, ActivityConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: DecoderT[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
-      DecoderT[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)]
+    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
+      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)]
 
     ExtruderConfigSource
       .polling[F, Activities](
         pollingConfig.pollInterval,
         config,
-        (current, error) => current.copy(error = error.map(_.getMessage)),
-        (current, errors) => current.copy(error = Some(errors.map(_.message).toList.mkString(",")))
+        (current, error) => current.copy(errors = error.fold(List.empty[String])(th => List(th.getMessage))),
+        (current, errors) => current.copy(errors = errors.toList.map(_.message))
       )(Timer[F], empty, Concurrent[F], decoder)
       .map { source =>
         new ActivityConfigSource[F] {

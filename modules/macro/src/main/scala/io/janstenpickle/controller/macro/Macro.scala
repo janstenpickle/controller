@@ -27,7 +27,9 @@ class Macro[F[_]: Monad](macroStore: MacroStore[F], remotes: RemoteControls[F], 
     }
 
   def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] =
-    macroStore.storeMacro(name, commands)
+    listMacros.flatMap { macros =>
+      if (macros.contains(name)) errors.macroAlreadyExists(name) else macroStore.storeMacro(name, commands)
+    }
 
   def executeMacro(name: NonEmptyString): F[Unit] =
     macroStore.loadMacro(name).flatMap[Unit] {
@@ -35,16 +37,16 @@ class Macro[F[_]: Monad](macroStore: MacroStore[F], remotes: RemoteControls[F], 
       case Some(commands) =>
         commands
           .traverse[F, Unit] {
-            case Command.Remote(remote, device, n) =>
-              remotes.send(remote, device, n)
+            case Command.Remote(remote, device, n) => remotes.send(remote, device, n)
             case Command.Sleep(millis) => timer.sleep(millis.milliseconds)
-            case Command.ToggleSwitch(switch) =>
-              switches.toggle(switch)
+            case Command.ToggleSwitch(device, switch) => switches.toggle(device, switch)
+            case Command.SwitchOn(device, switch) => switches.switchOn(device, switch)
+            case Command.SwitchOff(device, switch) => switches.switchOff(device, switch)
             case Command.Macro(n) =>
               if (n == name) ().pure
               else executeMacro(n)
           }
-          .map(_ => ())
+          .void
     }
 
   def listMacros: F[List[NonEmptyString]] = macroStore.listMacros

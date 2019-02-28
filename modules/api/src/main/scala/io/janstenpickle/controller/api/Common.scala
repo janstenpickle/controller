@@ -9,7 +9,7 @@ import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.CirceSettings
 import extruder.circe._
-import extruder.core.{DecoderT, EncoderT, ValidationErrorsToThrowable}
+import extruder.core.{Decoder, Encoder, ValidationErrorsToThrowable}
 import extruder.data.Validation
 import io.circe.Json
 import io.janstenpickle.controller.api.error.ControlError
@@ -18,7 +18,7 @@ import org.http4s.{DecodeResult, EntityDecoder, EntityEncoder, InvalidMessageBod
 import org.http4s.circe._
 
 abstract class Common[F[_]: Sync] extends Http4sDsl[F] {
-  def extruderDecoder[A](implicit decoder: DecoderT[Validation, CirceSettings, A, Json]): EntityDecoder[F, A] =
+  def extruderDecoder[A](implicit decoder: Decoder[Validation, CirceSettings, A, Json]): EntityDecoder[F, A] =
     jsonDecoder[F].flatMapR { json =>
       decode[A](json).fold(
         failures =>
@@ -32,7 +32,7 @@ abstract class Common[F[_]: Sync] extends Http4sDsl[F] {
       )
     }
 
-  def extruderEncoder[A](implicit encoder: EncoderT[Id, CirceSettings, A, Json]): EntityEncoder[F, A] =
+  def extruderEncoder[A](implicit encoder: Encoder[Id, CirceSettings, A, Json]): EntityEncoder[F, A] =
     jsonEncoder.contramap[A](encode(_))
 
   def refineOrBadReq(name: String)(f: NonEmptyString => F[Response[F]]): F[Response[F]] =
