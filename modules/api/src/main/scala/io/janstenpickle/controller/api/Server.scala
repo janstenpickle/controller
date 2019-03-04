@@ -2,7 +2,6 @@ package io.janstenpickle.controller.api
 
 import cats.effect._
 import fs2.Stream
-import io.janstenpickle.controller.api.view.ConfigView
 import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.{CORS, CORSConfig}
@@ -18,7 +17,7 @@ object Server extends IOApp {
 
 class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
   val run: Stream[F, ExitCode] = components.translate(translateF).flatMap {
-    case (server, activity, macros, remotes, switches, activityConfig, configView) =>
+    case (server, activity, macros, remotes, switches, activityConfig, configView, ec) =>
       val corsConfig = CORSConfig(anyOrigin = true, allowCredentials = false, maxAge = 1.day.toSeconds)
 
       val router = Router(
@@ -27,7 +26,8 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
         "/control/macro" -> new MacroApi[F](macros).routes,
         "/control/activity" -> new ActivityApi[F](activity, activityConfig).routes,
         "/control/context" -> new ContextApi[F](activity, macros, remotes, activityConfig).routes,
-        "/config" -> new ConfigApi[F](configView).routes
+        "/config" -> new ConfigApi[F](configView).routes,
+        "/" -> new ControllerUi[F](ec).routes
       )
       BlazeServerBuilder[F]
         .bindHttp(server.port.value, server.host.value)

@@ -22,6 +22,8 @@ import io.janstenpickle.controller.store.file.{CommandSerde, FileActivityStore, 
 import io.janstenpickle.controller.switch.{Switch, SwitchKey, SwitchProvider, Switches}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 
+import scala.concurrent.ExecutionContext
+
 abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
   type ConfigResult[A] = EffectValidation[F, A]
   type ET[A] = EitherT[F, ControlError, A]
@@ -60,7 +62,8 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       RemoteControls[ET],
       Switches[ET],
       ActivityConfigSource[ET],
-      ConfigView[ET]
+      ConfigView[ET],
+      ExecutionContext
     )
   ] =
     for {
@@ -115,5 +118,5 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         activityStore,
         switches
       )
-    } yield (config.server, activity, macros, remoteControls, switches, combinedActivityConfig, configView)
+    } yield (config.server, activity, macros, remoteControls, switches, combinedActivityConfig, configView, executor)
 }

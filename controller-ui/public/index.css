@@ -1,0 +1,42 @@
+.mdl-layout__drawer.is-visible {
+  width: 300px;
+}
+
+.mdl-list__item-secondary-action {
+  margin-right: 50px;
+}
+
+.mdl-list__item:hover {
+  background-color: #e0e0e0
+}
+
+.demo-card-image.mdl-card {
+  width: 256px;
+  height: 256px;
+}
+.demo-card-image > .mdl-card__actions {
+  height: 52px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.demo-card-image__filename {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 16px;
+}
+
+@media only screen and (max-width: 600px) { 
+  .mdl-button-size-override{
+    width: 50px !important;
+    height: 50px !important;
+    min-width: initial;
+  }
+}
+
+.mdl-button-size-big {
+  width: 100px !important;
+  height: 100px !important;
+  min-width: initial;
+}
