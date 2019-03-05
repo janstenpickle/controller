@@ -6,9 +6,9 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.store.ActivityStore
 
-class Activity[F[_]: Apply](activities: ActivityStore[F], macros: Macro[F]) {
+class Activity[F[_]: Apply](activities: ActivityStore[F], macros: Macro[F], onUpdate: NonEmptyString => F[Unit]) {
   def setActivity(name: NonEmptyString): F[Unit] =
-    macros.executeMacro(name) *> activities.storeActivity(name)
+    macros.executeMacro(name) *> activities.storeActivity(name) *> onUpdate(name)
 
   def getActivity: F[Option[NonEmptyString]] = activities.loadActivity
 }

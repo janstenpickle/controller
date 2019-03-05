@@ -15,12 +15,12 @@ export interface Props {
   showAll: boolean;
 }
 
-interface Derp {
+interface RemoteCoords {
   coords: TSMap<string, RemoteData>,
   next: Coords
 }
 
-export default class Hello extends React.Component<Props,{}> {
+export default class Remotes extends React.Component<Props,{}> {
   public componentDidMount() {
     this.props.fetchRemotes();
   }
@@ -55,7 +55,7 @@ export default class Hello extends React.Component<Props,{}> {
     const cToString = (coords: Coords) => coords.x.toString() + coords.y.toString();
 
     const placement: (cols: number, rs: RemoteData[], selector: (data: RemoteData) => Coords|undefined, setter: (coords: Coords, data: RemoteData) => RemoteData) => RemoteData[]  = (cols: number, rs: RemoteData[], selector: (data: RemoteData) => Coords|undefined, setter: (coords: Coords, data: RemoteData) => RemoteData) =>
-     rs.reduce((a: Derp, data: RemoteData) => {
+     rs.reduce((a: RemoteCoords, data: RemoteData) => {
       const coords = (selector(data) || {x: 0, y: 0})
       if (a.coords.has(cToString(coords)) || coords.x >= (cols - 1)) {
         const next = a.coords.keys().sort().reduce((co: Coords, s: string) => {

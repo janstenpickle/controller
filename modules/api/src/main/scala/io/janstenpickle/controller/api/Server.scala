@@ -17,7 +17,7 @@ object Server extends IOApp {
 
 class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
   val run: Stream[F, ExitCode] = components.translate(translateF).flatMap {
-    case (server, activity, macros, remotes, switches, activityConfig, configView, ec) =>
+    case (server, activity, macros, remotes, switches, activityConfig, configView, ec, updateTopics) =>
       val corsConfig = CORSConfig(anyOrigin = true, allowCredentials = false, maxAge = 1.day.toSeconds)
 
       val router = Router(
@@ -26,7 +26,7 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
         "/control/macro" -> new MacroApi[F](macros).routes,
         "/control/activity" -> new ActivityApi[F](activity, activityConfig).routes,
         "/control/context" -> new ContextApi[F](activity, macros, remotes, activityConfig).routes,
-        "/config" -> new ConfigApi[F](configView).routes,
+        "/config" -> new ConfigApi[F](configView, updateTopics).routes,
         "/" -> new ControllerUi[F](ec).routes
       )
       BlazeServerBuilder[F]

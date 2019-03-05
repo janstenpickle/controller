@@ -1,13 +1,13 @@
 package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect._
+import cats.Eq
 import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.typesafe.instances._
 import extruder.circe.yaml.instances._
 import extruder.core.{Decoder, Settings}
-import extruder.data.Validation
 import extruder.refined._
 import io.circe.Json
 import io.janstenpickle.controller.configsource.ActivityConfigSource
@@ -39,7 +39,8 @@ object ExtruderActivityConfigSource {
 
   def polling[F[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
-    pollingConfig: PollingConfig
+    pollingConfig: PollingConfig,
+    onUpdate: Activities => F[Unit]
   ): Resource[F, ActivityConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
     val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
@@ -50,8 +51,9 @@ object ExtruderActivityConfigSource {
         pollingConfig.pollInterval,
         config,
         (current, error) => current.copy(errors = error.fold(List.empty[String])(th => List(th.getMessage))),
-        (current, errors) => current.copy(errors = errors.toList.map(_.message))
-      )(Timer[F], empty, Concurrent[F], decoder)
+        (current, errors) => current.copy(errors = errors.toList.map(_.message)),
+        onUpdate
+      )(Timer[F], empty, Eq[Activities], Concurrent[F], decoder)
       .map { source =>
         new ActivityConfigSource[F] {
           override def getActivities: F[Activities] = source()

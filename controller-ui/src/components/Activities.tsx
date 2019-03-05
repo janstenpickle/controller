@@ -11,7 +11,7 @@ interface Props {
 export function renderButton(buttonData: ActivityButton, currentActivity: String, activate: (activity: string) => void) {
 
   const callRest = () => {
-    fetch(`${location.protocol}//${location.hostname}:8080/control/activity`, { method: "POST", body: buttonData.name })
+    fetch(`${location.protocol}//${location.hostname}:8090/control/activity`, { method: "POST", body: buttonData.name })
     activate(buttonData.name)
   }
 

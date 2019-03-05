@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect._
+import cats.Eq
 import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
@@ -38,7 +39,8 @@ object ExtruderButtonConfigSource {
 
   def polling[F[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
-    pollingConfig: PollingConfig
+    pollingConfig: PollingConfig,
+    onUpdate: Buttons => F[Unit]
   ): Resource[F, ButtonConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
     val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Buttons, ((Config, Json), Json)] =
@@ -49,8 +51,9 @@ object ExtruderButtonConfigSource {
         pollingConfig.pollInterval,
         config,
         (current, error) => current.copy(errors = error.fold(List.empty[String])(th => List(th.getMessage))),
-        (current, errors) => current.copy(errors = errors.toList.map(_.message))
-      )(Timer[F], empty, Concurrent[F], decoder)
+        (current, errors) => current.copy(errors = errors.toList.map(_.message)),
+        onUpdate
+      )(Timer[F], empty, Eq[Buttons], Concurrent[F], decoder)
       .map { source =>
         new ButtonConfigSource[F] {
           override def getCommonButtons: F[Buttons] = source()

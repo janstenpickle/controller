@@ -1,7 +1,10 @@
 package io.janstenpickle.controller.sonos
 
+import cats.Eq
 import cats.effect._
 import cats.instances.list._
+import cats.instances.map._
+import cats.instances.string._
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -22,7 +25,7 @@ trait SonosDiscovery[F[_]] {
 }
 
 object SonosDiscovery {
-  case class Polling(pollInterval: FiniteDuration = 5.seconds, errorCount: PosInt = PosInt(3))
+  case class Polling(pollInterval: FiniteDuration = 2.seconds, errorCount: PosInt = PosInt(5))
 
   def apply[F[_]: ContextShift](ec: ExecutionContext)(implicit F: Sync[F]): SonosDiscovery[F] = {
     def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
@@ -43,14 +46,20 @@ object SonosDiscovery {
               name <- suspendErrorsEval(device.getZoneName)
               formattedName <- F.fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
               nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
-            } yield formattedName -> SonosDevice[F](formattedName, nonEmptyName, device, ec)
+              isPlaying <- SonosDevice.isPlaying(device, ec)
+              nowPlaying <- SonosDevice.nowPlaying(device, ec)
+            } yield formattedName -> SonosDevice[F](formattedName, nonEmptyName, isPlaying, nowPlaying, device, ec)
           }
         } yield devices.toMap
     }
   }
 
+  implicit def sonosDeviceEq[F[_]]: Eq[SonosDevice[F]] = Eq.by(_.comparableString)
+  implicit val nesEq: Eq[NonEmptyString] = Eq.by(_.value)
+
   def polling[F[_]: Concurrent: ContextShift: Timer](
     config: Polling,
+    onUpdate: Map[NonEmptyString, SonosDevice[F]] => F[Unit],
     ec: ExecutionContext
   ): Resource[F, SonosDiscovery[F]] = {
     val discovery = SonosDiscovery[F](ec)
@@ -58,7 +67,8 @@ object SonosDiscovery {
     DataPoller[F, Map[NonEmptyString, SonosDevice[F]], SonosDiscovery[F]](
       (_: Data[Map[NonEmptyString, SonosDevice[F]]]) => discovery.devices,
       config.pollInterval,
-      config.errorCount
+      config.errorCount,
+      onUpdate
     ) { (getData, _) =>
       new SonosDiscovery[F] {
         override def devices: F[Map[NonEmptyString, SonosDevice[F]]] = getData()

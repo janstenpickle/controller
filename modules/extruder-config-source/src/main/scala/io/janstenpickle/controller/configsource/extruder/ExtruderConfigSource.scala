@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.configsource.extruder
 
-import java.nio.file.Path
-
+import cats.Eq
 import cats.effect._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -62,11 +61,12 @@ object ExtruderConfigSource {
   ): () => F[A] =
     () => make(configFileSource, configSourceError, extruderError).apply(empty.empty)
 
-  def polling[F[_]: Timer, A: Empty](
+  def polling[F[_]: Timer, A: Empty: Eq](
     pollInterval: FiniteDuration,
     configFileSource: ConfigFileSource[F],
     pollError: (A, Option[Throwable]) => A,
-    extruderError: (A, ValidationErrors) => A
+    extruderError: (A, ValidationErrors) => A,
+    onUpdate: A => F[Unit]
   )(
     implicit F: Concurrent[F],
     decoder: Decoder[EffectValidation[F, ?], ((Settings, CirceSettings), CirceSettings), A, ((TConfig, Json), Json)]
@@ -77,7 +77,8 @@ object ExtruderConfigSource {
       (data: Data[A]) => source(data.value),
       pollInterval,
       PosInt(1),
-      (data: Data[A], th: Throwable) => F.pure(pollError(data.value, Some(th)))
+      (data: Data[A], th: Throwable) => F.pure(pollError(data.value, Some(th))),
+      onUpdate
     ) { (getData, _) =>
       getData
     }

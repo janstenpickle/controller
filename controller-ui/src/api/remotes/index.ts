@@ -2,35 +2,31 @@ import { mapToButton } from '../buttons/index';
 import { RemoteData } from '../../types/index';
 import { TSMap } from "typescript-map";
 
-const baseURL = `${location.protocol}//${location.hostname}:8080`;
+const baseURL = `${location.protocol}//${location.hostname}:8090`;
+const remotesKey = 'remotes'
 
 export function fetchRemotesAsync(): Promise<TSMap<string, RemoteData>> {
   const membersURL = `${baseURL}/config/remotes`;
 
-  const remotesKey = 'remotes'
-
-  const cached = mapToRemotes(JSON.parse((localStorage.getItem(remotesKey) || '[]')));
-
   return fetch(membersURL)
     .then((response) => response.json())
-    .then((remoteJson) => mapToRemotes(remoteJson[remotesKey]))
-    .then((remotes) => {
-      const rs = remotes.clone()
-      remotes.forEach((value, key, index) => {
-        const k = key || ''
-        value.isActive = (cached.get(k) || value).isActive
-      })
-      return rs
-    })
-    .then((remotes) => {
-      localStorage.setItem(remotesKey, JSON.stringify(remotes.values()))
-      return remotes
-    });
+    .then((remoteJson) => cachedMapToRemotes(remoteJson[remotesKey]));
 };
 
-function mapToRemotes(remoteData: any[]): TSMap<string, RemoteData> {
-  return new TSMap<string, RemoteData> (remoteData.map(mapToRemote));
+export function cachedMapToRemotes(remoteData: any[]): TSMap<string, RemoteData> {
+  const cached = mapToRemotes(JSON.parse((localStorage.getItem(remotesKey) || '[]')));
+  const rs =  mapToRemotes(remoteData);
+  rs.forEach((value, key, index) => {
+    const k = key || ''
+    value.isActive = (cached.get(k) || value).isActive
+  })
+  localStorage.setItem(remotesKey, JSON.stringify(rs.values()))
+  return rs
 };
+
+export function mapToRemotes(remoteData: any[]): TSMap<string, RemoteData> {
+  return new TSMap<string, RemoteData> (remoteData.map(mapToRemote));
+}
 
 function mapToRemote(remote: any): [string, RemoteData] {
   return [remote.name, {

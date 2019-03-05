@@ -2,7 +2,9 @@ package io.janstenpickle.controller.configsource.extruder
 
 import java.nio.file.{Files, Path, Paths}
 
+import cats.Eq
 import cats.effect._
+import cats.instances.boolean._
 import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -23,6 +25,8 @@ trait ConfigFileSource[F[_]] {
 
 object ConfigFileSource {
   case class ConfigFiles(typesafe: Config, yaml: String, json: Json, error: Option[Throwable] = None)
+
+  implicit val configFilesEq: Eq[ConfigFiles] = Eq.by(_ => true)
 
   def apply[F[_]: ContextShift](configFile: Path, ec: ExecutionContext)(implicit F: Sync[F]): ConfigFileSource[F] =
     new ConfigFileSource[F] {
@@ -70,7 +74,8 @@ object ConfigFileSource {
       (_: Data[ConfigFiles]) => source.configs,
       pollInterval,
       PosInt(1),
-      (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th)))
+      (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
+      (_: ConfigFiles) => F.unit
     ) { (get, _) =>
       new ConfigFileSource[F] {
         override def configs: F[ConfigFiles] = get()

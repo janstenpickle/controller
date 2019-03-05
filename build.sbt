@@ -4,7 +4,7 @@ import sbt.url
 val catsVer = "1.6.0"
 val catsEffectVer = "1.2.0"
 val circeVer = "0.11.1"
-val extruderVer = "0.9.3-9-f269cf82-SNAPSHOT"
+val extruderVer = "0.9.3-9-e125e03a-dirty-SNAPSHOT"
 val http4sVer = "0.20.0-M6"
 val refinedVer = "0.9.4"
 val scalaCheckVer = "1.13.5"
@@ -108,7 +108,11 @@ lazy val model = (project in file("modules/model"))
   .settings(commonSettings)
   .settings(
     name := "controller-model",
-    libraryDependencies ++= Seq("org.typelevel" %% "cats-core" % catsVer, "eu.timepit" %% "refined" % refinedVer)
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-core" % catsVer,
+      "eu.timepit"    %% "refined"   % refinedVer,
+      "org.typelevel" %% "kittens"   % "1.2.1"
+    )
   )
 
 lazy val configSource = (project in file("modules/config-source"))

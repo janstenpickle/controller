@@ -42,17 +42,17 @@ export function renderButton(buttonData: RemoteButtons, plugState: (state: boole
   const callRest = () => {
     switch(buttonData.tag) {
       case 'remote': 
-        return fetch(`${location.protocol}//${location.hostname}:8080/control/remote/send/${buttonData.remote}/${buttonData.device}/${buttonData.name}`, { method: 'POST' })
+        return fetch(`${location.protocol}//${location.hostname}:8090/control/remote/send/${buttonData.remote}/${buttonData.device}/${buttonData.name}`, { method: 'POST' })
       case 'macro':
         if (buttonData.isOn !== undefined) {
           plugState(!buttonData.isOn, buttonData.name)
         }
-        return fetch(`${location.protocol}//${location.hostname}:8080/control/macro/send/${buttonData.name}`, { method: 'POST' })
+        return fetch(`${location.protocol}//${location.hostname}:8090/control/macro/send/${buttonData.name}`, { method: 'POST' })
       case 'switch':
         plugState(!buttonData.isOn, buttonData.name)
-        return fetch(`${location.protocol}//${location.hostname}:8080/control/switch/toggle/${buttonData.device}/${buttonData.name}`, { method: 'POST' })
+        return fetch(`${location.protocol}//${location.hostname}:8090/control/switch/toggle/${buttonData.device}/${buttonData.name}`, { method: 'POST' })
       case 'context': 
-        return fetch(`${location.protocol}//${location.hostname}:8080/control/context/${buttonData.name}`, { method: 'POST' })
+        return fetch(`${location.protocol}//${location.hostname}:8090/control/context/${buttonData.name}`, { method: 'POST' })
     }
   }
 

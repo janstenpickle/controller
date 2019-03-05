@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import registerServiceWorker from './registerServiceWorker';
 import './index.css';
-import Hello from './containers/Hello';
+import Remotes from './containers/Remotes';
 import MainButtons from './containers/MainButtons';
 import Activities from './containers/Activities';
 import ToggleShowAll from './containers/ToggleShowAll';
@@ -40,7 +40,7 @@ ReactDOM.render(
 
 ReactDOM.render(
   <Provider store={store}>
-    <Hello />
+    <Remotes />
   </Provider>,
   document.getElementById('remotes') as HTMLElement
 );

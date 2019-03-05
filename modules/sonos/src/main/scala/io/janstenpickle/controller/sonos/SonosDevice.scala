@@ -12,16 +12,40 @@ import io.janstenpickle.catseffect.CatsEffect.suspendErrorsEvalOn
 import scala.concurrent.ExecutionContext
 
 trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
+  protected[sonos] def comparableString: String
   def label: NonEmptyString
   def isPlaying: F[Boolean]
   def nowPlaying: F[Option[NowPlaying]]
   def volume: F[Int]
 }
 
-object SonosDevice {
+object SonosDevice { outer =>
+  private[sonos] def isPlaying[F[_]: Sync: ContextShift](
+    device: sonoscontroller.SonosDevice,
+    ec: ExecutionContext
+  ): F[Boolean] =
+    suspendErrorsEvalOn(device.getPlayState, ec).map {
+      case PlayState.PLAYING => true
+      case PlayState.TRANSITIONING => true
+      case _ => false
+    }
+
+  private[sonos] def nowPlaying[F[_]: Sync: ContextShift](
+    device: sonoscontroller.SonosDevice,
+    ec: ExecutionContext
+  ): F[Option[NowPlaying]] =
+    suspendErrorsEvalOn(device.getCurrentTrackInfo, ec).map { trackInfo =>
+      for {
+        track <- Option(trackInfo.getMetadata.getTitle).filterNot(_.isEmpty)
+        artist <- Option(trackInfo.getMetadata.getCreator).filterNot(_.isEmpty)
+      } yield NowPlaying(track, artist)
+    }
+
   implicit def apply[F[_]: ContextShift](
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
+    isPlaying: Boolean,
+    nowPlaying: Option[NowPlaying],
     underlying: sonoscontroller.SonosDevice,
     ec: ExecutionContext
   )(implicit F: Sync[F]): SonosDevice[F] = {
@@ -29,15 +53,12 @@ object SonosDevice {
 
     new SonosDevice[F] {
       override def applicative: Applicative[F] = Applicative[F]
+      override protected[sonos] def comparableString: String = s"$formattedName$nonEmptyName$isPlaying$nowPlaying"
       override def name: NonEmptyString = formattedName
       override def label: NonEmptyString = nonEmptyName
       override def play: F[Unit] = suspendErrorsEval(underlying.play())
       override def pause: F[Unit] = suspendErrorsEval(underlying.pause())
-      override def isPlaying: F[Boolean] = suspendErrorsEval(underlying.getPlayState).map {
-        case PlayState.PLAYING => true
-        case PlayState.TRANSITIONING => true
-        case _ => false
-      }
+      override def isPlaying: F[Boolean] = outer.isPlaying(underlying, ec)
       override def volume: F[Int] = suspendErrorsEval(underlying.getVolume)
       override def volumeUp: F[Unit] =
         for {
@@ -59,13 +80,7 @@ object SonosDevice {
           _ <- if (playing) pause else play
         } yield ()
 
-      override def nowPlaying: F[Option[NowPlaying]] = suspendErrorsEval(underlying.getCurrentTrackInfo).map {
-        trackInfo =>
-          for {
-            track <- Option(trackInfo.getMetadata.getTitle).filterNot(_.isEmpty)
-            artist <- Option(trackInfo.getMetadata.getCreator).filterNot(_.isEmpty)
-          } yield NowPlaying(track, artist)
-      }
+      override def nowPlaying: F[Option[NowPlaying]] = outer.nowPlaying(underlying, ec)
     }
   }
 }

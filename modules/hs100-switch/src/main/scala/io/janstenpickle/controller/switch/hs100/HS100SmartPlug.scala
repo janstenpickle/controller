@@ -117,19 +117,22 @@ object HS100SmartPlug {
 
   private def poller[F[_]: Concurrent: Timer: PollingSwitchErrors](
     config: PollingConfig,
-    switch: HS100SmartPlug[F]
+    switch: HS100SmartPlug[F],
+    onUpdate: State => F[Unit]
   ): Resource[F, Switch[F]] =
-    PollingSwitch[F](switch, config.pollInterval, config.errorThreshold)
+    PollingSwitch[F](switch, config.pollInterval, config.errorThreshold, onUpdate)
 
   def polling[F[_]: Concurrent: ContextShift: Timer: HS100Errors: PollingSwitchErrors](
     config: Config,
     pollingConfig: PollingConfig,
+    onUpdate: State => F[Unit],
     ec: ExecutionContext
-  ): Resource[F, Switch[F]] = poller(pollingConfig, apply[F](config, ec))
+  ): Resource[F, Switch[F]] = poller(pollingConfig, apply[F](config, ec), onUpdate)
 
   def polling[F[_]: Concurrent: ContextShift: Timer: HS100Errors: PollingSwitchErrors](
     config: Config,
-    pollingConfig: PollingConfig
-  ): Resource[F, Switch[F]] = apply[F](config).flatMap(poller(pollingConfig, _))
+    pollingConfig: PollingConfig,
+    onUpdate: State => F[Unit]
+  ): Resource[F, Switch[F]] = apply[F](config).flatMap(poller(pollingConfig, _, onUpdate))
 
 }

@@ -1,6 +1,11 @@
 package io.janstenpickle.controller.model
 
-import cats.data.NonEmptyList
+import cats.Eq
+import cats.derived.semi
+import cats.instances.boolean._
+import cats.instances.string._
+import cats.instances.option._
+import cats.instances.string._
 import eu.timepit.refined.types.string.NonEmptyString
 
 sealed trait Button {
@@ -11,6 +16,8 @@ sealed trait Button {
 }
 
 object Button {
+  implicit val eq: Eq[Button] = semi.eq
+
   sealed trait Remote extends Button {
     def remote: NonEmptyString
     def device: NonEmptyString
@@ -103,3 +110,7 @@ object Button {
 }
 
 case class Buttons(buttons: List[Button], errors: List[String] = List.empty)
+
+object Buttons {
+  implicit val eq: Eq[Buttons] = semi.eq
+}

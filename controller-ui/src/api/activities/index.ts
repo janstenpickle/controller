@@ -1,6 +1,6 @@
 import { ActivityButton } from '../../types/index';
 
-const baseURL = `${location.protocol}//${location.hostname}:8080`;
+const baseURL = `${location.protocol}//${location.hostname}:8090`;
 
 export function fetchActivitiesAsync(): Promise<ActivityButton[]> {
   const activitiesUrl = `${baseURL}/config/activities`;
@@ -10,7 +10,7 @@ export function fetchActivitiesAsync(): Promise<ActivityButton[]> {
     .then(mapToButtons);
 };
 
-function mapToButtons(data: any): ActivityButton[] {
+export function mapToButtons(data: any): ActivityButton[] {
   return data.activities.map(mapToButton);
 };
 

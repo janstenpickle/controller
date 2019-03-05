@@ -1,5 +1,8 @@
 package io.janstenpickle.controller.switch
 
+import cats.Eq
+import cats.instances.boolean._
+
 sealed trait State {
   val value: String
   val isOn: Boolean
@@ -7,6 +10,8 @@ sealed trait State {
 }
 
 object State {
+  implicit val eq: Eq[State] = Eq.by(_.isOn)
+
   case object On extends State {
     override val value: String = "on"
     override val isOn: Boolean = true

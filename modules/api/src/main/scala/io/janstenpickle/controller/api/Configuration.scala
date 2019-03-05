@@ -41,7 +41,7 @@ object Configuration {
 
   case class HS100(config: HS100SmartPlug.Config, polling: HS100SmartPlug.PollingConfig)
 
-  case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8080))
+  case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8090))
 
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
   implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))

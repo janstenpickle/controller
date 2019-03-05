@@ -31,10 +31,12 @@ object SonosComponents {
       activity.copy(remoteName = remote, combinedDeviceName = combinedDevice)
   }
 
-  def apply[F[_]: Concurrent: ContextShift: Timer](config: Config, ec: ExecutionContext)(
-    implicit errors: RemoteControlErrors[F]
-  ): Resource[F, SonosComponents[F]] = {
-    SonosDiscovery.polling[F](config.polling, ec).map { discovery =>
+  def apply[F[_]: Concurrent: ContextShift: Timer](
+    config: Config,
+    onUpdate: Map[NonEmptyString, SonosDevice[F]] => F[Unit],
+    ec: ExecutionContext
+  )(implicit errors: RemoteControlErrors[F]): Resource[F, SonosComponents[F]] = {
+    SonosDiscovery.polling[F](config.polling, onUpdate, ec).map { discovery =>
       val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
       val activityConfig = SonosActivityConfigSource[F](config.activity)
       val remoteConfig = SonosRemoteConfigSource[F](config.remote, config.activity.name, discovery)

@@ -1,10 +1,11 @@
 package io.janstenpickle.controller.configsource.extruder
 
+import cats.Eq
 import cats.effect._
 import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
-import io.janstenpickle.controller.model.Remotes
+import io.janstenpickle.controller.model.{Button, Remote, Remotes}
 import extruder.typesafe.instances._
 import extruder.circe.yaml.instances._
 import extruder.core.{Decoder, Settings}
@@ -38,7 +39,8 @@ object ExtruderRemoteConfigSource {
 
   def polling[F[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
-    pollingConfig: PollingConfig
+    pollingConfig: PollingConfig,
+    onUpdate: Remotes => F[Unit]
   ): Resource[F, RemoteConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
     val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Remotes, ((Config, Json), Json)] =
@@ -49,8 +51,9 @@ object ExtruderRemoteConfigSource {
         pollingConfig.pollInterval,
         config,
         (current, error) => current.copy(errors = error.fold(List.empty[String])(th => List(th.getMessage))),
-        (current, errors) => current.copy(errors = errors.toList.map(_.message))
-      )(Timer[F], empty, Concurrent[F], decoder)
+        (current, errors) => current.copy(errors = errors.toList.map(_.message)),
+        onUpdate
+      )(Timer[F], empty, Eq[Remotes], Concurrent[F], decoder)
       .map { source =>
         new RemoteConfigSource[F] {
           override def getRemotes: F[Remotes] = source()

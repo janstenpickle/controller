@@ -1,6 +1,6 @@
 import { RemoteButtons } from '../../types/index';
 
-const baseURL = `${location.protocol}//${location.hostname}:8080`;
+const baseURL = `${location.protocol}//${location.hostname}:8090`;
 
 export function fetchButtonsAsync(): Promise<RemoteButtons[]> {
   const buttonsUrl = `${baseURL}/config/buttons`;
@@ -10,7 +10,7 @@ export function fetchButtonsAsync(): Promise<RemoteButtons[]> {
     .then(mapToButtons);
 };
 
-function mapToButtons(data: any): RemoteButtons[] {
+export function mapToButtons(data: any): RemoteButtons[] {
   return data.buttons.map(mapToButton);
 };
 

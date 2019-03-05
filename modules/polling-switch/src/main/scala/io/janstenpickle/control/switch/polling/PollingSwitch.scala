@@ -13,14 +13,18 @@ import scala.concurrent.duration.FiniteDuration
 object PollingSwitch {
   implicit val stateEmpty: Empty[State] = Empty[State](State.Off)
 
-  def apply[F[_]: Concurrent: Timer](underlying: Switch[F], pollInterval: FiniteDuration, errorThreshold: PosInt)(
-    implicit errors: PollingSwitchErrors[F]
-  ): Resource[F, Switch[F]] =
+  def apply[F[_]: Concurrent: Timer](
+    underlying: Switch[F],
+    pollInterval: FiniteDuration,
+    errorThreshold: PosInt,
+    onUpdate: State => F[Unit]
+  )(implicit errors: PollingSwitchErrors[F]): Resource[F, Switch[F]] =
     DataPoller[F, State, Switch[F]](
       (_: Data[State]) => underlying.getState,
       pollInterval,
       errorThreshold,
-      (data: Data[State], th: Throwable) => errors.pollError[State](underlying.name, data.value, data.updated, th)
+      (data: Data[State], th: Throwable) => errors.pollError[State](underlying.name, data.value, data.updated, th),
+      onUpdate
     ) { (get, update) =>
       new Switch[F] {
         override def name: NonEmptyString = underlying.name
