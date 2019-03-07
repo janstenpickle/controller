@@ -48,7 +48,16 @@ object SonosDiscovery {
               nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
               isPlaying <- SonosDevice.isPlaying(device, ec)
               nowPlaying <- SonosDevice.nowPlaying(device, ec)
-            } yield formattedName -> SonosDevice[F](formattedName, nonEmptyName, isPlaying, nowPlaying, device, ec)
+            } yield
+              formattedName -> SonosDevice[F](
+                formattedName,
+                nonEmptyName,
+                isPlaying,
+                nowPlaying,
+                device,
+                discovered,
+                ec
+              )
           }
         } yield devices.toMap
     }

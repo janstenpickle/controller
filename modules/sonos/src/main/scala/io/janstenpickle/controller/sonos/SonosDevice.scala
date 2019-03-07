@@ -4,12 +4,15 @@ import cats.Applicative
 import cats.effect.{ContextShift, Sync}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.traverse._
+import cats.instances.list._
 import com.vmichalak.sonoscontroller
 import com.vmichalak.sonoscontroller.model.PlayState
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.catseffect.CatsEffect.suspendErrorsEvalOn
 
 import scala.concurrent.ExecutionContext
+import scala.collection.JavaConverters._
 
 trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
   protected[sonos] def comparableString: String
@@ -17,6 +20,9 @@ trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
   def isPlaying: F[Boolean]
   def nowPlaying: F[Option[NowPlaying]]
   def volume: F[Int]
+  def group: F[Unit]
+  def unGroup: F[Unit]
+  def isGrouped: F[Boolean]
 }
 
 object SonosDevice { outer =>
@@ -47,18 +53,54 @@ object SonosDevice { outer =>
     _isPlaying: Boolean,
     _nowPlaying: Option[NowPlaying],
     underlying: sonoscontroller.SonosDevice,
+    others: List[sonoscontroller.SonosDevice],
     ec: ExecutionContext
   )(implicit F: Sync[F]): SonosDevice[F] = {
     def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
+
+    def masterUid: F[Option[String]] =
+      for {
+        thisUid <- suspendErrorsEval(underlying.getSpeakerInfo.getLocalUID)
+        uids <- others.flatTraverse { device =>
+          for {
+            uid <- suspendErrorsEval(device.getSpeakerInfo.getLocalUID)
+            isController <- suspendErrorsEval(device.isCoordinator)
+          } yield if (isController && uid != thisUid) List(uid) else List.empty
+        }
+      } yield uids.headOption
 
     new SonosDevice[F] {
       override def applicative: Applicative[F] = Applicative[F]
       override protected[sonos] def comparableString: String = s"$formattedName$nonEmptyName${_isPlaying}${_nowPlaying}"
       override def name: NonEmptyString = formattedName
       override def label: NonEmptyString = nonEmptyName
-      override def play: F[Unit] = suspendErrorsEval(underlying.play())
-      override def pause: F[Unit] = suspendErrorsEval(underlying.pause())
-      override def isPlaying: F[Boolean] = outer.isPlaying(underlying, ec)
+      override def play: F[Unit] =
+        for {
+          grouped <- isGrouped
+          _ <- if (grouped) suspendErrorsEval(underlying.getZoneGroupState.getSonosDevicesInGroup.asScala.collect {
+            case device if device.isCoordinator => device.play()
+          }).void
+          else suspendErrorsEval(underlying.play())
+        } yield ()
+
+      override def pause: F[Unit] =
+        for {
+          grouped <- isGrouped
+          _ <- if (grouped) suspendErrorsEval(underlying.getZoneGroupState.getSonosDevicesInGroup.asScala.collect {
+            case device if device.isCoordinator => device.pause()
+          }).void
+          else suspendErrorsEval(underlying.pause())
+        } yield ()
+
+      override def isPlaying: F[Boolean] =
+        for {
+          grouped <- isGrouped
+          playing <- if (grouped)
+            suspendErrorsEval(underlying.getZoneGroupState.getSonosDevicesInGroup.asScala.find(_.isCoordinator))
+              .flatMap(_.fold(F.pure(false))(outer.isPlaying(_, ec)))
+          else outer.isPlaying(underlying, ec)
+        } yield playing
+
       override def volume: F[Int] = suspendErrorsEval(underlying.getVolume)
       override def volumeUp: F[Unit] =
         for {
@@ -81,6 +123,23 @@ object SonosDevice { outer =>
         } yield ()
 
       override def nowPlaying: F[Option[NowPlaying]] = outer.nowPlaying(underlying, ec)
+
+      override def group: F[Unit] =
+        isGrouped.flatMap(
+          if (_) F.unit
+          else
+            masterUid.flatMap(_.fold(F.unit) { masterUid =>
+              suspendErrorsEval(underlying.join(masterUid))
+            })
+        )
+
+      override def unGroup: F[Unit] =
+        for {
+          isC <- isController
+          _ <- if (isC) F.unit else suspendErrorsEval(underlying.unjoin())
+        } yield ()
+
+      override def isGrouped: F[Boolean] = suspendErrorsEval(underlying.isJoined)
     }
   }
 }

@@ -9,7 +9,7 @@ import cats.syntax.functor._
 import cats.syntax.traverse._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.RemoteConfigSource
-import io.janstenpickle.controller.model.Button.RemoteIcon
+import io.janstenpickle.controller.model.Button.{RemoteIcon, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote, Remotes}
 import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
 
@@ -26,6 +26,21 @@ object SonosRemoteConfigSource {
         RemoteIcon(remoteName, device, Commands.VolDown, NonEmptyString("volume_down"), None, None, None),
         RemoteIcon(remoteName, device, Commands.VolUp, NonEmptyString("volume_up"), None, None, None)
       )
+
+    def groupTemplate(device: NonEmptyString, isController: Boolean, isGrouped: Boolean): List[Button] =
+      if (isController && isGrouped) List.empty
+      else
+        List(
+          SwitchIcon(
+            NonEmptyString.unsafeFrom(s"${device.value}_group"),
+            remoteName,
+            NonEmptyString("speaker_group"),
+            isGrouped,
+            Some(true),
+            None,
+            None
+          )
+        )
 
     def template(device: NonEmptyString, isPlaying: Boolean): NonEmptyList[Button] =
       NonEmptyList.of(
@@ -48,8 +63,10 @@ object SonosRemoteConfigSource {
           .flatMap(_.values.toList.traverse { device =>
             for {
               isController <- device.isController
-              buttons <- if (isController) device.isPlaying.map(template(device.name, _))
-              else F.pure(simpleTemplate(device.name))
+              isGrouped <- device.isGrouped
+              buttons <- if (isController)
+                device.isPlaying.map(template(device.name, _) ++ groupTemplate(device.name, isController, isGrouped))
+              else F.pure(simpleTemplate(device.name) ++ groupTemplate(device.name, isController, isGrouped))
               nowPlaying <- device.nowPlaying
               remoteName <- nowPlaying match {
                 case None => F.pure(device.label)

@@ -13,7 +13,7 @@ object SonosRemoteControl {
   def apply[F[_]](remoteName: NonEmptyString, combinedDeviceName: NonEmptyString, discovery: SonosDiscovery[F])(
     implicit F: MonadError[F, Throwable],
     errors: RemoteControlErrors[F]
-  ): RemoteControl[F] = {
+  ): RemoteControl[F] =
     new RemoteControl[F] {
       private val combinedDevice: SimpleSonosDevice[F] = new SimpleSonosDevice[F] {
         override def applicative: Applicative[F] = Applicative[F]
@@ -41,13 +41,17 @@ object SonosRemoteControl {
         discovery.devices.map(_.updated(combinedDeviceName, combinedDevice))
 
       private val basicCommands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
-        Map((Commands.VolUp, _.volumeUp), (Commands.VolDown, _.volumeDown), (Commands.Mute, _.mute))
-
-      private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
-        basicCommands ++ Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]](
+        Map(
           (NonEmptyString("play"), _.play),
           (NonEmptyString("pause"), _.pause),
           (Commands.PlayPause, _.playPause),
+          (Commands.VolUp, _.volumeUp),
+          (Commands.VolDown, _.volumeDown),
+          (Commands.Mute, _.mute)
+        )
+
+      private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
+        basicCommands ++ Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]](
           (Commands.Next, _.next),
           (Commands.Previous, _.previous)
         )
@@ -77,5 +81,4 @@ object SonosRemoteControl {
             }
         })
     }
-  }
 }

@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.sonos.config
 
-import cats.Applicative
+import cats.Functor
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ActivityConfigSource
@@ -14,12 +14,12 @@ object SonosActivityConfigSource {
     label: NonEmptyString = NonEmptyString("Sonos"),
     remoteName: NonEmptyString = NonEmptyString("sonos"),
     combinedDeviceName: NonEmptyString = NonEmptyString("sonos"),
-    playPauseMappingName: NonEmptyString = NonEmptyString("play_pause"),
-    nextMappingName: NonEmptyString = NonEmptyString("next"),
-    previousMappingName: NonEmptyString = NonEmptyString("previous")
+    playPauseMappingName: NonEmptyString = Commands.PlayPause,
+    nextMappingName: NonEmptyString = Commands.Next,
+    previousMappingName: NonEmptyString = Commands.Previous
   )
 
-  def apply[F[_]: Applicative](config: Config, discovery: SonosDiscovery[F]): ActivityConfigSource[F] =
+  def apply[F[_]: Functor](config: Config, discovery: SonosDiscovery[F]): ActivityConfigSource[F] =
     new ActivityConfigSource[F] {
       override def getActivities: F[Activities] =
         discovery.devices.map(

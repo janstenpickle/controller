@@ -9,5 +9,5 @@ object Commands {
   val VolUp: NonEmptyString = NonEmptyString("vol_up")
   val VolDown: NonEmptyString = NonEmptyString("vol_down")
   val Mute: NonEmptyString = NonEmptyString("mute")
-
+  val Group: NonEmptyString = NonEmptyString("group")
 }
