@@ -12,7 +12,8 @@ case class Activity(
   name: NonEmptyString,
   label: NonEmptyString,
   contextButtons: List[ContextButtonMapping],
-  isActive: Option[Boolean]
+  isActive: Option[Boolean],
+  room: NonEmptyString = DefaultRoom
 )
 
 object Activity {

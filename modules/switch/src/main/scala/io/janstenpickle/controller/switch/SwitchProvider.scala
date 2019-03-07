@@ -3,6 +3,7 @@ package io.janstenpickle.controller.switch
 import cats.syntax.applicative._
 import cats.syntax.apply._
 import cats.{Applicative, Apply}
+import io.janstenpickle.controller.switch.model.SwitchKey
 
 trait SwitchProvider[F[_]] {
   def getSwitches: F[Map[SwitchKey, Switch[F]]]

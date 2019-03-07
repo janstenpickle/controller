@@ -10,7 +10,8 @@ import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonCon
 import io.janstenpickle.controller.model.Button._
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
-import io.janstenpickle.controller.switch.{State, SwitchKey, Switches}
+import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.{State, Switches}
 
 class ConfigView[F[_]](
   activity: ActivityConfigSource[F],
@@ -62,17 +63,20 @@ class ConfigView[F[_]](
     case button: Any => F.pure(button)
   }
 
-  private def addActiveActivity(activities: Activities)(active: NonEmptyString): Activities =
-    activities.copy(activities = activities.activities.map { act =>
-      if (act.name == active) act.copy(isActive = Some(true))
-      else act
-    })
+  private def addActiveActivity(activities: Activities): F[Activities] =
+    activities.activities
+      .traverse { activity =>
+        activityStore
+          .loadActivity(activity.room)
+          .map(
+            _.fold(activity)(active => if (activity.name == active) activity.copy(isActive = Some(true)) else activity)
+          )
+      }
+      .map { acts =>
+        activities.copy(activities = acts)
+      }
 
-  def getActivities: F[Activities] =
-    for {
-      currentActivity <- activityStore.loadActivity
-      activities <- activity.getActivities
-    } yield currentActivity.fold(activities)(addActiveActivity(activities))
+  def getActivities: F[Activities] = activity.getActivities.flatMap(addActiveActivity)
 
   def getRemotes: F[Remotes] = remote.getRemotes.flatMap { remotes =>
     remotes.remotes
@@ -87,4 +91,24 @@ class ConfigView[F[_]](
       buttons.copy(buttons = bs)
     }
   }
+
+  implicit val ord: Ordering[Int] = new Ordering[Int] {
+    override def compare(x: Int, y: Int): Int = if (x < y) 1 else if (x > y) -1 else 0
+  }
+
+  def getRooms: F[Rooms] =
+    for {
+      r <- remote.getRemotes
+      a <- activity.getActivities
+      b <- button.getCommonButtons
+    } yield
+      Rooms(
+        (r.remotes.flatMap(_.rooms) ++ a.activities.map(_.room) ++ b.buttons.flatMap(_.room))
+          .groupBy(identity)
+          .mapValues(_.size)
+          .toList
+          .sortBy(_._2)
+          .map(_._1),
+        r.errors ++ a.errors ++ b.errors
+      )
 }

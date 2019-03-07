@@ -12,6 +12,7 @@ import extruder.core.{Decoder, Settings}
 import extruder.refined._
 import io.circe.Json
 import io.janstenpickle.controller.configsource.ButtonConfigSource
+import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.poller.Empty
 
 import scala.concurrent.duration._
@@ -20,6 +21,10 @@ object ExtruderButtonConfigSource {
   implicit val empty: Empty[Buttons] = Empty(Buttons(List.empty, List.empty))
 
   case class PollingConfig(pollInterval: FiniteDuration = 10.seconds)
+
+  private def mkSource[F[_]](source: () => F[Buttons]): ButtonConfigSource[F] = new ButtonConfigSource[F] {
+    override def getCommonButtons: F[Buttons] = source()
+  }
 
   def apply[F[_]: Sync](config: ConfigFileSource[F]): ButtonConfigSource[F] = {
     type EV[A] = EffectValidation[F, A]
@@ -32,9 +37,7 @@ object ExtruderButtonConfigSource {
       (current, errors) => current.copy(errors = errors.toList.map(_.message))
     )(Sync[F], decoder, empty)
 
-    new ButtonConfigSource[F] {
-      override def getCommonButtons: F[Buttons] = source()
-    }
+    mkSource[F](source)
   }
 
   def polling[F[_]: Concurrent: Timer](
@@ -54,10 +57,6 @@ object ExtruderButtonConfigSource {
         (current, errors) => current.copy(errors = errors.toList.map(_.message)),
         onUpdate
       )(Timer[F], empty, Eq[Buttons], Concurrent[F], decoder)
-      .map { source =>
-        new ButtonConfigSource[F] {
-          override def getCommonButtons: F[Buttons] = source()
-        }
-      }
+      .map(mkSource[F])
   }
 }

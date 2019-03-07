@@ -13,6 +13,7 @@ import extruder.core.{Decoder, Settings}
 import extruder.data.ValidationErrors
 import extruder.typesafe._
 import io.circe.Json
+import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 

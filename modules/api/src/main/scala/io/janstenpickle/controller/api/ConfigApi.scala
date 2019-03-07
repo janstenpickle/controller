@@ -30,6 +30,7 @@ class ConfigApi[F[_]: Timer](
     extruderEncoder[Activities]
   implicit val remotesEncoder: EntityEncoder[F, Remotes] = extruderEncoder[Remotes]
   implicit val buttonsEncoder: EntityEncoder[F, Buttons] = extruderEncoder[Buttons]
+  implicit val roomsEncoder: EntityEncoder[F, Rooms] = extruderEncoder[Rooms]
 
   type ET[A] = EitherT[F, ControlError, A]
 
@@ -97,6 +98,12 @@ class ConfigApi[F[_]: Timer](
       intervalOrBadRequest(
         interval,
         stream(updateTopics.buttons, () => view.getCommonButtons, err => Buttons(List.empty, List(err.message)))
+      )
+    case GET -> Root / "rooms" => handleControlError(view.getRooms)
+    case GET -> Root / "rooms" / "ws" :? OptionalDurationParamMatcher(interval) =>
+      intervalOrBadRequest(
+        interval,
+        stream(updateTopics.rooms, () => view.getRooms, err => Rooms(List.empty, List(err.message)))
       )
   }
 }

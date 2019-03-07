@@ -10,7 +10,8 @@ import extruder.circe.instances._
 import extruder.refined._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.api.error.ControlError
-import io.janstenpickle.controller.switch.{State, SwitchKey, Switches}
+import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.{State, Switches}
 import org.http4s.{EntityEncoder, HttpRoutes, Response}
 
 class SwitchApi[F[_]: Sync](switches: Switches[EitherT[F, ControlError, ?]]) extends Common[F] {

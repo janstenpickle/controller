@@ -14,7 +14,7 @@ import extruder.refined._
 import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.model.Command
 import io.janstenpickle.controller.store.MacroStore
-import org.apache.commons.io.FileUtils
+import org.apache.commons.io.{FileUtils, FilenameUtils}
 import cats.syntax.traverse._
 import cats.instances.list._
 import eu.timepit.refined._
@@ -23,6 +23,7 @@ import cats.syntax.either._
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+import scala.collection.JavaConverters._
 
 object FileMacroStore {
   case class Config(location: Path, timeout: FiniteDuration = 1.second)
@@ -44,8 +45,10 @@ object FileMacroStore {
             _ <- semaphore.release
           } yield result)
 
+        private def makePath(name: NonEmptyString) = Paths.get(config.location.toString, s"${name.value}.yaml")
+
         override def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] = {
-          lazy val file = Paths.get(config.location.toString, name.value)
+          lazy val file = makePath(name)
 
           evalMutex(for {
             _ <- suspendErrors(FileUtils.forceMkdirParent(file.toFile))
@@ -55,7 +58,7 @@ object FileMacroStore {
         }
 
         override def loadMacro(name: NonEmptyString): F[Option[NonEmptyList[Command]]] = {
-          lazy val file = Paths.get(config.location.toString, name.value)
+          lazy val file = makePath(name)
 
           lazy val load: F[Option[NonEmptyList[Command]]] = for {
             data <- suspendErrors(new String(Files.readAllBytes(file)))
@@ -70,7 +73,7 @@ object FileMacroStore {
 
         override def listMacros: F[List[NonEmptyString]] =
           suspendErrorsEvalOn(Option(config.location.toFile.list()).toList.flatten, ec).flatMap(_.traverse { m =>
-            F.fromEither(refineV[NonEmpty](m).leftMap(new RuntimeException(_)))
+            F.fromEither(refineV[NonEmpty](FilenameUtils.removeExtension(m)).leftMap(new RuntimeException(_)))
           })
       }
     }

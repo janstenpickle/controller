@@ -6,7 +6,8 @@ import { connect } from 'react-redux';
 
 export function mapStateToProps(state: StoreState) {
   return {
-    buttons: state.buttons
+    buttons: state.buttons,
+    currentRoom: state.currentRoom
   };
 }
 

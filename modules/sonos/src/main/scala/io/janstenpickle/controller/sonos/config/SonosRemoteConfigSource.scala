@@ -14,9 +14,12 @@ import io.janstenpickle.controller.model.{Button, Remote, Remotes}
 import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
 
 object SonosRemoteConfigSource {
-  def apply[F[_]](remoteName: NonEmptyString, activityName: NonEmptyString, discovery: SonosDiscovery[F])(
-    implicit F: MonadError[F, Throwable]
-  ): RemoteConfigSource[F] = {
+  def apply[F[_]](
+    remoteName: NonEmptyString,
+    activityName: NonEmptyString,
+    allRooms: Boolean,
+    discovery: SonosDiscovery[F]
+  )(implicit F: MonadError[F, Throwable]): RemoteConfigSource[F] = {
     def simpleTemplate(device: NonEmptyString): NonEmptyList[Button] =
       NonEmptyList.of(
         RemoteIcon(remoteName, device, Commands.Mute, NonEmptyString("volume_off"), Some(true), None, None),
@@ -57,7 +60,17 @@ object SonosRemoteConfigSource {
                       .leftMap(new RuntimeException(_))
                   )
               }
-            } yield (isController, Remote(remoteName, NonEmptyList.of(activityName), buttons))
+            } yield
+              (
+                isController,
+                Remote(
+                  remoteName,
+                  buttons,
+                  List(activityName),
+                  if (allRooms) List.empty
+                  else List(remoteName)
+                )
+              )
           })
           .map(remotes => Remotes(remotes.sortBy(_._2.name.value).sortBy(!_._1).map(_._2), List.empty))
 

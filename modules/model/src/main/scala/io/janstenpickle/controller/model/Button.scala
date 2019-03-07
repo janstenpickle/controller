@@ -12,7 +12,7 @@ sealed trait Button {
   def name: NonEmptyString
   def newRow: Option[Boolean]
   def colored: Option[Boolean]
-  def align: Option[NonEmptyString]
+  def room: Option[NonEmptyString]
 }
 
 object Button {
@@ -30,7 +30,7 @@ object Button {
     icon: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Remote
 
   case class RemoteLabel(
@@ -40,7 +40,7 @@ object Button {
     label: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Remote
 
   sealed trait Switch extends Button {
@@ -55,7 +55,7 @@ object Button {
     isOn: Boolean = false,
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Switch
 
   case class SwitchLabel(
@@ -65,7 +65,7 @@ object Button {
     isOn: Boolean = false,
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Switch
 
   sealed trait Macro extends Button {
@@ -78,7 +78,7 @@ object Button {
     isOn: Option[Boolean],
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Macro
 
   case class MacroLabel(
@@ -87,7 +87,7 @@ object Button {
     isOn: Option[Boolean],
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Macro
 
   sealed trait Context extends Button
@@ -97,7 +97,7 @@ object Button {
     icon: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Context
 
   case class ContextLabel(
@@ -105,7 +105,7 @@ object Button {
     label: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
-    align: Option[NonEmptyString]
+    room: Option[NonEmptyString]
   ) extends Context
 }
 

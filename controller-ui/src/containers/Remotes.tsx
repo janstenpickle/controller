@@ -3,11 +3,12 @@ import * as actions from '../actions';
 import { StoreState } from '../types/index';
 import { connect } from 'react-redux';
 
-export function mapStateToProps({ remotes, focusedRemote, showAll }: StoreState) {
+export function mapStateToProps(state: StoreState) {
   return {
-    remotes: remotes.values(),
-    focusedRemote: focusedRemote,
-    showAll: showAll,
+    remotes: state.remotes.values(),
+    focusedRemote: state.focusedRemote,
+    showAll: state.showAll,
+    currentRoom: state.currentRoom
   };
 }
 

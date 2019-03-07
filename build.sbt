@@ -120,6 +120,21 @@ lazy val configSource = (project in file("modules/config-source"))
   .settings(name := "controller-config-source")
   .dependsOn(model)
 
+lazy val extruder = (project in file("modules/extruder"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-extruder",
+    libraryDependencies ++= Seq(
+      "io.circe" %% "circe-parser"         % circeVer,
+      "extruder" %% "extruder-cats-effect" % extruderVer,
+      "extruder" %% "extruder-circe"       % extruderVer,
+      "extruder" %% "extruder-circe-yaml"  % extruderVer,
+      "extruder" %% "extruder-refined"     % extruderVer,
+      "extruder" %% "extruder-typesafe"    % extruderVer
+    )
+  )
+  .dependsOn(catsEffect, poller)
+
 lazy val extruderConfigSource = (project in file("modules/extruder-config-source"))
   .settings(commonSettings)
   .settings(
@@ -133,7 +148,7 @@ lazy val extruderConfigSource = (project in file("modules/extruder-config-source
       "extruder" %% "extruder-typesafe"    % extruderVer
     )
   )
-  .dependsOn(catsEffect, configSource, poller)
+  .dependsOn(configSource, extruder)
 
 lazy val remote = (project in file("modules/remote"))
   .settings(commonSettings)

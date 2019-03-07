@@ -11,6 +11,7 @@ import extruder.core.{Decoder, Settings}
 import extruder.refined._
 import io.circe.Json
 import io.janstenpickle.controller.configsource.ActivityConfigSource
+import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.Activities
 import io.janstenpickle.controller.poller.Empty
 
@@ -20,6 +21,11 @@ object ExtruderActivityConfigSource {
   implicit val empty: Empty[Activities] = Empty(Activities(List.empty, List.empty))
 
   case class PollingConfig(pollInterval: FiniteDuration = 10.seconds)
+
+  private def mkSource[F[_]](source: () => F[Activities]): ActivityConfigSource[F] =
+    new ActivityConfigSource[F] {
+      override def getActivities: F[Activities] = source()
+    }
 
   def apply[F[_]: Sync](config: ConfigFileSource[F]): ActivityConfigSource[F] = {
     type EV[A] = EffectValidation[F, A]
@@ -32,9 +38,7 @@ object ExtruderActivityConfigSource {
       (current, errors) => current.copy(errors = errors.toList.map(_.message))
     )(Sync[F], decoder, empty)
 
-    new ActivityConfigSource[F] {
-      override def getActivities: F[Activities] = source()
-    }
+    mkSource[F](source)
   }
 
   def polling[F[_]: Concurrent: Timer](
@@ -54,10 +58,6 @@ object ExtruderActivityConfigSource {
         (current, errors) => current.copy(errors = errors.toList.map(_.message)),
         onUpdate
       )(Timer[F], empty, Eq[Activities], Concurrent[F], decoder)
-      .map { source =>
-        new ActivityConfigSource[F] {
-          override def getActivities: F[Activities] = source()
-        }
-      }
+      .map(mkSource[F])
   }
 }

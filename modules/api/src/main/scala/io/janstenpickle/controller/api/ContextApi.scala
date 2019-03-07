@@ -1,13 +1,17 @@
 package io.janstenpickle.controller.api
 
-import cats.data.{EitherT, NonEmptyList}
+import cats.Semigroupal
+import cats.data.{EitherT, NonEmptyList, ValidatedNel}
 import cats.effect.Sync
+import cats.syntax.either._
+import eu.timepit.refined.collection.NonEmpty
+import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.instances._
 import extruder.refined._
 import io.janstenpickle.controller.model.{Command, ContextButtonMapping}
 import io.janstenpickle.controller.`macro`.Macro
-import org.http4s.{EntityDecoder, EntityEncoder, HttpRoutes}
+import org.http4s.{EntityDecoder, HttpRoutes, Response}
 import io.janstenpickle.controller.model
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
@@ -21,16 +25,26 @@ class ContextApi[F[_]: Sync](
   activitySource: ActivityConfigSource[EitherT[F, ControlError, ?]]
 ) extends Common[F] {
   implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
-  implicit val macrosEncoder: EntityEncoder[F, List[NonEmptyString]] = extruderEncoder[List[NonEmptyString]]
+
+  def refineOrBadReq(room: String, name: String)(
+    f: (NonEmptyString, NonEmptyString) => F[Response[F]]
+  ): F[Response[F]] =
+    Semigroupal
+      .map2[ValidatedNel[String, ?], NonEmptyString, NonEmptyString, F[Response[F]]](
+        refineV[NonEmpty](room).toValidatedNel,
+        refineV[NonEmpty](name).toValidatedNel
+      )(f)
+      .leftMap(errs => BadRequest(errs.toList.mkString(",")))
+      .merge
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
-    case POST -> Root / name =>
-      refineOrBadReq(name) { n =>
-        val activity: EitherT[F, ControlError, model.Activity] = activities.getActivity.flatMap {
+    case POST -> Root / room / name =>
+      refineOrBadReq(room, name) { (r, n) =>
+        val activity: EitherT[F, ControlError, model.Activity] = activities.getActivity(r).flatMap {
           case None => EitherT.leftT[F, model.Activity](ControlError.Missing("Activity not currently set"))
           case Some(act) =>
             activitySource.getActivities
-              .map(_.activities.groupBy(_.name).mapValues(_.headOption).get(act).flatten)
+              .map(_.activities.filter(_.room == r).groupBy(_.name).mapValues(_.headOption).get(act).flatten)
               .flatMap {
                 case None =>
                   EitherT.leftT[F, model.Activity](

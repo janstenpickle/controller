@@ -3,7 +3,8 @@ package io.janstenpickle.controller.sonos
 import cats.Functor
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.switch.{State, Switch, SwitchKey, SwitchProvider}
+import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.{State, Switch, SwitchProvider}
 
 object SonosSwitchProvider {
 

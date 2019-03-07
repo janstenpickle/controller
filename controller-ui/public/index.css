@@ -40,3 +40,7 @@
   height: 100px !important;
   min-width: initial;
 }
+
+.mdl-layout__header-row {
+  padding: 0 16px 0 10px;
+}

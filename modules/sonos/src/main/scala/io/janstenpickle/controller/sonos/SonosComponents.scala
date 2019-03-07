@@ -22,7 +22,8 @@ object SonosComponents {
     remoteName: Option[NonEmptyString],
     combinedDeviceName: Option[NonEmptyString],
     switchDeviceName: Option[NonEmptyString],
-    polling: SonosDiscovery.Polling
+    polling: SonosDiscovery.Polling,
+    allRooms: Boolean = true
   ) {
     lazy val remote: NonEmptyString = remoteName.getOrElse(activity.remoteName)
     lazy val combinedDevice: NonEmptyString = combinedDeviceName.getOrElse(remote)
@@ -38,8 +39,8 @@ object SonosComponents {
   )(implicit errors: RemoteControlErrors[F]): Resource[F, SonosComponents[F]] = {
     SonosDiscovery.polling[F](config.polling, onUpdate, ec).map { discovery =>
       val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
-      val activityConfig = SonosActivityConfigSource[F](config.activity)
-      val remoteConfig = SonosRemoteConfigSource[F](config.remote, config.activity.name, discovery)
+      val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
+      val remoteConfig = SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery)
       val switches = SonosSwitchProvider[F](config.switchDevice, discovery)
 
       SonosComponents(remote, activityConfig, remoteConfig, switches)

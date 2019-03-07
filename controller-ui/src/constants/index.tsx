@@ -13,8 +13,14 @@ export type LOADED_REMOTES = typeof LOADED_REMOTES;
 export const LOADED_ACTIVITIES = 'LOADED_ACTIVITIES';
 export type LOADED_ACTIVITIES = typeof LOADED_ACTIVITIES;
 
+export const LOADED_ROOMS = 'LOADED_ROOMS';
+export type LOADED_ROOMS = typeof LOADED_ROOMS;
+
 export const SET_ACTIVITY = 'SET_ACTIVITY';
 export type SET_ACTIVITY = typeof SET_ACTIVITY;
+
+export const SET_ROOM = 'SET_ROOM';
+export type SET_ROOM = typeof SET_ROOM;
 
 export const TOGGLE_SHOW_ALL = 'TOGGLE_SHOW_ALL';
 export type TOGGLE_SHOW_ALL = typeof TOGGLE_SHOW_ALL;

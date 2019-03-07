@@ -10,18 +10,7 @@ export function fetchRemotesAsync(): Promise<TSMap<string, RemoteData>> {
 
   return fetch(membersURL)
     .then((response) => response.json())
-    .then((remoteJson) => cachedMapToRemotes(remoteJson[remotesKey]));
-};
-
-export function cachedMapToRemotes(remoteData: any[]): TSMap<string, RemoteData> {
-  const cached = mapToRemotes(JSON.parse((localStorage.getItem(remotesKey) || '[]')));
-  const rs =  mapToRemotes(remoteData);
-  rs.forEach((value, key, index) => {
-    const k = key || ''
-    value.isActive = (cached.get(k) || value).isActive
-  })
-  localStorage.setItem(remotesKey, JSON.stringify(rs.values()))
-  return rs
+    .then((remoteJson) => mapToRemotes(remoteJson[remotesKey]));
 };
 
 export function mapToRemotes(remoteData: any[]): TSMap<string, RemoteData> {
@@ -34,6 +23,7 @@ function mapToRemote(remote: any): [string, RemoteData] {
     activities: (remote.activities || []),
     isActive: (remote.isActive || false),
     buttons: (remote.buttons.map(mapToButton) || []),
+    rooms: (remote.rooms || [])
   }];
 };
 

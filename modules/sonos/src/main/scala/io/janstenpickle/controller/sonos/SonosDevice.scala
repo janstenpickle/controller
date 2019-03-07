@@ -44,8 +44,8 @@ object SonosDevice { outer =>
   implicit def apply[F[_]: ContextShift](
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
-    isPlaying: Boolean,
-    nowPlaying: Option[NowPlaying],
+    _isPlaying: Boolean,
+    _nowPlaying: Option[NowPlaying],
     underlying: sonoscontroller.SonosDevice,
     ec: ExecutionContext
   )(implicit F: Sync[F]): SonosDevice[F] = {
@@ -53,7 +53,7 @@ object SonosDevice { outer =>
 
     new SonosDevice[F] {
       override def applicative: Applicative[F] = Applicative[F]
-      override protected[sonos] def comparableString: String = s"$formattedName$nonEmptyName$isPlaying$nowPlaying"
+      override protected[sonos] def comparableString: String = s"$formattedName$nonEmptyName${_isPlaying}${_nowPlaying}"
       override def name: NonEmptyString = formattedName
       override def label: NonEmptyString = nonEmptyName
       override def play: F[Unit] = suspendErrorsEval(underlying.play())

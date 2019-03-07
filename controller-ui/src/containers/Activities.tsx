@@ -7,12 +7,13 @@ import { connect } from 'react-redux';
 export function mapStateToProps(state: StoreState) {
   return {
     activities: state.activities,
-    currentActivity: state.currentActivity
+    currentActivity: state.currentActivity.get(state.currentRoom) || '',
+    currentRoom: state.currentRoom
   };
 }
 
 const mapDispatchToProps = (dispatch: any) => ({
-  activate: (activity: string) => dispatch(actions.setActivity(activity)),
+  activate: (room: string, activity: string) => dispatch(actions.setActivity(room, activity)),
   fetchActivities: () => dispatch(actions.loadActivitiesAction()),
 });
 

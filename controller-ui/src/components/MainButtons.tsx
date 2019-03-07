@@ -3,11 +3,12 @@ import { RemoteButtons } from '../types/index';
 
 interface Props {
   buttons: RemoteButtons[];
+  currentRoom: string;
   fetchButtons(): void;
   plugState(state: boolean, name?: string): void;
 }
 
-export function renderButton(buttonData: RemoteButtons, plugState: (state: boolean, name?: string) => void) {
+export function renderButton(buttonData: RemoteButtons, currentRoom: string, plugState: (state: boolean, name?: string) => void) {
   const baseClass = 'mdl-button mdl-js-button mdl-js-ripple-effect'
 
   const buttonType = () => {
@@ -52,7 +53,7 @@ export function renderButton(buttonData: RemoteButtons, plugState: (state: boole
         plugState(!buttonData.isOn, buttonData.name)
         return fetch(`${location.protocol}//${location.hostname}:8090/control/switch/toggle/${buttonData.device}/${buttonData.name}`, { method: 'POST' })
       case 'context': 
-        return fetch(`${location.protocol}//${location.hostname}:8090/control/context/${buttonData.name}`, { method: 'POST' })
+        return fetch(`${location.protocol}//${location.hostname}:8090/control/context/${currentRoom}/${buttonData.name}`, { method: 'POST' })
     }
   }
 
@@ -96,7 +97,9 @@ export default class Remotes extends React.Component<Props,{}> {
   }
 
   public render() {
-    const renderedButtons = this.props.buttons.map((buttonData: RemoteButtons) =>  renderButton(buttonData, this.props.plugState));
+    const renderedButtons = this.props.buttons
+      .filter((buttonData: RemoteButtons) => (buttonData.room || '') === this.props.currentRoom )
+      .map((buttonData: RemoteButtons) =>  renderButton(buttonData, this.props.currentRoom, this.props.plugState));
 
     return(<div>
       {renderedButtons}

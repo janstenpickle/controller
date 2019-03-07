@@ -6,6 +6,7 @@ import Remotes from './containers/Remotes';
 import MainButtons from './containers/MainButtons';
 import Activities from './containers/Activities';
 import ToggleShowAll from './containers/ToggleShowAll';
+import Rooms from './containers/Rooms';
 
 import { TSMap } from 'typescript-map';
 import { Provider } from 'react-redux';
@@ -20,7 +21,8 @@ const store = createStore<StoreState, ControllerAction, any, any>(controller, {
   activities: [],
   remotes: new TSMap<string, RemoteData>(),
   focusedRemote: 'TV',
-  currentActivity: '',
+  currentActivity: new TSMap<string, string>(),
+  currentRoom: localStorage.getItem('room') || '',
   showAll: !(document.documentElement.clientWidth < 900)
 }, applyMiddleware(thunk));
 
@@ -50,6 +52,13 @@ ReactDOM.render(
     <ToggleShowAll />
   </Provider>,
   document.getElementById('toggle-all') as HTMLElement
+);
+
+ReactDOM.render(
+  <Provider store={store}>
+    <Rooms />
+  </Provider>,
+  document.getElementById('rooms-menu') as HTMLElement
 );
 
 registerServiceWorker();

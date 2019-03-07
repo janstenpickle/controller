@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { RemoteData, Coords, RemoteButtons } from '../types/index';
+import { RemoteData, RemoteButtons } from '../types/index';
 import { Responsive, WidthProvider, Layout, Layouts } from 'react-grid-layout';
 import { TSMap } from 'typescript-map';
 import { renderButton } from './MainButtons'
@@ -8,6 +8,7 @@ const ResponsiveReactGridLayout = WidthProvider(Responsive);
 
 export interface Props {
   remotes: RemoteData[];
+  currentRoom: string,
   focus: (remote: string) => void;
   focusedRemote: string;
   fetchRemotes(): void;
@@ -15,9 +16,23 @@ export interface Props {
   showAll: boolean;
 }
 
+export interface Coords {
+  x: number;
+  y: number;
+}
+
+interface RemotePlacement {
+  name: string;
+  lg?: Coords;
+  md?: Coords;
+  sm?: Coords;
+  xs?: Coords;
+  xxs?: Coords;
+}
+
 interface RemoteCoords {
-  coords: TSMap<string, RemoteData>,
-  next: Coords
+  coords: TSMap<string, RemotePlacement>;
+  next: Coords;
 }
 
 export default class Remotes extends React.Component<Props,{}> {
@@ -26,10 +41,12 @@ export default class Remotes extends React.Component<Props,{}> {
   }
 
   public render() {
-    const filteredRemotes = this.props.remotes.filter((data: RemoteData) => data.isActive || this.props.showAll);
+    const filteredRemotes = this.props.remotes.filter((data: RemoteData) => (data.isActive || this.props.showAll) && (data.rooms.length === 0 || data.rooms.includes(this.props.currentRoom)));
+
+    const remotePlacements: RemotePlacement[] = filteredRemotes.map((data: RemoteData) => { return {name: data.name} })
 
     const divs = filteredRemotes.map((data: RemoteData) => {
-      const buttons = data.buttons.map((button: RemoteButtons) => renderButton(button, this.props.plugState))
+      const buttons = data.buttons.map((button: RemoteButtons) => renderButton(button, this.props.currentRoom, this.props.plugState))
       return (
         <div className='mdl-shadow--2dp mdl-color--grey-100' key={data.name}>
           <div className='center-align'>
@@ -42,8 +59,6 @@ export default class Remotes extends React.Component<Props,{}> {
       )
     });
 
-    //console.info(array.reduce((b: String, a: (string | RemoteData)[]) => b + ', ' + String(a.), '', filteredRemotes.entries()))
-
     const nextCoords: (cols: number, coords: Coords) => Coords  = (cols: number, coords: Coords) => {
       if (coords.x < (cols - 1)) {
         return { x: coords.x + 1, y: coords.y}
@@ -54,8 +69,8 @@ export default class Remotes extends React.Component<Props,{}> {
 
     const cToString = (coords: Coords) => coords.x.toString() + coords.y.toString();
 
-    const placement: (cols: number, rs: RemoteData[], selector: (data: RemoteData) => Coords|undefined, setter: (coords: Coords, data: RemoteData) => RemoteData) => RemoteData[]  = (cols: number, rs: RemoteData[], selector: (data: RemoteData) => Coords|undefined, setter: (coords: Coords, data: RemoteData) => RemoteData) =>
-     rs.reduce((a: RemoteCoords, data: RemoteData) => {
+    const placement: (cols: number, rs: RemotePlacement[], selector: (data: RemotePlacement) => Coords|undefined, setter: (coords: Coords, data: RemotePlacement) => RemotePlacement) => RemotePlacement[]  = (cols: number, rs: RemotePlacement[], selector: (data: RemotePlacement) => Coords|undefined, setter: (coords: Coords, data: RemotePlacement) => RemotePlacement) =>
+     rs.reduce((a: RemoteCoords, data: RemotePlacement) => {
       const coords = (selector(data) || {x: 0, y: 0})
       if (a.coords.has(cToString(coords)) || coords.x >= (cols - 1)) {
         const next = a.coords.keys().sort().reduce((co: Coords, s: string) => {
@@ -72,20 +87,20 @@ export default class Remotes extends React.Component<Props,{}> {
 
     }, { coords: new TSMap<string, RemoteData>(), next: {x: 0, y: 0}}).coords.values();
 
-    const layout: (cols: number, selector: (data: RemoteData) => Coords|undefined, setter: (coords: Coords, data: RemoteData) => RemoteData) => Layout[] =
-      (cols: number, selector: (data: RemoteData) => Coords|undefined, setter: (coords: Coords, data: RemoteData) => RemoteData) =>
-      placement(cols, filteredRemotes, selector, setter).map((data: RemoteData) => {
+    const layout: (cols: number, selector: (data: RemotePlacement) => Coords|undefined, setter: (coords: Coords, data: RemotePlacement) => RemotePlacement) => Layout[] =
+      (cols: number, selector: (data: RemotePlacement) => Coords|undefined, setter: (coords: Coords, data: RemotePlacement) => RemotePlacement) =>
+      placement(cols, remotePlacements, selector, setter).map((data: RemotePlacement) => {
         const coords = (selector(data) || {x: 0, y: 0})
         return { i: data.name, x: coords.x, y: coords.y, w: 1, h: 1, isResizable: false, isDraggable: false, }
       });
 
 
     const layouts: Layouts = {
-      lg: layout(4, (data: RemoteData) => data.lg, (coords: Coords, data: RemoteData) => { data.lg = coords; return data }),
-      md: layout(3, (data: RemoteData) => data.md, (coords: Coords, data: RemoteData) => { data.md = coords; return data }),
-      sm: layout(2, (data: RemoteData) => data.sm, (coords: Coords, data: RemoteData) => { data.sm = coords; return data }),
-      xs: layout(2, (data: RemoteData) => data.xs, (coords: Coords, data: RemoteData) => { data.xs = coords; return data }),
-      xxs: layout(1, (data: RemoteData) => data.xxs, (coords: Coords, data: RemoteData) => { data.xxs = coords; return data }),
+      lg: layout(4, (data: RemotePlacement) => data.lg, (coords: Coords, data: RemotePlacement) => { data.lg = coords; return data }),
+      md: layout(3, (data: RemotePlacement) => data.md, (coords: Coords, data: RemotePlacement) => { data.md = coords; return data }),
+      sm: layout(2, (data: RemotePlacement) => data.sm, (coords: Coords, data: RemotePlacement) => { data.sm = coords; return data }),
+      xs: layout(2, (data: RemotePlacement) => data.xs, (coords: Coords, data: RemotePlacement) => { data.xs = coords; return data }),
+      xxs: layout(1, (data: RemotePlacement) => data.xxs, (coords: Coords, data: RemotePlacement) => { data.xxs = coords; return data }),
     };
 
     const cols = {lg: 4, md: 3, sm: 2, xs: 2, xxs: 1};

@@ -1,13 +1,14 @@
 package io.janstenpickle.controller.sonos.config
 
 import cats.Applicative
-import cats.syntax.applicative._
+import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ActivityConfigSource
 import io.janstenpickle.controller.model.{Activities, Activity, ContextButtonMapping}
-import io.janstenpickle.controller.sonos.Commands
+import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
 
 object SonosActivityConfigSource {
+
   case class Config(
     name: NonEmptyString = NonEmptyString("sonos"),
     label: NonEmptyString = NonEmptyString("Sonos"),
@@ -18,25 +19,28 @@ object SonosActivityConfigSource {
     previousMappingName: NonEmptyString = NonEmptyString("previous")
   )
 
-  def apply[F[_]: Applicative](config: Config): ActivityConfigSource[F] = new ActivityConfigSource[F] {
-    override def getActivities: F[Activities] =
-      Activities(
-        List(
-          Activity(
-            name = config.name,
-            label = config.label,
-            contextButtons = List(
-              ContextButtonMapping
-                .Remote(config.playPauseMappingName, config.remoteName, config.combinedDeviceName, Commands.PlayPause),
-              ContextButtonMapping
-                .Remote(config.nextMappingName, config.remoteName, config.combinedDeviceName, Commands.Next),
-              ContextButtonMapping
-                .Remote(config.previousMappingName, config.remoteName, config.combinedDeviceName, Commands.Previous)
-            ),
-            None
-          )
-        ),
-        List.empty
-      ).pure[F]
-  }
+  def apply[F[_]: Applicative](config: Config, discovery: SonosDiscovery[F]): ActivityConfigSource[F] =
+    new ActivityConfigSource[F] {
+      override def getActivities: F[Activities] =
+        discovery.devices.map(
+          devices =>
+            Activities(devices.toList.collect {
+              case (name, _) =>
+                Activity(
+                  name = config.name,
+                  label = config.label,
+                  contextButtons = List(
+                    ContextButtonMapping
+                      .Remote(config.playPauseMappingName, config.remoteName, name, Commands.PlayPause),
+                    ContextButtonMapping
+                      .Remote(config.nextMappingName, config.remoteName, name, Commands.Next),
+                    ContextButtonMapping
+                      .Remote(config.previousMappingName, config.remoteName, name, Commands.Previous)
+                  ),
+                  None,
+                  name
+                )
+            })
+        )
+    }
 }

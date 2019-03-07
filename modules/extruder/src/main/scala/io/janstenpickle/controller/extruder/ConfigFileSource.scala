@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.configsource.extruder
+package io.janstenpickle.controller.extruder
 
 import java.nio.file.{Files, Path, Paths}
 
@@ -12,7 +12,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import eu.timepit.refined.types.numeric.PosInt
 import io.circe.{parser, Json}
 import io.janstenpickle.catseffect.CatsEffect.{evalOn, suspendErrors}
-import io.janstenpickle.controller.configsource.extruder.ConfigFileSource.ConfigFiles
+import io.janstenpickle.controller.extruder.ConfigFileSource.ConfigFiles
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 
@@ -41,7 +41,7 @@ object ConfigFileSource {
       }
 
       def tConfig: F[Config] = loadFile("conf").flatMap {
-        case None => ConfigFactory.empty().pure
+        case None => suspendErrors(ConfigFactory.load())
         case Some(conf) => suspendErrors(ConfigFactory.parseString(conf))
       }
 

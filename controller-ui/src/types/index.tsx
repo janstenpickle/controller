@@ -1,29 +1,22 @@
 import { TSMap } from "typescript-map";
 
 export interface StoreState {
+    currentRoom: string;
+    rooms: string[];
     buttons: RemoteButtons[];
     activities: ActivityButton[];
     remotes: TSMap<string, RemoteData>;
-    currentActivity: string;
+    currentActivity: TSMap<string, string>;
     focusedRemote: string;
     showAll: boolean;
 }
 
-export interface Coords {
-  x: number;
-  y: number;
-}
-
 export interface RemoteData {
   name: string;
+  rooms: string[];
   activities: string[];
   isActive: boolean;
   buttons: RemoteButtons[];
-  lg?: Coords;
-  md?: Coords;
-  sm?: Coords;
-  xs?: Coords;
-  xxs?: Coords;
 }
 
 export type RemoteButtons = RemoteButtonIcon | RemoteButtonLabel | SwitchButtonIcon | SwitchButtonLabel | MacroButtonIcon | MacroButtonLabel | ContextButtonIcon | ContextButtonLabel
@@ -32,6 +25,7 @@ export interface ControlButton {
   name: string;
   newRow?: boolean;
   colored?: boolean;
+  room?: string;
 }
 
 export interface ActivityButton extends ControlButton {

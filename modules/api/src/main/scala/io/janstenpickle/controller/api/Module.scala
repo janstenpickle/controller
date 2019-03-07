@@ -7,6 +7,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 import cats.~>
+import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import fs2.Stream
@@ -18,13 +19,15 @@ import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
 import io.janstenpickle.controller.api.view.ConfigView
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
+import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControls}
-import io.janstenpickle.controller.sonos.SonosComponents
+import io.janstenpickle.controller.sonos.{SonosComponents, SonosDevice}
 import io.janstenpickle.controller.store.file.{CommandSerde, FileActivityStore, FileMacroStore, FileRemoteCommandStore}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
-import io.janstenpickle.controller.switch.{Switch, SwitchKey, SwitchProvider, Switches}
+import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.{State, Switch, SwitchProvider, Switches}
 
 import scala.concurrent.ExecutionContext
 
@@ -57,7 +60,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
   implicit val commandPayloadSerde: CommandSerde[ET, CommandPayload] =
     CommandSerde[ET, String].imap(CommandPayload)(_.hexValue)
 
-  def sendUpdate[A](topic: Topic[ET, Boolean], topics: Topic[ET, Boolean]*): A => ET[Unit] =
+  def notifyUpdate[A](topic: Topic[ET, Boolean], topics: Topic[ET, Boolean]*): A => ET[Unit] =
     _ => (topic :: topics.toList).traverse(_.publish1(true)).void
 
   def components: Stream[
@@ -81,18 +84,22 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       activitiesUpdate <- Stream.eval(Topic[ET, Boolean](false))
       buttonsUpdate <- Stream.eval(Topic[ET, Boolean](false))
       remotesUpdate <- Stream.eval(Topic[ET, Boolean](false))
+      roomsUpdate <- Stream.eval(Topic[ET, Boolean](false))
 
       configFileSource <- Stream.resource[ET, ConfigFileSource[ET]](
         ConfigFileSource.polling[ET](config.config.file, config.config.pollInterval, executor)
       )
       activityConfig <- Stream.resource[ET, ActivityConfigSource[ET]](
-        ExtruderActivityConfigSource.polling[ET](configFileSource, config.config.activity, sendUpdate(activitiesUpdate))
+        ExtruderActivityConfigSource
+          .polling[ET](configFileSource, config.config.activity, notifyUpdate(activitiesUpdate, roomsUpdate))
       )
       buttonConfig <- Stream.resource[ET, ButtonConfigSource[ET]](
-        ExtruderButtonConfigSource.polling[ET](configFileSource, config.config.button, sendUpdate(buttonsUpdate))
+        ExtruderButtonConfigSource
+          .polling[ET](configFileSource, config.config.button, notifyUpdate(buttonsUpdate, roomsUpdate))
       )
       remoteConfig <- Stream.resource[ET, RemoteConfigSource[ET]](
-        ExtruderRemoteConfigSource.polling[ET](configFileSource, config.config.remote, sendUpdate(remotesUpdate))
+        ExtruderRemoteConfigSource
+          .polling[ET](configFileSource, config.config.remote, notifyUpdate(remotesUpdate, roomsUpdate))
       )
 
       activityStore <- Stream.eval(FileActivityStore[ET](config.activityStore, executor))
@@ -102,11 +109,16 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       hs100 <- Stream
         .resource[ET, Switch[ET]](
           HS100SmartPlug
-            .polling[ET](config.hs100.config, config.hs100.polling, sendUpdate(buttonsUpdate, remotesUpdate), executor)
+            .polling[ET](
+              config.hs100.config,
+              config.hs100.polling,
+              notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate),
+              executor
+            )
         )
 
       sonosComponents <- Stream.resource[ET, SonosComponents[ET]](
-        SonosComponents[ET](config.sonos, sendUpdate(buttonsUpdate, remotesUpdate), executor)
+        SonosComponents[ET](config.sonos, notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate), executor)
       )
 
       combinedActivityConfig = ActivityConfigSource.combined[ET](activityConfig, sonosComponents.activityConfig)
@@ -126,7 +138,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
 
       switches = new Switches[ET](combinedSwitchProvider)
       macros = new Macro[ET](macroStore, remoteControls, switches)
-      activity = new Activity[ET](activityStore, macros, sendUpdate(activitiesUpdate))
+      activity = new Activity[ET](activityStore, macros, notifyUpdate(activitiesUpdate))
       configView = new ConfigView(
         combinedActivityConfig,
         buttonConfig,
@@ -145,6 +157,6 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         combinedActivityConfig,
         configView,
         executor,
-        UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate)
+        UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
       )
 }
