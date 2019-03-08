@@ -2,15 +2,15 @@ package io.janstenpickle.controller.poller
 
 import java.util.concurrent.TimeUnit
 
-import cats.{Applicative, Eq}
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.syntax.applicativeError._
-import cats.syntax.apply._
+import cats.syntax.eq._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.{Applicative, Eq}
 import eu.timepit.refined.types.numeric.PosInt
-import cats.syntax.eq._
+import fs2.Stream
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -36,9 +36,7 @@ object DataPoller {
         th => dataRef.tryUpdate(d => d.copy(errorCount = d.errorCount + 1, error = Some(th))).void.handleError(_ => ())
       )
 
-    def loop(now: Long): F[Unit] = (update(now) *> timer.sleep(pollInterval)) *> timeNow.flatMap(loop)
-
-    F.start(timeNow.flatMap(loop))
+    F.start(Stream.fixedRate(pollInterval).evalMap(_ => timeNow.flatMap(update)).compile.drain)
   }
 
   private def reader[F[_]: Timer, A](dataRef: Ref[F, Data[A]], handleError: (Data[A], Throwable) => F[A])(

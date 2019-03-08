@@ -4,7 +4,7 @@ import sbt.url
 val catsVer = "1.6.0"
 val catsEffectVer = "1.2.0"
 val circeVer = "0.11.1"
-val extruderVer = "0.9.3-9-e125e03a-dirty-SNAPSHOT"
+val extruderVer = "0.10.0"
 val http4sVer = "0.20.0-M6"
 val refinedVer = "0.9.4"
 val scalaCheckVer = "1.13.5"
@@ -229,7 +229,10 @@ lazy val activity = (project in file("modules/activity"))
 
 lazy val poller = (project in file("modules/poller"))
   .settings(commonSettings)
-  .settings(name := "controller-poller", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .settings(
+    name := "controller-poller",
+    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % "1.0.1", "eu.timepit" %% "refined" % refinedVer)
+  )
   .dependsOn(catsEffect)
 
 lazy val sonos = (project in file("modules/sonos"))
