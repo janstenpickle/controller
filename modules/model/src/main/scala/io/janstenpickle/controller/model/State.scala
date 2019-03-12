@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.switch
+package io.janstenpickle.controller.model
 
 import cats.Eq
 import cats.instances.boolean._

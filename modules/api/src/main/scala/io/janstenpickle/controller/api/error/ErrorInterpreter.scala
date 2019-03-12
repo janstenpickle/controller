@@ -16,7 +16,8 @@ import cats.syntax.functor._
 import io.circe
 import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
-import io.janstenpickle.controller.switch.{State, SwitchErrors}
+import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.switch.SwitchErrors
 
 class ErrorInterpreter[F[_]](implicit F: Sync[F])
     extends MacroErrors[EitherT[F, ControlError, ?]]

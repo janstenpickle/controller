@@ -5,9 +5,8 @@ import cats.Eq
 import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
-import io.janstenpickle.controller.model
 import extruder.typesafe.instances._
-import extruder.circe.yaml.instances._
+import extruder.circe.instances._
 import extruder.core.{Decoder, Settings}
 import extruder.refined._
 import io.circe.Json

@@ -11,7 +11,7 @@ import io.janstenpickle.controller.model.Button._
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
 import io.janstenpickle.controller.switch.model.SwitchKey
-import io.janstenpickle.controller.switch.{State, Switches}
+import io.janstenpickle.controller.switch.Switches
 
 class ConfigView[F[_]](
   activity: ActivityConfigSource[F],

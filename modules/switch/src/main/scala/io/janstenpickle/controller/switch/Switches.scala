@@ -4,6 +4,7 @@ import cats.FlatMap
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.model.SwitchKey
 
 class Switches[F[_]: FlatMap](switches: SwitchProvider[F])(implicit errors: SwitchErrors[F]) {

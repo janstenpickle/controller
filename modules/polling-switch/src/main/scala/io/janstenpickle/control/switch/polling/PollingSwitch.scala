@@ -4,9 +4,10 @@ import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.apply._
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import io.janstenpickle.controller.switch.{State, Switch}
+import io.janstenpickle.controller.switch.Switch
 
 import scala.concurrent.duration.FiniteDuration
 

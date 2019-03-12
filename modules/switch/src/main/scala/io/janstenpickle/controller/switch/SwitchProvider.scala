@@ -14,6 +14,11 @@ object SwitchProvider {
     override def getSwitches: F[Map[SwitchKey, Switch[F]]] = switches.pure[F]
   }
 
+  def combined[F[_]: Apply](x: SwitchProvider[F], y: SwitchProvider[F], rest: SwitchProvider[F]*): SwitchProvider[F] =
+    (List(x, y) ++ rest).reduce { (l, r) =>
+      combined(l, r)
+    }
+
   def combined[F[_]: Apply](x: SwitchProvider[F], y: SwitchProvider[F]): SwitchProvider[F] = new SwitchProvider[F] {
     override def getSwitches: F[Map[SwitchKey, Switch[F]]] =
       x.getSwitches.map2(y.getSwitches)(_ ++ _)

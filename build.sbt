@@ -6,6 +6,7 @@ val catsEffectVer = "1.2.0"
 val circeVer = "0.11.1"
 val extruderVer = "0.10.0"
 val http4sVer = "0.20.0-M6"
+val kittensVer = "1.2.1"
 val refinedVer = "0.9.4"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
@@ -73,7 +74,8 @@ lazy val root = (project in file("."))
     poller,
     pollingSwitch,
     switch,
-    sonosClientSubmodule
+    sonosClientSubmodule,
+    virtualSwitch
   )
 
 lazy val api = (project in file("modules/api"))
@@ -92,7 +94,17 @@ lazy val api = (project in file("modules/api"))
       "org.http4s"     %% "http4s-dsl"           % http4sVer
     )
   )
-  .dependsOn(hs100Switch, rm2Remote, fileStore, remoteControl, extruderConfigSource, `macro`, activity, sonos)
+  .dependsOn(
+    hs100Switch,
+    rm2Remote,
+    fileStore,
+    remoteControl,
+    extruderConfigSource,
+    `macro`,
+    activity,
+    sonos,
+    virtualSwitch
+  )
 
 lazy val catsEffect = (project in file("modules/cats-effect"))
   .settings(commonSettings)
@@ -111,7 +123,7 @@ lazy val model = (project in file("modules/model"))
     libraryDependencies ++= Seq(
       "org.typelevel" %% "cats-core" % catsVer,
       "eu.timepit"    %% "refined"   % refinedVer,
-      "org.typelevel" %% "kittens"   % "1.2.1"
+      "org.typelevel" %% "kittens"   % kittensVer
     )
   )
 
@@ -160,8 +172,13 @@ lazy val switch = (project in file("modules/switch"))
   .settings(commonSettings)
   .settings(
     name := "controller-switch",
-    libraryDependencies ++= Seq("org.typelevel" %% "cats-core" % catsVer, "eu.timepit" %% "refined" % refinedVer)
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-core" % catsVer,
+      "eu.timepit"    %% "refined"   % refinedVer,
+      "org.typelevel" %% "kittens"   % kittensVer
+    )
   )
+  .dependsOn(model)
 
 lazy val pollingSwitch = (project in file("modules/polling-switch"))
   .settings(commonSettings)
@@ -180,6 +197,11 @@ lazy val hs100Switch = (project in file("modules/hs100-switch"))
   )
   .dependsOn(catsEffect, pollingSwitch)
 
+lazy val virtualSwitch = (project in file("modules/virtual-switch"))
+  .settings(commonSettings)
+  .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(store, catsEffect, pollingSwitch, remoteControl)
+
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)
   .settings(name := "controller-store", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
@@ -197,7 +219,7 @@ lazy val fileStore = (project in file("modules/file-store"))
       "eu.timepit" %% "refined"          % refinedVer
     )
   )
-  .dependsOn(catsEffect, store)
+  .dependsOn(catsEffect, store, poller)
 
 lazy val remoteControl = (project in file("modules/remote-control"))
   .settings(commonSettings)

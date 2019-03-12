@@ -3,6 +3,7 @@ package io.janstenpickle.controller.switch
 import cats.FlatMap
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.model.State
 
 trait Switch[F[_]] {
   def name: NonEmptyString

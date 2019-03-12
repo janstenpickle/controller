@@ -14,8 +14,9 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.{parser, Decoder, Json}
 import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.control.switch.polling.{PollingSwitch, PollingSwitchErrors}
+import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.hs100.Encryption._
-import io.janstenpickle.controller.switch.{State, Switch}
+import io.janstenpickle.controller.switch.Switch
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._

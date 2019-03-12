@@ -13,8 +13,14 @@ import extruder.refined._
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.sonos.SonosComponents
-import io.janstenpickle.controller.store.file.{FileActivityStore, FileMacroStore, FileRemoteCommandStore}
+import io.janstenpickle.controller.store.file.{
+  FileActivityStore,
+  FileMacroStore,
+  FileRemoteCommandStore,
+  FileSwitchStateStore
+}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
+import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
 
 import scala.concurrent.duration._
 import scala.util.Try
@@ -22,13 +28,20 @@ import scala.util.Try
 object Configuration {
   case class Config(
     rm2: Rm2Remote.Config,
-    activityStore: FileActivityStore.Config,
-    macroStore: FileMacroStore.Config,
-    remoteCommandStore: FileRemoteCommandStore.Config,
+    stores: Stores,
+    virtualSwitch: SwitchesForRemote.PollingConfig,
     hs100: HS100,
     sonos: SonosComponents.Config,
     config: ConfigData,
     server: Server
+  )
+
+  case class Stores(
+    activityStore: FileActivityStore.Config,
+    macroStore: FileMacroStore.Config,
+    remoteCommandStore: FileRemoteCommandStore.Config,
+    switchStateStore: FileSwitchStateStore.Config,
+    switchStatePolling: FileSwitchStateStore.PollingConfig
   )
 
   case class ConfigData(
