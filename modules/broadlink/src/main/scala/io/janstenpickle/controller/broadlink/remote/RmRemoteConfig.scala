@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.remote.rm2
+package io.janstenpickle.controller.broadlink.remote
 
 import com.github.mob41.blapi.mac.Mac
 import eu.timepit.refined.refineMV
@@ -13,7 +13,7 @@ sealed trait RmRemoteConfig {
 }
 
 object RmRemoteConfig {
-  case class Rm2(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeoutMillis: PosInt = refineMV(100))
+  case class RM2(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeoutMillis: PosInt = refineMV(100))
       extends RmRemoteConfig
   case class Mini3(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeoutMillis: PosInt = refineMV(100))
       extends RmRemoteConfig

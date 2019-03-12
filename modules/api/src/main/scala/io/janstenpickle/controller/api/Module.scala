@@ -16,11 +16,12 @@ import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
 import io.janstenpickle.controller.api.view.ConfigView
+import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
+import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
-import io.janstenpickle.controller.remote.rm2.RmRemoteControls
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.store.SwitchStateStore
@@ -107,16 +108,38 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       commandStore <- Stream.eval(
         FileRemoteCommandStore[ET, CommandPayload](config.stores.remoteCommandStore, executor)
       )
-      rm2RemoteControls <- Stream.eval(RmRemoteControls[ET](config.rm2.map(_.config), commandStore, executor))
+
+      switchStateFileStore <- Stream
+        .resource[ET, SwitchStateStore[ET]](
+          FileSwitchStateStore.polling(
+            config.stores.switchStateStore,
+            config.stores.switchStatePolling,
+            executor,
+            notifyUpdate(buttonsUpdate, remotesUpdate)
+          )
+        )
+
+      rm2RemoteControls <- Stream.eval(RmRemoteControls[ET](config.rm.map(_.config), commandStore, executor))
+
       hs100SwitchProvider <- Stream
         .resource[ET, SwitchProvider[ET]](
           HS100SwitchProvider[ET](
             config.hs100.configs,
             config.hs100.polling,
-            notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate),
+            notifyUpdate(buttonsUpdate, remotesUpdate),
             executor
           )
         )
+
+      spSwitchProvider <- Stream.resource[ET, SwitchProvider[ET]](
+        SpSwitchProvider[ET](
+          config.sp.configs,
+          config.sp.polling,
+          switchStateFileStore,
+          executor,
+          notifyUpdate(buttonsUpdate, remotesUpdate)
+        )
+      )
 
       sonosComponents <- Stream.resource[ET, SonosComponents[ET]](
         SonosComponents[ET](config.sonos, notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate), executor)
@@ -127,24 +150,13 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       remoteControls = RemoteControls
         .combined[ET](rm2RemoteControls, RemoteControls[ET](Map(config.sonos.remote -> sonosComponents.remote)))
 
-      switchStateStore <- Stream
-        .resource[ET, SwitchStateStore[ET]](
-          FileSwitchStateStore.polling(
-            config.stores.switchStateStore,
-            config.stores.switchStatePolling,
-            executor,
-            notifyUpdate(buttonsUpdate, remotesUpdate)
-          )
+      switchStateStore <- Stream.eval(
+        SwitchDependentStore.fromProvider[ET](
+          config.rm.flatMap(c => c.dependentSwitch.map(c.config.name -> _)).toMap,
+          switchStateFileStore,
+          SwitchProvider.combined(hs100SwitchProvider, spSwitchProvider)
         )
-        .flatMap { state =>
-          Stream.eval(
-            SwitchDependentStore.fromProvider[ET](
-              config.rm2.flatMap(c => c.dependentSwitch.map(c.config.name -> _)).toMap,
-              state,
-              hs100SwitchProvider
-            )
-          )
-        }
+      )
 
       virtualSwitches <- Stream.resource[ET, SwitchProvider[ET]](
         SwitchesForRemote.polling(
@@ -156,7 +168,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       )
 
       combinedSwitchProvider = SwitchProvider
-        .combined[ET](hs100SwitchProvider, sonosComponents.switches, virtualSwitches)
+        .combined[ET](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
 
       switches = new Switches[ET](combinedSwitchProvider)
       macros = new Macro[ET](macroStore, remoteControls, switches)

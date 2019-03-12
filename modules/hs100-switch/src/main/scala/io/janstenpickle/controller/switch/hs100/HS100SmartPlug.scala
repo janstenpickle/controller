@@ -33,7 +33,7 @@ class HS100SmartPlug[F[_]](config: HS100SmartPlug.Config, ec: ExecutionContext)(
   def getInfo: F[Json] = eval(sendCommand(InfoCommand))
 
   override def name: NonEmptyString = config.name
-  override val device: NonEmptyString = NonEmptyString("hs100")
+  override val device: NonEmptyString = NonEmptyString("HS100")
 
   override def getState: F[State] =
     getInfo.flatMap { json =>

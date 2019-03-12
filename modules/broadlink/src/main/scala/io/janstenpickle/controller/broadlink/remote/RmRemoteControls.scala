@@ -1,12 +1,12 @@
-package io.janstenpickle.controller.remote.rm2
+package io.janstenpickle.controller.broadlink.remote
 
 import cats.effect.{ContextShift, Sync, Timer}
-import io.janstenpickle.controller.model.CommandPayload
-import io.janstenpickle.controller.store.RemoteCommandStore
-import cats.syntax.traverse._
 import cats.instances.list._
 import cats.syntax.functor._
+import cats.syntax.traverse._
+import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors, RemoteControls}
+import io.janstenpickle.controller.store.RemoteCommandStore
 
 import scala.concurrent.ExecutionContext
 

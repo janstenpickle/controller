@@ -63,7 +63,7 @@ lazy val root = (project in file("."))
   .aggregate(
     model,
     remote,
-    rm2Remote,
+    broadlink,
     store,
     fileStore,
     remoteControl,
@@ -96,7 +96,7 @@ lazy val api = (project in file("modules/api"))
   )
   .dependsOn(
     hs100Switch,
-    rm2Remote,
+    broadlink,
     fileStore,
     remoteControl,
     extruderConfigSource,
@@ -156,17 +156,17 @@ lazy val remote = (project in file("modules/remote"))
   .settings(name := "controller-remote")
   .dependsOn(model)
 
-lazy val rm2Remote = (project in file("modules/rm2-remote"))
+lazy val broadlink = (project in file("modules/broadlink"))
   .settings(commonSettings)
   .settings(
-    name := "controller-rm2-remote",
+    name := "controller-broadlink",
     libraryDependencies ++= Seq(
       "com.github.mob41.blapi" % "broadlink-java-api" % "1.0.1",
       "javax.xml.bind"         % "jaxb-api"           % "2.3.0",
       "eu.timepit"             %% "refined"           % refinedVer
     )
   )
-  .dependsOn(remote, remoteControl, catsEffect)
+  .dependsOn(remote, switch, remoteControl, catsEffect, pollingSwitch)
 
 lazy val switch = (project in file("modules/switch"))
   .settings(commonSettings)

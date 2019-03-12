@@ -10,9 +10,10 @@ import eu.timepit.refined.types.net.PortNumber
 import extruder.core.{ExtruderErrors, Parser}
 import extruder.typesafe._
 import extruder.refined._
+import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig
+import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.model.Room
-import io.janstenpickle.controller.remote.rm2.{RmRemote, RmRemoteConfig}
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.store.file.{
   FileActivityStore,
@@ -29,10 +30,11 @@ import scala.util.Try
 
 object Configuration {
   case class Config(
-    rm2: List[Rm],
+    rm: List[Rm],
     stores: Stores,
     virtualSwitch: SwitchesForRemote.PollingConfig,
     hs100: HS100,
+    sp: Sp,
     sonos: SonosComponents.Config,
     config: ConfigData,
     server: Server,
@@ -60,6 +62,7 @@ object Configuration {
   )
 
   case class HS100(configs: List[HS100SmartPlug.Config], polling: HS100SmartPlug.PollingConfig)
+  case class Sp(configs: List[SpSwitchConfig], polling: SpSwitch.PollingConfig)
 
   case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8090))
 

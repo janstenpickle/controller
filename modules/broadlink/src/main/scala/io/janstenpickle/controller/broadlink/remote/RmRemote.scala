@@ -1,23 +1,20 @@
-package io.janstenpickle.controller.remote.rm2
+package io.janstenpickle.controller.broadlink.remote
 
 import cats.effect.{ContextShift, Resource, Sync, Timer}
+import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.github.mob41.blapi.RM2Device
-import com.github.mob41.blapi.mac.Mac
 import com.github.mob41.blapi.pkt.cmd.rm2.SendDataCmdPayload
-import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
-import eu.timepit.refined._
-import io.janstenpickle.catseffect.CatsEffect._
+import io.janstenpickle.catseffect.CatsEffect.{cachedExecutorResource, evalOn, suspendErrors, suspendErrorsEvalOn}
+import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig.{Mini3, RM2}
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remote.Remote
+import javax.xml.bind.DatatypeConverter
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
-import cats.syntax.apply._
-import io.janstenpickle.controller.remote.rm2.RmRemoteConfig.{Mini3, Rm2}
-import javax.xml.bind.DatatypeConverter
 
 object RmRemote {
   def apply[F[_]: Sync: ContextShift: Timer](config: RmRemoteConfig): Resource[F, Remote[F, CommandPayload]] =
@@ -30,7 +27,7 @@ object RmRemote {
     def suspendErrorsEval[A](fa: A): F[A] = suspendErrorsEvalOn(fa, ec)
 
     (config match {
-      case Rm2(_, host, mac, _) => suspendErrors(new RM2Device(host.value, mac))
+      case RM2(_, host, mac, _) => suspendErrors(new RM2Device(host.value, mac))
       case Mini3(_, _, _, _) =>
         F.raiseError[RM2Device](new RuntimeException("Could not create Mini 3 device - not yet supported"))
     }).map { device =>

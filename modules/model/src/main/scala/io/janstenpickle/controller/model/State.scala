@@ -20,4 +20,6 @@ object State {
     override val value: String = "off"
     override val isOn: Boolean = false
   }
+
+  def fromBoolean(boolean: Boolean): State = if (boolean) State.On else State.Off
 }
