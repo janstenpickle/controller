@@ -128,7 +128,6 @@ lazy val extruder = (project in file("modules/extruder"))
       "io.circe" %% "circe-parser"         % circeVer,
       "extruder" %% "extruder-cats-effect" % extruderVer,
       "extruder" %% "extruder-circe"       % extruderVer,
-      "extruder" %% "extruder-circe-yaml"  % extruderVer,
       "extruder" %% "extruder-refined"     % extruderVer,
       "extruder" %% "extruder-typesafe"    % extruderVer
     )
@@ -137,17 +136,7 @@ lazy val extruder = (project in file("modules/extruder"))
 
 lazy val extruderConfigSource = (project in file("modules/extruder-config-source"))
   .settings(commonSettings)
-  .settings(
-    name := "controller-extruder-config-source",
-    libraryDependencies ++= Seq(
-      "io.circe" %% "circe-parser"         % circeVer,
-      "extruder" %% "extruder-cats-effect" % extruderVer,
-      "extruder" %% "extruder-circe"       % extruderVer,
-      "extruder" %% "extruder-circe-yaml"  % extruderVer,
-      "extruder" %% "extruder-refined"     % extruderVer,
-      "extruder" %% "extruder-typesafe"    % extruderVer
-    )
-  )
+  .settings(name := "controller-extruder-config-source")
   .dependsOn(configSource, extruder)
 
 lazy val remote = (project in file("modules/remote"))
@@ -201,10 +190,11 @@ lazy val fileStore = (project in file("modules/file-store"))
   .settings(
     name := "controller-file-store",
     libraryDependencies ++= Seq(
-      "commons-io" % "commons-io"           % "2.6",
-      "extruder"   %% "extruder-circe-yaml" % extruderVer,
-      "extruder"   %% "extruder-refined"    % extruderVer,
-      "eu.timepit" %% "refined"             % refinedVer
+      "commons-io" % "commons-io"        % "2.6",
+      "io.circe"   %% "circe-parser"     % circeVer,
+      "extruder"   %% "extruder-circe"   % extruderVer,
+      "extruder"   %% "extruder-refined" % extruderVer,
+      "eu.timepit" %% "refined"          % refinedVer
     )
   )
   .dependsOn(catsEffect, store)

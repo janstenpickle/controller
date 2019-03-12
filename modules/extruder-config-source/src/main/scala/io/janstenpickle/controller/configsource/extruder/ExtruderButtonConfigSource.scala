@@ -5,7 +5,7 @@ import cats.Eq
 import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
-import io.janstenpickle.controller.model.Buttons
+import io.janstenpickle.controller.model
 import extruder.typesafe.instances._
 import extruder.circe.yaml.instances._
 import extruder.core.{Decoder, Settings}
@@ -13,6 +13,7 @@ import extruder.refined._
 import io.circe.Json
 import io.janstenpickle.controller.configsource.ButtonConfigSource
 import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.model.Buttons
 import io.janstenpickle.controller.poller.Empty
 
 import scala.concurrent.duration._
@@ -28,8 +29,8 @@ object ExtruderButtonConfigSource {
 
   def apply[F[_]: Sync](config: ConfigFileSource[F]): ButtonConfigSource[F] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Buttons, ((Config, Json), Json)] =
-      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Buttons, ((Config, Json), Json)]
+    val decoder: Decoder[EV, (Settings, CirceSettings), Buttons, (Config, Json)] =
+      Decoder[EV, (Settings, CirceSettings), Buttons, (Config, Json)]
 
     val source = ExtruderConfigSource[F, Buttons](
       config,
@@ -46,8 +47,8 @@ object ExtruderButtonConfigSource {
     onUpdate: Buttons => F[Unit]
   ): Resource[F, ButtonConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Buttons, ((Config, Json), Json)] =
-      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Buttons, ((Config, Json), Json)]
+    val decoder: Decoder[EV, (Settings, CirceSettings), Buttons, (Config, Json)] =
+      Decoder[EV, (Settings, CirceSettings), Buttons, (Config, Json)]
 
     ExtruderConfigSource
       .polling[F, Buttons](

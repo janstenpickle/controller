@@ -7,7 +7,7 @@ import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import io.janstenpickle.controller.model.Remotes
 import extruder.typesafe.instances._
-import extruder.circe.yaml.instances._
+import extruder.circe.instances._
 import extruder.core.{Decoder, Settings}
 import extruder.refined._
 import io.circe.Json
@@ -28,8 +28,8 @@ object ExtruderRemoteConfigSource {
 
   def apply[F[_]: Sync](config: ConfigFileSource[F]): RemoteConfigSource[F] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Remotes, ((Config, Json), Json)] =
-      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Remotes, ((Config, Json), Json)]
+    val decoder: Decoder[EV, (Settings, CirceSettings), Remotes, (Config, Json)] =
+      Decoder[EV, (Settings, CirceSettings), Remotes, (Config, Json)]
 
     val source = ExtruderConfigSource[F, Remotes](
       config,
@@ -46,8 +46,8 @@ object ExtruderRemoteConfigSource {
     onUpdate: Remotes => F[Unit]
   ): Resource[F, RemoteConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Remotes, ((Config, Json), Json)] =
-      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Remotes, ((Config, Json), Json)]
+    val decoder: Decoder[EV, (Settings, CirceSettings), Remotes, (Config, Json)] =
+      Decoder[EV, (Settings, CirceSettings), Remotes, (Config, Json)]
 
     ExtruderConfigSource
       .polling[F, Remotes](

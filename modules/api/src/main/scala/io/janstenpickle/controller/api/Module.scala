@@ -7,7 +7,6 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 import cats.~>
-import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import fs2.Stream
@@ -23,11 +22,11 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remote.rm2.Rm2Remote
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControls}
-import io.janstenpickle.controller.sonos.{SonosComponents, SonosDevice}
+import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.store.file.{CommandSerde, FileActivityStore, FileMacroStore, FileRemoteCommandStore}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 import io.janstenpickle.controller.switch.model.SwitchKey
-import io.janstenpickle.controller.switch.{State, Switch, SwitchProvider, Switches}
+import io.janstenpickle.controller.switch.{Switch, SwitchProvider, Switches}
 
 import scala.concurrent.ExecutionContext
 

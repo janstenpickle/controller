@@ -8,7 +8,6 @@ import com.typesafe.config.{Config => TConfig}
 import eu.timepit.refined.types.numeric.PosInt
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
-import extruder.circe.yaml.instances._
 import extruder.core.{Decoder, Settings}
 import extruder.data.ValidationErrors
 import extruder.typesafe._
@@ -24,20 +23,12 @@ object ExtruderConfigSource {
     configFile: ConfigFileSource[F],
     pollError: (A, Option[Throwable]) => A,
     extruderError: (A, ValidationErrors) => A
-  )(
-    implicit decoder: Decoder[
-      EffectValidation[F, ?],
-      ((Settings, CirceSettings), CirceSettings),
-      A,
-      ((TConfig, Json), Json)
-    ]
-  ): A => F[A] = {
+  )(implicit decoder: Decoder[EffectValidation[F, ?], (Settings, CirceSettings), A, (TConfig, Json)]): A => F[A] = {
     type EV[X] = EffectValidation[F, X]
     current =>
       configFile.configs.flatMap { configs =>
         decodeF[EV, A]
-          .combine(extruder.circe.yaml.datasource)
-          .combine(extruder.circe.datasource)(((configs.typesafe, configs.yaml), configs.json))
+          .combine(extruder.circe.datasource)((configs.typesafe, configs.json))
           .map(pollError(_, configs.error))
           .value
           .map {
@@ -52,12 +43,7 @@ object ExtruderConfigSource {
     configSourceError: (A, Option[Throwable]) => A,
     extruderError: (A, ValidationErrors) => A
   )(
-    implicit decoder: Decoder[
-      EffectValidation[F, ?],
-      ((Settings, CirceSettings), CirceSettings),
-      A,
-      ((TConfig, Json), Json)
-    ],
+    implicit decoder: Decoder[EffectValidation[F, ?], (Settings, CirceSettings), A, (TConfig, Json)],
     empty: Empty[A]
   ): () => F[A] =
     () => make(configFileSource, configSourceError, extruderError).apply(empty.empty)
@@ -70,7 +56,7 @@ object ExtruderConfigSource {
     onUpdate: A => F[Unit]
   )(
     implicit F: Concurrent[F],
-    decoder: Decoder[EffectValidation[F, ?], ((Settings, CirceSettings), CirceSettings), A, ((TConfig, Json), Json)]
+    decoder: Decoder[EffectValidation[F, ?], (Settings, CirceSettings), A, (TConfig, Json)]
   ): Resource[F, () => F[A]] = {
     val source = make[F, A](configFileSource, pollError, extruderError)
 

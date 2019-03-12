@@ -6,7 +6,7 @@ import com.typesafe.config.Config
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.typesafe.instances._
-import extruder.circe.yaml.instances._
+import extruder.circe.instances._
 import extruder.core.{Decoder, Settings}
 import extruder.refined._
 import io.circe.Json
@@ -29,8 +29,8 @@ object ExtruderActivityConfigSource {
 
   def apply[F[_]: Sync](config: ConfigFileSource[F]): ActivityConfigSource[F] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
-      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)]
+    val decoder: Decoder[EV, (Settings, CirceSettings), Activities, (Config, Json)] =
+      Decoder[EV, (Settings, CirceSettings), Activities, (Config, Json)]
 
     val source = ExtruderConfigSource[F, Activities](
       config,
@@ -47,8 +47,8 @@ object ExtruderActivityConfigSource {
     onUpdate: Activities => F[Unit]
   ): Resource[F, ActivityConfigSource[F]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)] =
-      Decoder[EV, ((Settings, CirceSettings), CirceSettings), Activities, ((Config, Json), Json)]
+    val decoder: Decoder[EV, (Settings, CirceSettings), Activities, (Config, Json)] =
+      Decoder[EV, (Settings, CirceSettings), Activities, (Config, Json)]
 
     ExtruderConfigSource
       .polling[F, Activities](

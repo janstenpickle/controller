@@ -11,7 +11,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 case class Activity(
   name: NonEmptyString,
   label: NonEmptyString,
-  contextButtons: List[ContextButtonMapping],
+  contextButtons: List[ContextButtonMapping] = List.empty,
   isActive: Option[Boolean],
   room: NonEmptyString = DefaultRoom
 )

@@ -24,7 +24,7 @@ trait ConfigFileSource[F[_]] {
 }
 
 object ConfigFileSource {
-  case class ConfigFiles(typesafe: Config, yaml: String, json: Json, error: Option[Throwable] = None)
+  case class ConfigFiles(typesafe: Config, json: Json, error: Option[Throwable] = None)
 
   implicit val configFilesEq: Eq[ConfigFiles] = Eq.by(_ => true)
 
@@ -45,11 +45,6 @@ object ConfigFileSource {
         case Some(conf) => suspendErrors(ConfigFactory.parseString(conf))
       }
 
-      def yaml: F[String] = loadFile("yaml").map {
-        case None => "---"
-        case Some(yaml) => yaml
-      }
-
       def json: F[Json] = loadFile("json").flatMap {
         case None => Json.Null.pure
         case Some(json) => F.fromEither(parser.parse(json))
@@ -58,12 +53,11 @@ object ConfigFileSource {
       override def configs: F[ConfigFiles] =
         for {
           c <- tConfig
-          y <- yaml
           j <- json
-        } yield ConfigFiles(c, y, j)
+        } yield ConfigFiles(c, j)
     }
 
-  implicit val configEmpty: Empty[ConfigFiles] = Empty(ConfigFiles(ConfigFactory.empty(), "---", Json.Null))
+  implicit val configEmpty: Empty[ConfigFiles] = Empty(ConfigFiles(ConfigFactory.empty(), Json.Null))
 
   def polling[F[_]: ContextShift: Timer](configFile: Path, pollInterval: FiniteDuration, ec: ExecutionContext)(
     implicit F: Concurrent[F]

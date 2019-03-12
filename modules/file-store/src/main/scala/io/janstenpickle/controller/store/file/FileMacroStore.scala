@@ -9,11 +9,12 @@ import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.circe.yaml._
+import extruder.circe._
 import extruder.refined._
 import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.model.Command
 import io.janstenpickle.controller.store.MacroStore
+import io.circe.parser
 import org.apache.commons.io.{FileUtils, FilenameUtils}
 import cats.syntax.traverse._
 import cats.instances.list._
@@ -23,7 +24,6 @@ import cats.syntax.either._
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
-import scala.collection.JavaConverters._
 
 object FileMacroStore {
   case class Config(location: Path, timeout: FiniteDuration = 1.second)
@@ -45,14 +45,14 @@ object FileMacroStore {
             _ <- semaphore.release
           } yield result)
 
-        private def makePath(name: NonEmptyString) = Paths.get(config.location.toString, s"${name.value}.yaml")
+        private def makePath(name: NonEmptyString) = Paths.get(config.location.toString, s"${name.value}.json")
 
         override def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] = {
           lazy val file = makePath(name)
 
           evalMutex(for {
             _ <- suspendErrors(FileUtils.forceMkdirParent(file.toFile))
-            m <- encodeF[F](commands)
+            m <- encodeF[F](commands).map(_.spaces2)
             _ <- suspendErrors(Files.write(file, m.getBytes))
           } yield ())
         }
@@ -62,7 +62,8 @@ object FileMacroStore {
 
           lazy val load: F[Option[NonEmptyList[Command]]] = for {
             data <- suspendErrors(new String(Files.readAllBytes(file)))
-            m <- decodeF[F, NonEmptyList[Command]](data)
+            json <- F.fromEither(parser.parse(data))
+            m <- decodeF[F, NonEmptyList[Command]](json)
           } yield Some(m)
 
           eval(suspendErrors(Files.exists(file)).flatMap {
