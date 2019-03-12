@@ -166,7 +166,7 @@ lazy val rm2Remote = (project in file("modules/rm2-remote"))
       "eu.timepit"             %% "refined"           % refinedVer
     )
   )
-  .dependsOn(remote, catsEffect)
+  .dependsOn(remote, remoteControl, catsEffect)
 
 lazy val switch = (project in file("modules/switch"))
   .settings(commonSettings)

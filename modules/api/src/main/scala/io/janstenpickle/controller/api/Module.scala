@@ -20,15 +20,14 @@ import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
-import io.janstenpickle.controller.remote.rm2.Rm2Remote
-import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControls}
+import io.janstenpickle.controller.remote.rm2.RmRemoteControls
+import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.store.file._
-import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
-import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
-import io.janstenpickle.controller.switch.{Switch, SwitchProvider, Switches}
+import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
 
 import scala.concurrent.ExecutionContext
 
@@ -108,16 +107,15 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       commandStore <- Stream.eval(
         FileRemoteCommandStore[ET, CommandPayload](config.stores.remoteCommandStore, executor)
       )
-      rm2 <- Stream.eval(Rm2Remote[ET](config.rm2, executor))
-      hs100 <- Stream
-        .resource[ET, Switch[ET]](
-          HS100SmartPlug
-            .polling[ET](
-              config.hs100.config,
-              config.hs100.polling,
-              notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate),
-              executor
-            )
+      rm2RemoteControls <- Stream.eval(RmRemoteControls[ET](config.rm2.map(_.config), commandStore, executor))
+      hs100SwitchProvider <- Stream
+        .resource[ET, SwitchProvider[ET]](
+          HS100SwitchProvider[ET](
+            config.hs100.configs,
+            config.hs100.polling,
+            notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate),
+            executor
+          )
         )
 
       sonosComponents <- Stream.resource[ET, SonosComponents[ET]](
@@ -126,12 +124,8 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
 
       combinedActivityConfig = ActivityConfigSource.combined[ET](activityConfig, sonosComponents.activityConfig)
       combinedRemoteConfig = RemoteConfigSource.combined[ET](sonosComponents.remoteConfig, remoteConfig)
-      remoteControls = RemoteControls[ET](
-        Map(
-          config.rm2.name -> RemoteControl[ET, CommandPayload](rm2, commandStore),
-          config.sonos.remote -> sonosComponents.remote
-        )
-      )
+      remoteControls = RemoteControls
+        .combined[ET](rm2RemoteControls, RemoteControls[ET](Map(config.sonos.remote -> sonosComponents.remote)))
 
       switchStateStore <- Stream
         .resource[ET, SwitchStateStore[ET]](
@@ -142,27 +136,39 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
             notifyUpdate(buttonsUpdate, remotesUpdate)
           )
         )
-        .map(SwitchDependentStore[ET](_, hs100))
+        .flatMap { state =>
+          Stream.eval(
+            SwitchDependentStore.fromProvider[ET](
+              config.rm2.flatMap(c => c.dependentSwitch.map(c.config.name -> _)).toMap,
+              state,
+              hs100SwitchProvider
+            )
+          )
+        }
 
       virtualSwitches <- Stream.resource[ET, SwitchProvider[ET]](
         SwitchesForRemote.polling(
           config.virtualSwitch,
-          RemoteControls[ET](Map(config.rm2.name -> RemoteControl[ET, CommandPayload](rm2, commandStore))),
+          rm2RemoteControls,
           switchStateStore,
           notifyUpdate(buttonsUpdate, remotesUpdate)
         )
       )
 
       combinedSwitchProvider = SwitchProvider
-        .combined[ET](
-          SwitchProvider[ET](Map(SwitchKey(hs100.device, config.hs100.config.name) -> hs100)),
-          sonosComponents.switches,
-          virtualSwitches
-        )
+        .combined[ET](hs100SwitchProvider, sonosComponents.switches, virtualSwitches)
 
       switches = new Switches[ET](combinedSwitchProvider)
       macros = new Macro[ET](macroStore, remoteControls, switches)
-      activity = Activity.dependsOnSwitch[ET](hs100, activityStore, macros, notifyUpdate(activitiesUpdate))
+      activity <- Stream.eval(
+        Activity.dependsOnSwitch[ET](
+          config.activity.dependentSwitches,
+          hs100SwitchProvider,
+          activityStore,
+          macros,
+          notifyUpdate(activitiesUpdate)
+        )
+      )
       configView = new ConfigView(
         combinedActivityConfig,
         buttonConfig,
