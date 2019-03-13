@@ -5,6 +5,7 @@ val catsVer = "1.6.0"
 val catsEffectVer = "1.2.0"
 val circeVer = "0.11.1"
 val extruderVer = "0.10.0"
+val fs2Ver = "1.0.1"
 val http4sVer = "0.20.0-M6"
 val kittensVer = "1.2.1"
 val refinedVer = "0.9.4"
@@ -75,7 +76,8 @@ lazy val root = (project in file("."))
     pollingSwitch,
     switch,
     sonosClientSubmodule,
-    virtualSwitch
+    virtualSwitch,
+    stats
   )
 
 lazy val api = (project in file("modules/api"))
@@ -103,7 +105,8 @@ lazy val api = (project in file("modules/api"))
     `macro`,
     activity,
     sonos,
-    virtualSwitch
+    virtualSwitch,
+    stats
   )
 
 lazy val catsEffect = (project in file("modules/cats-effect"))
@@ -243,9 +246,17 @@ lazy val poller = (project in file("modules/poller"))
   .settings(commonSettings)
   .settings(
     name := "controller-poller",
-    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % "1.0.1", "eu.timepit" %% "refined" % refinedVer)
+    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "eu.timepit" %% "refined" % refinedVer)
   )
   .dependsOn(catsEffect)
+
+lazy val stats = (project in file("modules/stats"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-stats",
+    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "eu.timepit" %% "refined" % refinedVer)
+  )
+  .dependsOn(catsEffect, remoteControl, activity, `macro`, switch, configSource)
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)

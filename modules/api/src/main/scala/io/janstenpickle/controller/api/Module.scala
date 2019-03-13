@@ -24,6 +24,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
+import io.janstenpickle.controller.stats.{Stats, StatsStream}
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.store.file._
 import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
@@ -75,7 +76,8 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       ActivityConfigSource[ET],
       ConfigView[ET],
       ExecutionContext,
-      UpdateTopics[ET]
+      UpdateTopics[ET],
+      Stream[F, Stats]
     )
   ] =
     for {
@@ -170,8 +172,8 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       combinedSwitchProvider = SwitchProvider
         .combined[ET](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
 
-      switches = new Switches[ET](combinedSwitchProvider)
-      macros = new Macro[ET](macroStore, remoteControls, switches)
+      switches = Switches[ET](combinedSwitchProvider)
+      macros = Macro[ET](macroStore, remoteControls, switches)
       activity <- Stream.eval(
         Activity.dependsOnSwitch[ET](
           config.activity.dependentSwitches,
@@ -181,6 +183,22 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
           notifyUpdate(activitiesUpdate)
         )
       )
+
+      instrumentation <- Stream.resource[ET, StatsStream.Instrumented[ET]](
+        StatsStream[ET](
+          config.stats,
+          activity,
+          macros,
+          remoteControls,
+          switches,
+          combinedActivityConfig,
+          buttonConfig,
+          macroStore,
+          remoteConfig,
+          combinedSwitchProvider
+        )
+      )
+
       configView = new ConfigView(
         combinedActivityConfig,
         buttonConfig,
@@ -192,13 +210,14 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
     } yield
       (
         config.server,
-        activity,
-        macros,
-        remoteControls,
-        switches,
+        instrumentation.activity,
+        instrumentation.`macro`,
+        instrumentation.remote,
+        instrumentation.switch,
         combinedActivityConfig,
         configView,
         executor,
-        UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
+        UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate),
+        instrumentation.statsStream.translate(translateF)
       )
 }

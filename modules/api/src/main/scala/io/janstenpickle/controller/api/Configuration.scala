@@ -15,6 +15,7 @@ import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.sonos.SonosComponents
+import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.store.file.{
   FileActivityStore,
   FileMacroStore,
@@ -38,7 +39,8 @@ object Configuration {
     sonos: SonosComponents.Config,
     config: ConfigData,
     server: Server,
-    activity: Activity
+    activity: Activity,
+    stats: StatsStream.Config
   )
 
   case class Rm(config: RmRemoteConfig, dependentSwitch: Option[SwitchKey])
@@ -61,8 +63,8 @@ object Configuration {
     remote: ExtruderRemoteConfigSource.PollingConfig
   )
 
-  case class HS100(configs: List[HS100SmartPlug.Config], polling: HS100SmartPlug.PollingConfig)
-  case class Sp(configs: List[SpSwitchConfig], polling: SpSwitch.PollingConfig)
+  case class HS100(configs: List[HS100SmartPlug.Config] = List.empty, polling: HS100SmartPlug.PollingConfig)
+  case class Sp(configs: List[SpSwitchConfig] = List.empty, polling: SpSwitch.PollingConfig)
 
   case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8090))
 

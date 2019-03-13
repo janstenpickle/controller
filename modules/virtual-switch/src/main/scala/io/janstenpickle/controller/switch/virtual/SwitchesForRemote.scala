@@ -50,15 +50,15 @@ object SwitchesForRemote {
     }.toMap)
 
   def polling[F[_]: Concurrent: Timer](
-    config: PollingConfig,
+    pollingConfig: PollingConfig,
     remotes: RemoteControls[F],
     state: SwitchStateStore[F],
     onUpdate: Map[SwitchKey, Switch[F]] => F[Unit]
   ): Resource[F, SwitchProvider[F]] =
     DataPoller[F, Map[SwitchKey, Switch[F]], SwitchProvider[F]](
       (_: Data[Map[SwitchKey, Switch[F]]]) => make(remotes, state),
-      config.pollInterval,
-      config.errorThreshold,
+      pollingConfig.pollInterval,
+      pollingConfig.errorThreshold,
       onUpdate
     ) { (getData, _) =>
       new SwitchProvider[F] {

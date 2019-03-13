@@ -17,7 +17,7 @@ object Server extends IOApp {
 
 class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
   val run: Stream[F, ExitCode] = components.translate(translateF).flatMap {
-    case (server, activity, macros, remotes, switches, activityConfig, configView, ec, updateTopics) =>
+    case (server, activity, macros, remotes, switches, activityConfig, configView, ec, updateTopics, statsStream) =>
       val corsConfig = CORSConfig(anyOrigin = true, allowCredentials = false, maxAge = 1.day.toSeconds)
 
       val router = Router(
@@ -33,5 +33,6 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
         .bindHttp(server.port.value, server.host.value)
         .withHttpApp(CORS(router.orNotFound, corsConfig))
         .serve
+        .concurrently(statsStream.map(println))
   }
 }
