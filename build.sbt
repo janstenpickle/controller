@@ -8,6 +8,7 @@ val extruderVer = "0.10.0"
 val fs2Ver = "1.0.1"
 val http4sVer = "0.20.0-M6"
 val kittensVer = "1.2.1"
+val prometheusVer = "0.6.0"
 val refinedVer = "0.9.4"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
@@ -77,7 +78,8 @@ lazy val root = (project in file("."))
     switch,
     sonosClientSubmodule,
     virtualSwitch,
-    stats
+    stats,
+    prometheusStats
   )
 
 lazy val api = (project in file("modules/api"))
@@ -106,7 +108,8 @@ lazy val api = (project in file("modules/api"))
     activity,
     sonos,
     virtualSwitch,
-    stats
+    stats,
+    prometheusStats
   )
 
 lazy val catsEffect = (project in file("modules/cats-effect"))
@@ -263,12 +266,13 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   .settings(
     name := "controller-prometheus-stats",
     libraryDependencies ++= Seq(
-      "io.prometheus" % "simpleclient" % "0.6.0",
-      "org.http4s"    %% "http4s-core" % http4sVer,
-      "org.http4s"    %% "http4s-dsl"  % http4sVer
+      "io.prometheus" % "simpleclient"        % prometheusVer,
+      "io.prometheus" % "simpleclient_common" % prometheusVer,
+      "org.http4s"    %% "http4s-core"        % http4sVer,
+      "org.http4s"    %% "http4s-dsl"         % http4sVer
     )
   )
-  .dependsOn(stats)
+  .dependsOn(stats, catsEffect)
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)

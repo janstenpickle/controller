@@ -93,25 +93,43 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       buttonsUpdate <- Stream.eval(Topic[ET, Boolean](false))
       remotesUpdate <- Stream.eval(Topic[ET, Boolean](false))
       roomsUpdate <- Stream.eval(Topic[ET, Boolean](false))
+      statsSwitchUpdate <- Stream.eval(Topic[ET, Boolean](false))
+      statsConfigUpdate <- Stream.eval(Topic[ET, Boolean](false))
 
       configFileSource <- Stream.resource[ET, ConfigFileSource[ET]](
         ConfigFileSource.polling[ET](config.config.file, config.config.pollInterval, executor)
       )
       activityConfig <- Stream.resource[ET, ActivityConfigSource[ET]](
         ExtruderActivityConfigSource
-          .polling[ET](configFileSource, config.config.activity, notifyUpdate(activitiesUpdate, roomsUpdate))
+          .polling[ET](
+            configFileSource,
+            config.config.activity,
+            notifyUpdate(activitiesUpdate, roomsUpdate, statsConfigUpdate)
+          )
       )
       buttonConfig <- Stream.resource[ET, ButtonConfigSource[ET]](
         ExtruderButtonConfigSource
-          .polling[ET](configFileSource, config.config.button, notifyUpdate(buttonsUpdate, roomsUpdate))
+          .polling[ET](
+            configFileSource,
+            config.config.button,
+            notifyUpdate(buttonsUpdate, roomsUpdate, statsConfigUpdate)
+          )
       )
       remoteConfig <- Stream.resource[ET, RemoteConfigSource[ET]](
         ExtruderRemoteConfigSource
-          .polling[ET](configFileSource, config.config.remote, notifyUpdate(remotesUpdate, roomsUpdate))
+          .polling[ET](
+            configFileSource,
+            config.config.remote,
+            notifyUpdate(remotesUpdate, roomsUpdate, statsConfigUpdate)
+          )
       )
       virtualSwitchConfig <- Stream.resource[ET, VirtualSwitchConfigSource[ET]](
         ExtruderVirtualSwitchConfigSource
-          .polling[ET](configFileSource, config.config.virtualSwitch, notifyUpdate(remotesUpdate, roomsUpdate))
+          .polling[ET](
+            configFileSource,
+            config.config.virtualSwitch,
+            notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+          )
       )
 
       activityStore <- Stream.eval(FileActivityStore[ET](config.stores.activityStore, executor))
@@ -122,11 +140,11 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
 
       switchStateFileStore <- Stream
         .resource[ET, SwitchStateStore[ET]](
-          FileSwitchStateStore.polling(
+          FileSwitchStateStore.polling[ET](
             config.stores.switchStateStore,
             config.stores.switchStatePolling,
             executor,
-            notifyUpdate(buttonsUpdate, remotesUpdate)
+            notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
           )
         )
 
@@ -137,7 +155,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
           HS100SwitchProvider[ET](
             config.hs100.configs,
             config.hs100.polling,
-            notifyUpdate(buttonsUpdate, remotesUpdate),
+            notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate),
             executor
           )
         )
@@ -148,12 +166,16 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
           config.sp.polling,
           switchStateFileStore,
           executor,
-          notifyUpdate(buttonsUpdate, remotesUpdate)
+          notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
         )
       )
 
       sonosComponents <- Stream.resource[ET, SonosComponents[ET]](
-        SonosComponents[ET](config.sonos, notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate), executor)
+        SonosComponents[ET](
+          config.sonos,
+          notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate),
+          executor
+        )
       )
 
       combinedActivityConfig = ActivityConfigSource.combined[ET](activityConfig, sonosComponents.activityConfig)
@@ -170,12 +192,12 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       )
 
       virtualSwitches <- Stream.resource[ET, SwitchProvider[ET]](
-        SwitchesForRemote.polling(
+        SwitchesForRemote.polling[ET](
           config.virtualSwitch,
           virtualSwitchConfig,
           rm2RemoteControls,
           switchStateStore,
-          notifyUpdate(buttonsUpdate, remotesUpdate)
+          notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
         )
       )
 
@@ -206,7 +228,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
           macroStore,
           remoteConfig,
           combinedSwitchProvider
-        )
+        )(statsConfigUpdate, statsSwitchUpdate)
       )
 
       configView = new ConfigView(

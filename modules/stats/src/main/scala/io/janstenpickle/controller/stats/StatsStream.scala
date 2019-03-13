@@ -13,8 +13,8 @@ import io.janstenpickle.controller.stats.remote.{RemoteControlsStats, RemoteStat
 import io.janstenpickle.controller.stats.switch.{SwitchStatsRecorder, SwitchesPoller, SwitchesStats}
 import io.janstenpickle.controller.store.MacroStore
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
-
 import fs2.Stream
+import fs2.concurrent.Topic
 
 import scala.concurrent.duration._
 
@@ -51,7 +51,7 @@ object StatsStream {
     macros: MacroStore[F],
     remotes: RemoteConfigSource[F],
     switches: SwitchProvider[F]
-  ): Resource[F, Instrumented[F]] =
+  )(configUpdate: Topic[F, Boolean], switchUpdate: Topic[F, Boolean]): Resource[F, Instrumented[F]] =
     for {
       activityRecorder <- ActivityStatsRecorder.stream[F](config.maxQueued)
       macroRecorder <- MacroStatsRecorder.stream[F](config.maxQueued)
@@ -69,11 +69,11 @@ object StatsStream {
           .merge(macroRecorder._2)
           .merge(remoteRecorder._2)
           .merge(switchRecorder._2)
-          .merge(ActivityPoller(config.pollInterval, activities))
-          .merge(ButtonPoller(config.pollInterval, buttons))
-          .merge(MacroPoller(config.pollInterval, config.parallelism, macros))
-          .merge(RemotesPoller(config.pollInterval, remotes))
-          .merge(SwitchesPoller(config.pollInterval, config.parallelism, switches))
+          .merge(ActivityPoller(config.pollInterval, activities, configUpdate))
+          .merge(ButtonPoller(config.pollInterval, buttons, configUpdate))
+          .merge(MacroPoller(config.pollInterval, config.parallelism, macros, configUpdate))
+          .merge(RemotesPoller(config.pollInterval, remotes, configUpdate))
+          .merge(SwitchesPoller(config.pollInterval, config.parallelism, switches, switchUpdate))
       )
     }
 }

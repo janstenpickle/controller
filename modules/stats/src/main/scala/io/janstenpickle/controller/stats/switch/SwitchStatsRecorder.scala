@@ -22,7 +22,7 @@ object SwitchStatsRecorder {
         topic.publish1(Stats.SwitchOff(device, name))
 
       override def recordToggle(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        topic.publish1(Stats.Toggle(device, name))
+        topic.publish1(Stats.SwitchToggle(device, name))
     }
 
     StatsTopic[F](maxQueued).map {

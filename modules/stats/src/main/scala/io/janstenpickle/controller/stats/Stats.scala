@@ -13,15 +13,18 @@ object Stats {
   case object Empty extends Stats
 
   case class SetActivity(room: Room, activity: NonEmptyString) extends Stats
-  case class Activities(errorCount: Int, activityCount: Map[Room, Int], contextButtons: Map[NonEmptyString, Int])
-      extends Stats
+  case class Activities(
+    errorCount: Int,
+    activityCount: Map[Room, Int],
+    contextButtons: Map[Room, Map[NonEmptyString, Int]]
+  ) extends Stats
 
   case class SendRemoteCommand(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString) extends Stats
   case class LearnRemoteCommand(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString) extends Stats
   case class Remotes(
     errorCount: Int,
     remoteCount: Int,
-    remoteRoomActivityCount: Map[(Room, NonEmptyString), Int],
+    remoteRoomActivityCount: Map[Room, Map[NonEmptyString, Int]],
     remoteButtons: Map[NonEmptyString, Map[ButtonType, Int]]
   ) extends Stats
 
@@ -29,7 +32,7 @@ object Stats {
 
   case class SwitchOn(device: NonEmptyString, name: NonEmptyString) extends Stats
   case class SwitchOff(device: NonEmptyString, name: NonEmptyString) extends Stats
-  case class Toggle(device: NonEmptyString, name: NonEmptyString) extends Stats
+  case class SwitchToggle(device: NonEmptyString, name: NonEmptyString) extends Stats
   case class SwitchState(key: SwitchKey, state: State) extends Stats
 
   case class StoreMacro(name: NonEmptyString, commands: Map[CommandType, Int]) extends Stats
