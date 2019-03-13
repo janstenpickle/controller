@@ -24,10 +24,10 @@ import scala.util.Try
 object MetricsSink {
 
   def apply[F[_]: Concurrent: ContextShift: Timer](
+    registry: CollectorRegistry,
     ec: ExecutionContext,
     parallelism: PosInt = PosInt(2),
-    timeout: FiniteDuration = 500.millis,
-    registry: CollectorRegistry = CollectorRegistry.defaultRegistry
+    timeout: FiniteDuration = 500.millis
   ): Pipe[F, Stats, Unit] = { stream =>
     def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn[F, A](thunk, ec)
 

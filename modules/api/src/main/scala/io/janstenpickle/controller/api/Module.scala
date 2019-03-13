@@ -35,6 +35,7 @@ import io.janstenpickle.controller.store.file._
 import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
+import io.prometheus.client.CollectorRegistry
 
 import scala.concurrent.ExecutionContext
 
@@ -82,12 +83,14 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       ConfigView[ET],
       ExecutionContext,
       UpdateTopics[ET],
+      CollectorRegistry,
       Stream[F, Stats]
     )
   ] =
     for {
       config <- Stream.eval[ET, Configuration.Config](configOrError(Configuration.load[ConfigResult]))
       executor <- Stream.resource(cachedExecutorResource[ET])
+      registry <- Stream[ET, CollectorRegistry](new CollectorRegistry())
 
       activitiesUpdate <- Stream.eval(Topic[ET, Boolean](false))
       buttonsUpdate <- Stream.eval(Topic[ET, Boolean](false))
@@ -250,6 +253,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         configView,
         executor,
         UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate),
+        registry,
         instrumentation.statsStream.translate(translateF)
       )
 }

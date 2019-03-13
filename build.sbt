@@ -87,15 +87,16 @@ lazy val api = (project in file("modules/api"))
   .settings(
     name := "controller-api",
     libraryDependencies ++= Seq(
-      "extruder"       %% "extruder-cats-effect" % extruderVer,
-      "extruder"       %% "extruder-circe"       % extruderVer,
-      "extruder"       %% "extruder-refined"     % extruderVer,
-      "extruder"       %% "extruder-typesafe"    % extruderVer,
-      "ch.qos.logback" % "logback-classic"       % "1.2.3",
-      "org.http4s"     %% "http4s-blaze-server"  % http4sVer,
-      "org.http4s"     %% "http4s-circe"         % http4sVer,
-      "org.http4s"     %% "http4s-core"          % http4sVer,
-      "org.http4s"     %% "http4s-dsl"           % http4sVer
+      "extruder"       %% "extruder-cats-effect"      % extruderVer,
+      "extruder"       %% "extruder-circe"            % extruderVer,
+      "extruder"       %% "extruder-refined"          % extruderVer,
+      "extruder"       %% "extruder-typesafe"         % extruderVer,
+      "ch.qos.logback" % "logback-classic"            % "1.2.3",
+      "org.http4s"     %% "http4s-blaze-server"       % http4sVer,
+      "org.http4s"     %% "http4s-circe"              % http4sVer,
+      "org.http4s"     %% "http4s-core"               % http4sVer,
+      "org.http4s"     %% "http4s-dsl"                % http4sVer,
+      "org.http4s"     %% "http4s-prometheus-metrics" % http4sVer
     )
   )
   .dependsOn(
