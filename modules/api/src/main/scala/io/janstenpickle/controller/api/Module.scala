@@ -19,7 +19,12 @@ import io.janstenpickle.controller.api.view.ConfigView
 import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
 import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
 import io.janstenpickle.controller.configsource.extruder._
-import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
+import io.janstenpickle.controller.configsource.{
+  ActivityConfigSource,
+  ButtonConfigSource,
+  RemoteConfigSource,
+  VirtualSwitchConfigSource
+}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.remotecontrol.RemoteControls
@@ -104,6 +109,10 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         ExtruderRemoteConfigSource
           .polling[ET](configFileSource, config.config.remote, notifyUpdate(remotesUpdate, roomsUpdate))
       )
+      virtualSwitchConfig <- Stream.resource[ET, VirtualSwitchConfigSource[ET]](
+        ExtruderVirtualSwitchConfigSource
+          .polling[ET](configFileSource, config.config.virtualSwitch, notifyUpdate(remotesUpdate, roomsUpdate))
+      )
 
       activityStore <- Stream.eval(FileActivityStore[ET](config.stores.activityStore, executor))
       macroStore <- Stream.eval(FileMacroStore[ET](config.stores.macroStore, executor))
@@ -163,6 +172,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       virtualSwitches <- Stream.resource[ET, SwitchProvider[ET]](
         SwitchesForRemote.polling(
           config.virtualSwitch,
+          virtualSwitchConfig,
           rm2RemoteControls,
           switchStateStore,
           notifyUpdate(buttonsUpdate, remotesUpdate)

@@ -60,7 +60,8 @@ object Configuration {
     pollInterval: FiniteDuration = 10.seconds,
     activity: ExtruderActivityConfigSource.PollingConfig,
     button: ExtruderButtonConfigSource.PollingConfig,
-    remote: ExtruderRemoteConfigSource.PollingConfig
+    remote: ExtruderRemoteConfigSource.PollingConfig,
+    virtualSwitch: ExtruderVirtualSwitchConfigSource.PollingConfig
   )
 
   case class HS100(configs: List[HS100SmartPlug.Config] = List.empty, polling: HS100SmartPlug.PollingConfig)

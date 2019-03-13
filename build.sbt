@@ -203,7 +203,7 @@ lazy val hs100Switch = (project in file("modules/hs100-switch"))
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
   .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(store, catsEffect, pollingSwitch, remoteControl)
+  .dependsOn(store, configSource, catsEffect, pollingSwitch, remoteControl)
 
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)
@@ -257,6 +257,18 @@ lazy val stats = (project in file("modules/stats"))
     libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "eu.timepit" %% "refined" % refinedVer)
   )
   .dependsOn(catsEffect, remoteControl, activity, `macro`, switch, configSource)
+
+lazy val prometheusStats = (project in file("modules/prometheus-stats"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-prometheus-stats",
+    libraryDependencies ++= Seq(
+      "io.prometheus" % "simpleclient" % "0.6.0",
+      "org.http4s"    %% "http4s-core" % http4sVer,
+      "org.http4s"    %% "http4s-dsl"  % http4sVer
+    )
+  )
+  .dependsOn(stats)
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)
