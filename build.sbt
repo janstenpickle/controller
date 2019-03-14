@@ -10,6 +10,7 @@ val http4sVer = "0.20.0-M6"
 val kittensVer = "1.2.1"
 val prometheusVer = "0.6.0"
 val refinedVer = "0.9.4"
+val scalaCacheVer = "0.27.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.0.5"
@@ -277,7 +278,13 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)
-  .settings(name := "controller-sonos")
+  .settings(
+    name := "controller-sonos",
+    libraryDependencies ++= Seq(
+      "com.github.cb372" %% "scalacache-cache2k"     % scalaCacheVer,
+      "com.github.cb372" %% "scalacache-cats-effect" % scalaCacheVer
+    )
+  )
   .dependsOn(sonosClientSubmodule, remoteControl, switch, configSource, poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))

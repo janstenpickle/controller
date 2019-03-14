@@ -1,11 +1,13 @@
 package io.janstenpickle.controller.sonos
 
 import cats.Applicative
-import cats.effect.{ContextShift, Sync}
+import cats.effect.{Concurrent, ContextShift, Sync, Timer}
+import cats.effect.syntax.concurrent._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 import cats.instances.list._
+import cats.syntax.apply._
 import com.vmichalak.sonoscontroller
 import com.vmichalak.sonoscontroller.model.PlayState
 import eu.timepit.refined.types.string.NonEmptyString
@@ -13,9 +15,9 @@ import io.janstenpickle.catseffect.CatsEffect.suspendErrorsEvalOn
 
 import scala.concurrent.ExecutionContext
 import scala.collection.JavaConverters._
+import scala.concurrent.duration.FiniteDuration
 
 trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
-  protected[sonos] def comparableString: String
   def label: NonEmptyString
   def isPlaying: F[Boolean]
   def nowPlaying: F[Option[NowPlaying]]
@@ -26,7 +28,7 @@ trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
 }
 
 object SonosDevice { outer =>
-  private[sonos] def isPlaying[F[_]: Sync: ContextShift](
+  private def isPlaying[F[_]: Sync: ContextShift](
     device: sonoscontroller.SonosDevice,
     ec: ExecutionContext
   ): F[Boolean] =
@@ -36,7 +38,7 @@ object SonosDevice { outer =>
       case _ => false
     }
 
-  private[sonos] def nowPlaying[F[_]: Sync: ContextShift](
+  private def nowPlaying[F[_]: Sync: ContextShift](
     device: sonoscontroller.SonosDevice,
     ec: ExecutionContext
   ): F[Option[NowPlaying]] =
@@ -47,15 +49,15 @@ object SonosDevice { outer =>
       } yield NowPlaying(track, artist)
     }
 
-  implicit def apply[F[_]: ContextShift](
+  implicit def apply[F[_]: ContextShift: Timer](
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
-    _isPlaying: Boolean,
-    _nowPlaying: Option[NowPlaying],
     underlying: sonoscontroller.SonosDevice,
     others: List[sonoscontroller.SonosDevice],
-    ec: ExecutionContext
-  )(implicit F: Sync[F]): SonosDevice[F] = {
+    commandTimeout: FiniteDuration,
+    ec: ExecutionContext,
+    onUpdate: () => F[Unit]
+  )(implicit F: Concurrent[F]): SonosDevice[F] = {
     def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
 
     def masterUid: F[Option[String]] =
@@ -71,26 +73,27 @@ object SonosDevice { outer =>
 
     new SonosDevice[F] {
       override def applicative: Applicative[F] = Applicative[F]
-      override protected[sonos] def comparableString: String = s"$formattedName$nonEmptyName${_isPlaying}${_nowPlaying}"
       override def name: NonEmptyString = formattedName
       override def label: NonEmptyString = nonEmptyName
       override def play: F[Unit] =
-        for {
+        (for {
           grouped <- isGrouped
           _ <- if (grouped) suspendErrorsEval(underlying.getZoneGroupState.getSonosDevicesInGroup.asScala.collect {
             case device if device.isCoordinator => device.play()
           }).void
           else suspendErrorsEval(underlying.play())
-        } yield ()
+          _ <- onUpdate()
+        } yield ()).timeout(commandTimeout).start.void
 
       override def pause: F[Unit] =
-        for {
+        (for {
           grouped <- isGrouped
           _ <- if (grouped) suspendErrorsEval(underlying.getZoneGroupState.getSonosDevicesInGroup.asScala.collect {
             case device if device.isCoordinator => device.pause()
           }).void
           else suspendErrorsEval(underlying.pause())
-        } yield ()
+          _ <- onUpdate()
+        } yield ()).timeout(commandTimeout).start.void
 
       override def isPlaying: F[Boolean] =
         for {
@@ -113,14 +116,14 @@ object SonosDevice { outer =>
           _ <- if (vol > 0) suspendErrorsEval(underlying.setVolume(vol - 1)) else F.unit
         } yield ()
       override def mute: F[Unit] = suspendErrorsEval(underlying.switchMute())
-      override def next: F[Unit] = suspendErrorsEval(underlying.next())
-      override def previous: F[Unit] = suspendErrorsEval(underlying.previous())
+      override def next: F[Unit] = suspendErrorsEval(underlying.next()) *> onUpdate()
+      override def previous: F[Unit] = suspendErrorsEval(underlying.previous()) *> onUpdate()
       override def isController: F[Boolean] = suspendErrorsEval(underlying.isCoordinator)
       override def playPause: F[Unit] =
-        for {
+        (for {
           playing <- isPlaying
           _ <- if (playing) pause else play
-        } yield ()
+        } yield ()).timeout(commandTimeout).start.void
 
       override def nowPlaying: F[Option[NowPlaying]] = outer.nowPlaying(underlying, ec)
 
@@ -130,13 +133,13 @@ object SonosDevice { outer =>
           else
             masterUid.flatMap(_.fold(F.unit) { masterUid =>
               suspendErrorsEval(underlying.join(masterUid))
-            })
+            }) *> onUpdate()
         )
 
       override def unGroup: F[Unit] =
         for {
           isC <- isController
-          _ <- if (isC) F.unit else suspendErrorsEval(underlying.unjoin())
+          _ <- if (isC) F.unit else suspendErrorsEval(underlying.unjoin()) *> onUpdate()
         } yield ()
 
       override def isGrouped: F[Boolean] = suspendErrorsEval(underlying.isJoined)

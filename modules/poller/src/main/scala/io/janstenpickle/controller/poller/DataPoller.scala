@@ -70,7 +70,7 @@ object DataPoller {
 
     Resource[F, B](for {
       initialTime <- timeNow
-      data <- getData(Data(empty.empty, initialTime))
+      data <- getData(Data(empty.empty, initialTime)).handleError(_ => empty.empty)
       updatedTime <- timeNow
       dataRef <- Ref.of(Data(data, updatedTime))
       p <- poller(getData, pollInterval, dataRef, onUpdate)

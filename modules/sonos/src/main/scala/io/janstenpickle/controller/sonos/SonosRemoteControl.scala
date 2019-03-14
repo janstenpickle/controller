@@ -1,13 +1,13 @@
 package io.janstenpickle.controller.sonos
 
-import cats.{Applicative, MonadError}
+import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.traverse._
+import cats.{Applicative, MonadError}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.store.RemoteCommand
-import cats.syntax.traverse._
-import cats.instances.list._
 
 object SonosRemoteControl {
   def apply[F[_]](remoteName: NonEmptyString, combinedDeviceName: NonEmptyString, discovery: SonosDiscovery[F])(

@@ -25,9 +25,17 @@ trait SonosDiscovery[F[_]] {
 }
 
 object SonosDiscovery {
-  case class Polling(pollInterval: FiniteDuration = 2.seconds, errorCount: PosInt = PosInt(5))
+  case class Polling(
+    discoveryInterval: FiniteDuration = 20.seconds,
+    stateUpdateInterval: FiniteDuration = 5.seconds,
+    errorCount: PosInt = PosInt(5)
+  )
 
-  def apply[F[_]: ContextShift](ec: ExecutionContext)(implicit F: Sync[F]): SonosDiscovery[F] = {
+  def apply[F[_]: ContextShift: Timer](
+    commandTimeout: FiniteDuration,
+    ec: ExecutionContext,
+    onDeviceUpdate: () => F[Unit]
+  )(implicit F: Concurrent[F]): SonosDiscovery[F] = {
     def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
 
     def snakify(name: String) =
@@ -46,42 +54,44 @@ object SonosDiscovery {
               name <- suspendErrorsEval(device.getZoneName)
               formattedName <- F.fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
               nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
-              isPlaying <- SonosDevice.isPlaying(device, ec)
-              nowPlaying <- SonosDevice.nowPlaying(device, ec)
             } yield
               formattedName -> SonosDevice[F](
                 formattedName,
                 nonEmptyName,
-                isPlaying,
-                nowPlaying,
                 device,
                 discovered,
-                ec
+                commandTimeout,
+                ec,
+                onDeviceUpdate
               )
           }
         } yield devices.toMap
     }
   }
 
-  implicit def sonosDeviceEq[F[_]]: Eq[SonosDevice[F]] = Eq.by(_.comparableString)
+  implicit def sonosDeviceEq[F[_]]: Eq[SonosDevice[F]] = Eq.by(_.name)
   implicit val nesEq: Eq[NonEmptyString] = Eq.by(_.value)
 
   def polling[F[_]: Concurrent: ContextShift: Timer](
     config: Polling,
+    commandTimeout: FiniteDuration,
     onUpdate: Map[NonEmptyString, SonosDevice[F]] => F[Unit],
-    ec: ExecutionContext
+    ec: ExecutionContext,
+    onDeviceUpdate: () => F[Unit]
   ): Resource[F, SonosDiscovery[F]] = {
-    val discovery = SonosDiscovery[F](ec)
+    val discovery = SonosDiscovery[F](commandTimeout, ec, onDeviceUpdate)
 
     DataPoller[F, Map[NonEmptyString, SonosDevice[F]], SonosDiscovery[F]](
       (_: Data[Map[NonEmptyString, SonosDevice[F]]]) => discovery.devices,
-      config.pollInterval,
+      config.discoveryInterval,
       config.errorCount,
       onUpdate
     ) { (getData, _) =>
       new SonosDiscovery[F] {
         override def devices: F[Map[NonEmptyString, SonosDevice[F]]] = getData()
       }
+    }.flatMap { disc =>
+      SonosDeviceState[F](config.stateUpdateInterval, config.errorCount, disc, onDeviceUpdate).map(_ => disc)
     }
   }
 }

@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.sonos.config
 
-import cats.MonadError
 import cats.data.NonEmptyList
+import cats.effect.Async
 import cats.instances.list._
 import cats.syntax.either._
 import cats.syntax.flatMap._
@@ -12,14 +12,17 @@ import io.janstenpickle.controller.configsource.RemoteConfigSource
 import io.janstenpickle.controller.model.Button.{RemoteIcon, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote, Remotes}
 import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
+import scalacache.Cache
+import scalacache.CatsEffect.modes._
 
 object SonosRemoteConfigSource {
   def apply[F[_]](
     remoteName: NonEmptyString,
     activityName: NonEmptyString,
     allRooms: Boolean,
-    discovery: SonosDiscovery[F]
-  )(implicit F: MonadError[F, Throwable]): RemoteConfigSource[F] = {
+    discovery: SonosDiscovery[F],
+    cache: Cache[Remotes]
+  )(implicit F: Async[F]): RemoteConfigSource[F] = {
     def simpleTemplate(device: NonEmptyString): NonEmptyList[Button] =
       NonEmptyList.of(
         RemoteIcon(remoteName, device, Commands.Mute, NonEmptyString("volume_off"), Some(true), None, None),
@@ -51,7 +54,7 @@ object SonosRemoteConfigSource {
           Commands.PlayPause,
           if (isPlaying) NonEmptyString("pause") else NonEmptyString("play_arrow"),
           None,
-          if (isPlaying) Some(false) else Some(true),
+          Some(isPlaying),
           None
         ),
         RemoteIcon(remoteName, device, Commands.Next, NonEmptyString("fast_forward"), None, None, None)
@@ -59,37 +62,39 @@ object SonosRemoteConfigSource {
 
     new RemoteConfigSource[F] {
       override def getRemotes: F[Remotes] =
-        discovery.devices
-          .flatMap(_.values.toList.traverse { device =>
-            for {
-              isController <- device.isController
-              isGrouped <- device.isGrouped
-              buttons <- if (isController)
-                device.isPlaying.map(template(device.name, _) ++ groupTemplate(device.name, isController, isGrouped))
-              else F.pure(simpleTemplate(device.name) ++ groupTemplate(device.name, isController, isGrouped))
-              nowPlaying <- device.nowPlaying
-              remoteName <- nowPlaying match {
-                case None => F.pure(device.label)
-                case Some(np) =>
-                  F.fromEither(
-                    NonEmptyString
-                      .from(s"${device.label} (${np.title} - ${np.artist})")
-                      .leftMap(new RuntimeException(_))
+        cache.cachingForMemoizeF(s"${remoteName.value}_remotes")(None)(
+          discovery.devices
+            .flatMap(_.values.toList.traverse { device =>
+              for {
+                isController <- device.isController
+                isGrouped <- device.isGrouped
+                buttons <- if (isController)
+                  device.isPlaying.map(template(device.name, _) ++ groupTemplate(device.name, isController, isGrouped))
+                else F.pure(simpleTemplate(device.name) ++ groupTemplate(device.name, isController, isGrouped))
+                nowPlaying <- device.nowPlaying
+                remoteName <- nowPlaying match {
+                  case None => F.pure(device.label)
+                  case Some(np) =>
+                    F.fromEither(
+                      NonEmptyString
+                        .from(s"${device.label} (${np.title} - ${np.artist})")
+                        .leftMap(new RuntimeException(_))
+                    )
+                }
+              } yield
+                (
+                  isController,
+                  Remote(
+                    remoteName,
+                    buttons,
+                    List(activityName),
+                    if (allRooms) List.empty
+                    else List(remoteName)
                   )
-              }
-            } yield
-              (
-                isController,
-                Remote(
-                  remoteName,
-                  buttons,
-                  List(activityName),
-                  if (allRooms) List.empty
-                  else List(remoteName)
                 )
-              )
-          })
-          .map(remotes => Remotes(remotes.sortBy(_._2.name.value).sortBy(!_._1).map(_._2), List.empty))
+            })
+            .map(remotes => Remotes(remotes.sortBy(_._2.name.value).sortBy(!_._1).map(_._2), List.empty))
+        )
 
     }
   }

@@ -177,7 +177,8 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         SonosComponents[ET](
           config.sonos,
           notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate),
-          executor
+          executor,
+          () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
         )
       )
 
