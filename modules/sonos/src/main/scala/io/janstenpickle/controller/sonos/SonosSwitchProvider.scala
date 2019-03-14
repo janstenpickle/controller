@@ -20,7 +20,7 @@ object SonosSwitchProvider {
         discovery.devices.map(_.flatMap {
           case (_, dev) =>
             Map((SwitchKey(deviceName, dev.name), new Switch[F] {
-              private val cacheKey: String = s"${deviceName.value}_${dev.name.value}"
+              private val cacheKey: String = s"${device.value}_${name.value}"
 
               override def name: NonEmptyString = dev.name
 
@@ -33,7 +33,7 @@ object SonosSwitchProvider {
 
               override def switchOff: F[Unit] = dev.pause
             }), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_group")), new Switch[F] {
-              private val cacheKey: String = s"${deviceName.value}_${dev.name.value}"
+              private val cacheKey: String = s"${device.value}_${name.value}"
 
               override def name: NonEmptyString = dev.name
 

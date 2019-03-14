@@ -1,19 +1,13 @@
 package io.janstenpickle.controller.sonos
 
-import java.util.concurrent.TimeUnit
-
 import cats.effect.{Concurrent, ContextShift, Resource, Timer}
-import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.catseffect.CatsEffect._
+import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, RemoteConfigSource}
 import io.janstenpickle.controller.model.{Remotes, State}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
 import io.janstenpickle.controller.switch.SwitchProvider
-import org.cache2k.Cache2kBuilder
-import scalacache.CatsEffect.modes._
-import scalacache.cache2k.Cache2kCache
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -49,23 +43,10 @@ object SonosComponents {
     onUpdate: Map[NonEmptyString, SonosDevice[F]] => F[Unit],
     ec: ExecutionContext,
     onDeviceUpdate: () => F[Unit],
-  )(implicit F: Concurrent[F], errors: RemoteControlErrors[F]): Resource[F, SonosComponents[F]] = {
-    def makeCache[V](timeout: FiniteDuration, keyClass: Class[V]): Resource[F, Cache2kCache[V]] =
-      Resource.make(
-        suspendErrors(
-          Cache2kCache(
-            Cache2kBuilder
-              .of[String, V](classOf[String], keyClass)
-              .expireAfterWrite(timeout.toMillis, TimeUnit.MILLISECONDS)
-              .build()
-          )
-        )
-      )(c => F.suspend(c.close()).void)
-
+  )(implicit F: Concurrent[F], errors: RemoteControlErrors[F]): Resource[F, SonosComponents[F]] =
     for {
-      switchCache <- makeCache[State](config.switchCacheTimeout, classOf)
-
-      remotesCache <- makeCache[Remotes](config.remotesCacheTimeout, classOf)
+      switchCache <- CacheResource[F, State](config.switchCacheTimeout, classOf)
+      remotesCache <- CacheResource[F, Remotes](config.remotesCacheTimeout, classOf)
 
       discovery <- SonosDiscovery.polling[F](config.polling, config.commandTimeout, onUpdate, ec, onDeviceUpdate)
     } yield {
@@ -77,6 +58,5 @@ object SonosComponents {
 
       SonosComponents(remote, activityConfig, remoteConfig, switches)
     }
-  }
 
 }

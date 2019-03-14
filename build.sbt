@@ -276,16 +276,22 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   )
   .dependsOn(stats, catsEffect)
 
-lazy val sonos = (project in file("modules/sonos"))
+lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
   .settings(
-    name := "controller-sonos",
+    name := "controller-cache",
     libraryDependencies ++= Seq(
       "com.github.cb372" %% "scalacache-cache2k"     % scalaCacheVer,
-      "com.github.cb372" %% "scalacache-cats-effect" % scalaCacheVer
+      "com.github.cb372" %% "scalacache-cats-effect" % scalaCacheVer,
+      "io.prometheus"    % "simpleclient_hotspot"    % prometheusVer
     )
   )
-  .dependsOn(sonosClientSubmodule, remoteControl, switch, configSource, poller)
+  .dependsOn(catsEffect)
+
+lazy val sonos = (project in file("modules/sonos"))
+  .settings(commonSettings)
+  .settings(name := "controller-sonos")
+  .dependsOn(sonosClientSubmodule, cache, remoteControl, switch, configSource, poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

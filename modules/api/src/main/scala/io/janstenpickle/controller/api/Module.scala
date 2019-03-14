@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.api
 
 import cats.data.EitherT
-import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.effect.{Concurrent, ContextShift, Sync, Timer}
 import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -18,6 +18,7 @@ import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
 import io.janstenpickle.controller.api.view.ConfigView
 import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
 import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
+import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.configsource.{
   ActivityConfigSource,
@@ -91,6 +92,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       config <- Stream.eval[ET, Configuration.Config](configOrError(Configuration.load[ConfigResult]))
       executor <- Stream.resource(cachedExecutorResource[ET])
       registry <- Stream[ET, CollectorRegistry](new CollectorRegistry())
+      _ <- Stream.eval(Sync[ET].delay(registry.register(new CacheCollector())))
 
       activitiesUpdate <- Stream.eval(Topic[ET, Boolean](false))
       buttonsUpdate <- Stream.eval(Topic[ET, Boolean](false))
