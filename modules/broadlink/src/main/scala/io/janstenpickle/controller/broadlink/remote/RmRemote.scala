@@ -4,7 +4,7 @@ import cats.effect.{ContextShift, Resource, Sync, Timer}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import com.github.mob41.blapi.RM2Device
+import com.github.mob41.blapi.{BLDevice, RM2Device}
 import com.github.mob41.blapi.pkt.cmd.rm2.SendDataCmdPayload
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.catseffect.CatsEffect.{cachedExecutorResource, evalOn, suspendErrors, suspendErrorsEvalOn}
@@ -28,8 +28,8 @@ object RmRemote {
 
     (config match {
       case RM2(_, host, mac, _) => suspendErrors(new RM2Device(host.value, mac))
-      case Mini3(_, _, _, _) =>
-        F.raiseError[RM2Device](new RuntimeException("Could not create Mini 3 device - not yet supported"))
+      case Mini3(_, host, mac, _) =>
+        suspendErrors(BLDevice.createInstance(BLDevice.DEV_RM_MINI_3, host.value, mac).asInstanceOf[RM2Device])
     }).map { device =>
       new Remote[F, CommandPayload] {
         override def name: NonEmptyString = config.name

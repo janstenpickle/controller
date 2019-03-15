@@ -168,13 +168,9 @@ lazy val broadlink = (project in file("modules/broadlink"))
   .settings(commonSettings)
   .settings(
     name := "controller-broadlink",
-    libraryDependencies ++= Seq(
-      "com.github.mob41.blapi" % "broadlink-java-api" % "1.0.1",
-      "javax.xml.bind"         % "jaxb-api"           % "2.3.0",
-      "eu.timepit"             %% "refined"           % refinedVer
-    )
+    libraryDependencies ++= Seq("javax.xml.bind" % "jaxb-api" % "2.3.0", "eu.timepit" %% "refined" % refinedVer)
   )
-  .dependsOn(remote, switch, remoteControl, catsEffect, pollingSwitch)
+  .dependsOn(broadlinkApiSubmodule, remote, switch, remoteControl, catsEffect, pollingSwitch)
 
 lazy val switch = (project in file("modules/switch"))
   .settings(commonSettings)
@@ -312,3 +308,16 @@ lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
 lazy val ssdpClientSubmodule = (project in file("submodules/sonos-controller/lib/ssdp-client"))
   .settings(commonSettings)
   .settings(organization := "com.vmichalak", name := "ssdp-client")
+
+lazy val broadlinkApiSubmodule = (project in file("submodules/broadlink-java-api"))
+  .settings(commonSettings)
+  .settings(
+    organization := "com.github.mob41.blapi",
+    name := "broadlink-java-api",
+    libraryDependencies ++= Seq(
+      "javax.xml.bind" % "jaxb-api"     % "2.3.0",
+      "org.slf4j"      % "slf4j-api"    % "1.7.22",
+      "junit"          % "junit"        % "4.12" % Test,
+      "org.slf4j"      % "slf4j-simple" % "1.7.22" % Test
+    )
+  )

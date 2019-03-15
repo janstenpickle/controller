@@ -2,3 +2,6 @@
 	path = submodules/sonos-controller
 	url = https://github.com/vmichalak/sonos-controller.git
 	ignore = dirty
+[submodule "submodules/broadlink-java-api"]
+	path = submodules/broadlink-java-api
+	url = https://github.com/janstenpickle/broadlink-java-api.git
