@@ -211,22 +211,10 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         .combined[ET](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
 
       switches = Switches[ET](combinedSwitchProvider)
-      macros = Macro[ET](macroStore, remoteControls, switches)
-      activity <- Stream.eval(
-        Activity.dependsOnSwitch[ET](
-          config.activity.dependentSwitches,
-          hs100SwitchProvider,
-          activityStore,
-          macros,
-          notifyUpdate(activitiesUpdate)
-        )
-      )
 
       instrumentation <- Stream.resource[ET, StatsStream.Instrumented[ET]](
         StatsStream[ET](
           config.stats,
-          activity,
-          macros,
           remoteControls,
           switches,
           combinedActivityConfig,
@@ -234,6 +222,16 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
           macroStore,
           remoteConfig,
           combinedSwitchProvider
+        )(
+          m =>
+            Activity.dependsOnSwitch[ET](
+              config.activity.dependentSwitches,
+              combinedSwitchProvider,
+              activityStore,
+              m,
+              notifyUpdate(activitiesUpdate)
+          ),
+          (r, s) => Macro[ET](macroStore, r, s)
         )(statsConfigUpdate, statsSwitchUpdate)
       )
 

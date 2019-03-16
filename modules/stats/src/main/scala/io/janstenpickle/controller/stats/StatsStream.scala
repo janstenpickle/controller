@@ -2,7 +2,7 @@ package io.janstenpickle.controller.stats
 
 import cats.effect.{Concurrent, Resource, Timer}
 import eu.timepit.refined.types.numeric.PosInt
-import io.janstenpickle.controller.`macro`.Macro
+import io.janstenpickle.controller.`macro`.{Macro, MacroErrors}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
@@ -40,10 +40,8 @@ object StatsStream {
     statsStream: Stream[F, Stats]
   )
 
-  def apply[F[_]: Concurrent: Timer](
+  def apply[F[_]: Concurrent: Timer: MacroErrors](
     config: Config,
-    activity: Activity[F],
-    `macro`: Macro[F],
     remote: RemoteControls[F],
     switch: Switches[F],
     activities: ActivityConfigSource[F],
@@ -51,20 +49,42 @@ object StatsStream {
     macros: MacroStore[F],
     remotes: RemoteConfigSource[F],
     switches: SwitchProvider[F]
-  )(configUpdate: Topic[F, Boolean], switchUpdate: Topic[F, Boolean]): Resource[F, Instrumented[F]] =
+  )(
+    makeActivity: Macro[F] => F[Activity[F]],
+    makeMacro: (RemoteControls[F], Switches[F]) => Macro[F]
+  )(configUpdate: Topic[F, Boolean], switchUpdate: Topic[F, Boolean]): Resource[F, Instrumented[F]] = {
+    def instrumentedComponents(
+      implicit ar: ActivityStatsRecorder[F],
+      mr: MacroStatsRecorder[F],
+      rr: RemoteStatsRecorder[F],
+      switchStatsRecorder: SwitchStatsRecorder[F]
+    ): Resource[F, (Activity[F], Macro[F], RemoteControls[F], Switches[F])] = {
+      val instrumentedRemotes = RemoteControlsStats(remote)
+      val instrumentedSwitches = SwitchesStats(switch)
+      val instrumentedMacro = MacroStats(makeMacro(instrumentedRemotes, instrumentedSwitches))
+
+      Resource.liftF(makeActivity(instrumentedMacro)).map { act =>
+        (ActivityStats(act), instrumentedMacro, instrumentedRemotes, instrumentedSwitches)
+      }
+    }
+
     for {
       activityRecorder <- ActivityStatsRecorder.stream[F](config.maxQueued)
       macroRecorder <- MacroStatsRecorder.stream[F](config.maxQueued)
       remoteRecorder <- RemoteStatsRecorder.stream[F](config.maxQueued)
       switchRecorder <- SwitchStatsRecorder.stream[F](config.maxQueued)
-    } yield {
-      implicit val (ar, mr, rr, sr) = (activityRecorder._1, macroRecorder._1, remoteRecorder._1, switchRecorder._1)
-
+      instrumented <- instrumentedComponents(
+        activityRecorder._1,
+        macroRecorder._1,
+        remoteRecorder._1,
+        switchRecorder._1
+      )
+    } yield
       Instrumented(
-        ActivityStats(activity),
-        MacroStats(`macro`),
-        RemoteControlsStats(remote),
-        SwitchesStats(switch),
+        instrumented._1,
+        instrumented._2,
+        instrumented._3,
+        instrumented._4,
         activityRecorder._2
           .merge(macroRecorder._2)
           .merge(remoteRecorder._2)
@@ -75,5 +95,5 @@ object StatsStream {
           .merge(RemotesPoller(config.pollInterval, remotes, configUpdate))
           .merge(SwitchesPoller(config.pollInterval, config.parallelism, switches, switchUpdate))
       )
-    }
+  }
 }
