@@ -4,6 +4,7 @@ import cats.Eq
 import cats.data.NonEmptyList
 import cats.derived.semi
 import cats.instances.list._
+import cats.instances.map._
 import cats.instances.string._
 import eu.timepit.refined.types.string.NonEmptyString
 
@@ -11,7 +12,8 @@ case class Remote(
   name: NonEmptyString,
   buttons: NonEmptyList[Button],
   activities: List[NonEmptyString] = List.empty,
-  rooms: List[Room] = List.empty
+  rooms: List[Room] = List.empty,
+  metadata: Map[String, String] = Map.empty
 )
 
 object Remote {

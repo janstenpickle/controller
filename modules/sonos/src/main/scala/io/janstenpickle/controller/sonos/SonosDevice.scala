@@ -9,7 +9,7 @@ import cats.syntax.traverse._
 import cats.instances.list._
 import cats.syntax.apply._
 import com.vmichalak.sonoscontroller
-import com.vmichalak.sonoscontroller.model.PlayState
+import com.vmichalak.sonoscontroller.model.{PlayState, TrackMetadata}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.catseffect.CatsEffect.suspendErrorsEvalOn
 
@@ -43,10 +43,12 @@ object SonosDevice { outer =>
     ec: ExecutionContext
   ): F[Option[NowPlaying]] =
     suspendErrorsEvalOn(device.getCurrentTrackInfo, ec).map { trackInfo =>
+      def element(f: TrackMetadata => String): Option[String] = Option(f(trackInfo.getMetadata)).filterNot(_.isEmpty)
+
       for {
-        track <- Option(trackInfo.getMetadata.getTitle).filterNot(_.isEmpty)
-        artist <- Option(trackInfo.getMetadata.getCreator).filterNot(_.isEmpty)
-      } yield NowPlaying(track, artist)
+        track <- element(_.getTitle)
+        artist <- element(_.getCreator)
+      } yield NowPlaying(track, artist, element(_.getAlbum), element(_.getAlbumArtist), element(_.getAlbumArtURI))
     }
 
   implicit def apply[F[_]: ContextShift: Timer](
