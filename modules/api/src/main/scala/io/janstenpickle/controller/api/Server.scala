@@ -1,7 +1,11 @@
 package io.janstenpickle.controller.api
 
 import cats.effect._
+import cats.effect.concurrent.Ref
+import extruder.data.ValidationErrors
 import fs2.Stream
+import io.janstenpickle.controller.api.Reloader.ExitSignal
+import io.janstenpickle.controller.api.config.{ConfigPoller, Configuration}
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
 import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
 import org.http4s.server.Router
@@ -18,7 +22,15 @@ object Server extends IOApp {
 }
 
 class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
-  val run: Stream[F, ExitCode] = components.translate(translateF).flatMap {
+
+  val run: Stream[F, ExitCode] = Reloader[F] { (reload, signal) =>
+    Stream.resource(ConfigPoller[F](_ => Sync[F].suspend(reload.set(true)))).flatMap(server(_, signal))
+  }
+
+  private def server(
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
+    signal: ExitSignal[F]
+  ): Stream[F, ExitCode] = components(getConfig).flatMap {
     case (
         server,
         activity,
@@ -58,10 +70,12 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
         _ <- Stream.eval(PrometheusExportService.addDefaults(registry))
         prometheus <- Stream.eval(Prometheus(registry))
         routes = Metrics(prometheus)(router)
+        exit <- Stream.eval(Ref[F].of(ExitCode.Success))
+
         exitCode <- BlazeServerBuilder[F]
           .bindHttp(server.port.value, server.host.value)
           .withHttpApp(GZip(CORS(routes.orNotFound, corsConfig)))
-          .serve
+          .serveWhile(signal, exit)
           .concurrently(stats)
       } yield exitCode
 

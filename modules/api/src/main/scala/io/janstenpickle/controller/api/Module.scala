@@ -9,11 +9,13 @@ import cats.syntax.traverse._
 import cats.~>
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
+import extruder.data.ValidationErrors
 import fs2.Stream
 import fs2.concurrent.Topic
 import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
+import io.janstenpickle.controller.api.config.Configuration
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
 import io.janstenpickle.controller.api.view.ConfigView
 import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
@@ -46,9 +48,9 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
 
   implicit val errors: ErrorInterpreter[F] = new ErrorInterpreter[F]()
 
-  def configOrError(result: ConfigResult[Configuration.Config]): ET[Configuration.Config] =
+  def configOrError(result: F[Either[ValidationErrors, Configuration.Config]]): ET[Configuration.Config] =
     EitherT(
-      result.value.flatMap(
+      result.flatMap(
         _.fold[EitherT[F, ControlError, Configuration.Config]](
           errs =>
             EitherT.liftF[F, ControlError, Configuration.Config](
@@ -72,8 +74,8 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
   def notifyUpdate[A](topic: Topic[ET, Boolean], topics: Topic[ET, Boolean]*): A => ET[Unit] =
     _ => (topic :: topics.toList).traverse(_.publish1(true)).void
 
-  def components: Stream[
-    ET,
+  def components(getConfig: () => F[Either[ValidationErrors, Configuration.Config]]): Stream[
+    F,
     (
       Configuration.Server,
       Activity[ET],
@@ -88,10 +90,10 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       Stream[F, Stats]
     )
   ] =
-    for {
-      config <- Stream.eval[ET, Configuration.Config](configOrError(Configuration.load[ConfigResult]))
+    (for {
+      config <- Stream.eval[ET, Configuration.Config](configOrError(getConfig()))
       executor <- Stream.resource(cachedExecutorResource[ET])
-      registry <- Stream[ET, CollectorRegistry](new CollectorRegistry())
+      registry <- Stream[ET, CollectorRegistry](new CollectorRegistry(true))
       _ <- Stream.eval(Sync[ET].delay(registry.register(new CacheCollector())))
 
       activitiesUpdate <- Stream.eval(Topic[ET, Boolean](false))
@@ -256,5 +258,5 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
         UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate),
         registry,
         instrumentation.statsStream.translate(translateF)
-      )
+      )).translate(translateF)
 }
