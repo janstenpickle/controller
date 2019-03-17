@@ -34,13 +34,20 @@ object RmRemote {
       new Remote[F, CommandPayload] {
         override def name: NonEmptyString = config.name
 
+        private def waitForPayload: F[Option[CommandPayload]] = F.tailRecM[Int, Option[CommandPayload]](10) { retries =>
+          if (retries == 0) F.pure(Right(None))
+          else
+            evalOn(timer.sleep(1.second) *> suspendErrors(Option(device.checkData())), ec)
+              .map(_.filter(_.length == 108).fold[Either[Int, Option[CommandPayload]]](Left(retries - 1)) { data =>
+                Right(Some(CommandPayload(DatatypeConverter.printHexBinary(data))))
+              })
+        }
+
         override def learn: F[Option[CommandPayload]] =
           for {
             _ <- suspendErrorsEval(device.auth())
             learning <- suspendErrorsEval(device.enterLearning())
-            data <- if (learning)
-              evalOn(timer.sleep(5.seconds) *> suspendErrors(Option(device.checkData())), ec)
-                .map(_.map(data => CommandPayload(DatatypeConverter.printHexBinary(data))))
+            data <- if (learning) waitForPayload
             else F.pure(None)
           } yield data
 
