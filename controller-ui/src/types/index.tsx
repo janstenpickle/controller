@@ -25,6 +25,7 @@ export interface ControlButton {
   name: string;
   newRow?: boolean;
   colored?: boolean;
+  color?: string;
   room?: string;
 }
 

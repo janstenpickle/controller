@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { RemoteButtons } from '../types/index';
+import { StyleSheet, css } from 'aphrodite';
 
 interface Props {
   buttons: RemoteButtons[];
@@ -7,6 +8,28 @@ interface Props {
   fetchButtons(): void;
   plugState(state: boolean, name?: string): void;
 }
+
+const styles = StyleSheet.create({
+  red: {
+      backgroundColor: 'red'
+  },
+
+  blue: {
+      backgroundColor: 'blue'
+  },
+
+  green: {
+    backgroundColor: 'green'
+  },
+
+  white: {
+    backgroundColor: 'white'
+  },
+
+  yellow: {
+    backgroundColor: 'yellow'
+  }
+});
 
 export function renderButton(buttonData: RemoteButtons, currentRoom: string, plugState: (state: boolean, name?: string) => void) {
   const baseClass = 'mdl-button mdl-js-button mdl-js-ripple-effect'
@@ -18,22 +41,33 @@ export function renderButton(buttonData: RemoteButtons, currentRoom: string, plu
     }
   }
 
+  const colorStyle = () => {
+   switch (buttonData.color) {
+      case 'red': return css(styles.red)
+      case 'blue': return css(styles.blue)
+      case 'green': return css(styles.green)
+      case 'white': return css(styles.white)
+      case 'yellow': return css(styles.yellow)
+      default: return 'mdl-button--colored'
+    }
+  }
+
   const colored = () => {
     const baseColored = baseClass + buttonType();
 
     switch(buttonData.tag) {
       case 'switch': if (buttonData.isOn) {
-        return baseColored + ' mdl-button--colored';
+        return baseColored + ' ' + colorStyle();
       } else {
         return baseColored;
       }
       case 'macro': if (buttonData.isOn) {
-        return baseColored + ' mdl-button--colored';
+        return baseColored + ' ' + colorStyle();
       } else {
         return baseColored;
       }
       default: if (buttonData.colored) {
-        return baseColored + ' mdl-button--colored';
+        return baseColored + ' ' + colorStyle();
       } else {
         return baseColored;
       };

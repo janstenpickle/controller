@@ -25,9 +25,9 @@ object SonosRemoteConfigSource {
   )(implicit F: Async[F]): RemoteConfigSource[F] = {
     def simpleTemplate(device: NonEmptyString): NonEmptyList[Button] =
       NonEmptyList.of(
-        RemoteIcon(remoteName, device, Commands.Mute, NonEmptyString("volume_off"), Some(true), None, None),
-        RemoteIcon(remoteName, device, Commands.VolDown, NonEmptyString("volume_down"), None, None, None),
-        RemoteIcon(remoteName, device, Commands.VolUp, NonEmptyString("volume_up"), None, None, None)
+        RemoteIcon(remoteName, device, Commands.Mute, NonEmptyString("volume_off"), Some(true), None, None, None),
+        RemoteIcon(remoteName, device, Commands.VolDown, NonEmptyString("volume_down"), None, None, None, None),
+        RemoteIcon(remoteName, device, Commands.VolUp, NonEmptyString("volume_up"), None, None, None, None)
       )
 
     def groupTemplate(device: NonEmptyString, isController: Boolean, isGrouped: Boolean): List[Button] =
@@ -41,13 +41,14 @@ object SonosRemoteConfigSource {
             isGrouped,
             Some(true),
             None,
+            None,
             None
           )
         )
 
     def template(device: NonEmptyString, isPlaying: Boolean): NonEmptyList[Button] =
       NonEmptyList.of(
-        RemoteIcon(remoteName, device, Commands.Previous, NonEmptyString("fast_rewind"), None, None, None),
+        RemoteIcon(remoteName, device, Commands.Previous, NonEmptyString("fast_rewind"), None, None, None, None),
         RemoteIcon(
           remoteName,
           device,
@@ -55,9 +56,10 @@ object SonosRemoteConfigSource {
           if (isPlaying) NonEmptyString("pause") else NonEmptyString("play_arrow"),
           None,
           Some(isPlaying),
+          None,
           None
         ),
-        RemoteIcon(remoteName, device, Commands.Next, NonEmptyString("fast_forward"), None, None, None)
+        RemoteIcon(remoteName, device, Commands.Next, NonEmptyString("fast_forward"), None, None, None, None)
       ) ++ simpleTemplate(device).toList
 
     new RemoteConfigSource[F] {

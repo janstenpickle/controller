@@ -12,6 +12,7 @@ sealed trait Button {
   def name: NonEmptyString
   def newRow: Option[Boolean]
   def colored: Option[Boolean]
+  def color: Option[NonEmptyString]
   def room: Option[NonEmptyString]
 }
 
@@ -30,6 +31,7 @@ object Button {
     icon: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Remote
 
@@ -40,6 +42,7 @@ object Button {
     label: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Remote
 
@@ -55,6 +58,7 @@ object Button {
     isOn: Boolean = false,
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Switch
 
@@ -65,6 +69,7 @@ object Button {
     isOn: Boolean = false,
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Switch
 
@@ -78,6 +83,7 @@ object Button {
     isOn: Option[Boolean],
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Macro
 
@@ -87,6 +93,7 @@ object Button {
     isOn: Option[Boolean],
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Macro
 
@@ -97,6 +104,7 @@ object Button {
     icon: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Context
 
@@ -105,6 +113,7 @@ object Button {
     label: NonEmptyString,
     newRow: Option[Boolean],
     colored: Option[Boolean],
+    color: Option[NonEmptyString],
     room: Option[NonEmptyString]
   ) extends Context
 }
