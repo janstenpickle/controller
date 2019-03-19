@@ -1,15 +1,19 @@
 package io.janstenpickle.controller.api.config
 
+import java.io.File
 import java.nio.file.{Path, Paths}
 
 import cats.effect.Sync
+import cats.syntax.flatMap._
 import com.github.mob41.blapi.mac.Mac
+import com.typesafe.config.ConfigFactory
 import eu.timepit.refined.refineMV
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.core.{ExtruderErrors, Parser}
 import extruder.typesafe._
 import extruder.refined._
+import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig
 import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.configsource.extruder.{
@@ -77,6 +81,9 @@ object Configuration {
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
   implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))
 
-  def load[F[_]: Sync: ExtruderErrors]: F[Config] =
-    decodeF[F, Config]()
+  def load[F[_]: Sync: ExtruderErrors](config: Option[File] = None): F[Config] =
+    suspendErrors {
+      val tsConfig = ConfigFactory.load()
+      config.fold(tsConfig)(ConfigFactory.parseFile(_).withFallback(tsConfig))
+    }.flatMap(decodeF[F, Config](_))
 }

@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.api.config
 
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 
 import cats.Eq
 import cats.effect.{Concurrent, Resource, Timer}
@@ -25,19 +25,20 @@ object ConfigPoller {
   implicit val configEq: Eq[Configuration.Config] = cats.derived.semi.eq[Configuration.Config]
 
   def apply[F[_]: Timer: ExtruderErrors](
+    config: Option[String],
     onUpdate: Either[ValidationErrors, Configuration.Config] => F[Unit]
   )(implicit F: Concurrent[F]): Resource[F, () => F[Either[ValidationErrors, Configuration.Config]]] = {
     type ConfigResult[A] = EffectValidation[F, A]
 
-    Resource.liftF(Configuration.load[ConfigResult].value).flatMap { initial =>
-      implicit val empty: Empty[Either[ValidationErrors, Configuration.Config]] = Empty(initial)
+    val configFile = config.map(Paths.get(_).toAbsolutePath.toFile)
 
-      // val x: (Data[Either[ValidationErrors, Configuration.Config]], Throwable) => F[Unit] = ???
+    Resource.liftF(Configuration.load[ConfigResult](configFile).value).flatMap { initial =>
+      implicit val empty: Empty[Either[ValidationErrors, Configuration.Config]] = Empty(initial)
 
       DataPoller[F, Either[ValidationErrors, Configuration.Config], () => F[
         Either[ValidationErrors, Configuration.Config]
       ]](
-        (_: Data[Either[ValidationErrors, Configuration.Config]]) => Configuration.load[ConfigResult].value,
+        (_: Data[Either[ValidationErrors, Configuration.Config]]) => Configuration.load[ConfigResult](configFile).value,
         1.minute,
         PosInt(1),
         onUpdate

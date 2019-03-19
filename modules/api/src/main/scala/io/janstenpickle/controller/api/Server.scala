@@ -16,15 +16,14 @@ import org.http4s.syntax.all._
 import scala.concurrent.duration._
 
 object Server extends IOApp {
-  val server = new Server[IO]
   override def run(args: List[String]): IO[ExitCode] =
-    server.run.compile.toList.map(_.head)
+    new Server[IO](args.headOption).run.compile.toList.map(_.head)
 }
 
-class Server[F[_]: ConcurrentEffect: ContextShift: Timer] extends Module[F] {
+class Server[F[_]: ConcurrentEffect: ContextShift: Timer](configFile: Option[String]) extends Module[F] {
 
   val run: Stream[F, ExitCode] = Reloader[F] { (reload, signal) =>
-    Stream.resource(ConfigPoller[F](_ => Sync[F].suspend(reload.set(true)))).flatMap(server(_, signal))
+    Stream.resource(ConfigPoller[F](configFile, _ => Sync[F].suspend(reload.set(true)))).flatMap(server(_, signal))
   }
 
   private def server(
