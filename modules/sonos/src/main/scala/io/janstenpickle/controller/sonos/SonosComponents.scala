@@ -4,7 +4,7 @@ import cats.effect.{Concurrent, ContextShift, Resource, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.configsource.{ActivityConfigSource, RemoteConfigSource}
-import io.janstenpickle.controller.model.{Remotes, State}
+import io.janstenpickle.controller.model.Remotes
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
 import io.janstenpickle.controller.switch.SwitchProvider
@@ -40,12 +40,11 @@ object SonosComponents {
 
   def apply[F[_]: ContextShift: Timer](
     config: Config,
-    onUpdate: Map[NonEmptyString, SonosDevice[F]] => F[Unit],
+    onUpdate: () => F[Unit],
     ec: ExecutionContext,
     onDeviceUpdate: () => F[Unit],
   )(implicit F: Concurrent[F], errors: RemoteControlErrors[F]): Resource[F, SonosComponents[F]] =
     for {
-      switchCache <- CacheResource[F, State](config.switchCacheTimeout, classOf)
       remotesCache <- CacheResource[F, Remotes](config.remotesCacheTimeout, classOf)
 
       discovery <- SonosDiscovery.polling[F](config.polling, config.commandTimeout, onUpdate, ec, onDeviceUpdate)
@@ -54,7 +53,7 @@ object SonosComponents {
       val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
       val remoteConfig =
         SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery, remotesCache)
-      val switches = SonosSwitchProvider[F](config.switchDevice, discovery, switchCache)
+      val switches = SonosSwitchProvider[F](config.switchDevice, discovery)
 
       SonosComponents(remote, activityConfig, remoteConfig, switches)
     }

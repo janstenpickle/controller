@@ -23,6 +23,7 @@ object SonosDeviceState {
       discovery.devices
         .flatMap(_.values.toList.traverse { device =>
           for {
+            _ <- device.refresh
             isPlaying <- device.isPlaying
             nowPlaying <- device.nowPlaying
           } yield s"${device.name}${device.label}$isPlaying$nowPlaying"

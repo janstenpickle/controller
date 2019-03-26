@@ -180,7 +180,7 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       sonosComponents <- Stream.resource[ET, SonosComponents[ET]](
         SonosComponents[ET](
           config.sonos,
-          notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate),
+          () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
           executor,
           () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
         )
