@@ -87,6 +87,9 @@ lazy val api = (project in file("modules/api"))
   .settings(commonSettings)
   .settings(
     name := "controller-api",
+    dockerUsername := Some("janstenpickle"),
+    dockerBaseImage := "openjdk:11",
+    dockerExposedPorts += 8090,
     libraryDependencies ++= Seq(
       "eu.timepit"     %% "refined-cats"              % refinedVer,
       "extruder"       %% "extruder-cats-effect"      % extruderVer,
@@ -115,6 +118,7 @@ lazy val api = (project in file("modules/api"))
     stats,
     prometheusStats
   )
+  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin)
 
 lazy val catsEffect = (project in file("modules/cats-effect"))
   .settings(commonSettings)
