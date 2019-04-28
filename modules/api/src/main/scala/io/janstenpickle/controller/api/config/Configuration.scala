@@ -19,6 +19,7 @@ import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.configsource.extruder.{
   ExtruderActivityConfigSource,
   ExtruderButtonConfigSource,
+  ExtruderMultiSwitchConfigSource,
   ExtruderRemoteConfigSource,
   ExtruderVirtualSwitchConfigSource
 }
@@ -40,7 +41,7 @@ import scala.util.Try
 
 object Configuration {
   case class Config(
-    rm: List[Rm],
+    rm: List[Rm] = List.empty,
     stores: Stores,
     virtualSwitch: SwitchesForRemote.PollingConfig,
     hs100: HS100,
@@ -70,7 +71,8 @@ object Configuration {
     activity: ExtruderActivityConfigSource.PollingConfig,
     button: ExtruderButtonConfigSource.PollingConfig,
     remote: ExtruderRemoteConfigSource.PollingConfig,
-    virtualSwitch: ExtruderVirtualSwitchConfigSource.PollingConfig
+    virtualSwitch: ExtruderVirtualSwitchConfigSource.PollingConfig,
+    multiSwitch: ExtruderMultiSwitchConfigSource.PollingConfig
   )
 
   case class HS100(configs: List[HS100SmartPlug.Config] = List.empty, polling: HS100SmartPlug.PollingConfig)

@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "build/cache",
     "outDir": "build/dist",
     "module": "esnext",
     "target": "es5",

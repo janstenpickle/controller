@@ -111,6 +111,7 @@ lazy val api = (project in file("modules/api"))
     activity,
     sonos,
     virtualSwitch,
+    multiSwitch,
     stats,
     prometheusStats
   )
@@ -206,6 +207,11 @@ lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
   .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
   .dependsOn(store, configSource, catsEffect, pollingSwitch, remoteControl)
+
+lazy val multiSwitch = (project in file("modules/multi-switch"))
+  .settings(commonSettings)
+  .settings(name := "controller-multi-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(configSource, catsEffect, switch)
 
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)

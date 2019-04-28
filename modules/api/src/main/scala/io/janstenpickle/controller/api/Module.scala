@@ -22,14 +22,10 @@ import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
 import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
 import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource.extruder._
-import io.janstenpickle.controller.configsource.{
-  ActivityConfigSource,
-  ButtonConfigSource,
-  RemoteConfigSource,
-  VirtualSwitchConfigSource
-}
+import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
+import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.{Stats, StatsStream}
@@ -138,6 +134,14 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
             notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
           )
       )
+      multiSwitchConfig <- Stream.resource[ET, MultiSwitchConfigSource[ET]](
+        ExtruderMultiSwitchConfigSource
+          .polling[ET](
+            configFileSource,
+            config.config.multiSwitch,
+            notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+          )
+      )
 
       activityStore <- Stream.eval(FileActivityStore[ET](config.stores.activityStore, executor))
       macroStore <- Stream.eval(FileMacroStore[ET](config.stores.macroStore, executor))
@@ -212,7 +216,9 @@ abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
       combinedSwitchProvider = SwitchProvider
         .combined[ET](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
 
-      switches = Switches[ET](combinedSwitchProvider)
+      multiSwitchProvider = MultiSwitchProvider[ET](multiSwitchConfig, Switches[ET](combinedSwitchProvider))
+
+      switches = Switches[ET](SwitchProvider.combined[ET](combinedSwitchProvider, multiSwitchProvider))
 
       instrumentation <- Stream.resource[ET, StatsStream.Instrumented[ET]](
         StatsStream[ET](
