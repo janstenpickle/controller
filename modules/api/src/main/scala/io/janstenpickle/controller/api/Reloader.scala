@@ -6,7 +6,7 @@ import cats.syntax.apply._
 import cats.syntax.flatMap._
 import fs2.Stream
 import fs2.concurrent.SignallingRef
-import org.slf4j.LoggerFactory
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
 
@@ -14,18 +14,22 @@ object Reloader {
   type ReloadSignal[F[_]] = SignallingRef[F, Boolean]
   type ExitSignal[F[_]] = SignallingRef[F, Boolean]
 
-  private val log = LoggerFactory.getLogger(getClass)
-
   def apply[F[_]](
     makeStream: (ReloadSignal[F], ExitSignal[F]) => Stream[F, ExitCode]
   )(implicit F: Concurrent[F], timer: Timer[F]): Stream[F, ExitCode] = {
     def repeatStream(reload: ReloadSignal[F], signal: ExitSignal[F]): Stream[F, ExitCode] =
-      makeStream(reload, signal).handleErrorWith(
-        th =>
-          Stream[F, Unit](log.error("Failed to start Controller", th))
-            .evalMap(_ => timer.sleep(10.seconds))
-            .flatMap(_ => repeatStream(reload, signal))
-      )
+      Stream
+        .eval(Slf4jLogger.fromClass[F](getClass))
+        .flatMap(
+          logger =>
+            makeStream(reload, signal).handleErrorWith(
+              th =>
+                Stream
+                  .eval(logger.error(th)("Failed to start Controller"))
+                  .evalMap(_ => timer.sleep(10.seconds))
+                  .flatMap(_ => repeatStream(reload, signal))
+          )
+        )
 
     def processSignal(
       reload: ReloadSignal[F],

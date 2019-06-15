@@ -1,19 +1,20 @@
 import sbt.Keys.libraryDependencies
 import sbt.url
 
-val catsVer = "1.6.0"
-val catsEffectVer = "1.2.0"
+val catsVer = "1.6.1"
+val catsEffectVer = "1.3.1"
 val circeVer = "0.11.1"
 val extruderVer = "0.10.0"
-val fs2Ver = "1.0.1"
-val http4sVer = "0.20.0-M6"
+val fs2Ver = "1.0.5"
+val http4sVer = "0.20.3"
 val kittensVer = "1.2.1"
+val log4catsVer = "0.4.0-M1"
 val prometheusVer = "0.6.0"
-val refinedVer = "0.9.4"
+val refinedVer = "0.9.8"
 val scalaCacheVer = "0.27.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
-val scalaTestVer = "3.0.5"
+val scalaTestVer = "3.0.8"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
@@ -32,7 +33,7 @@ val commonSettings = Seq(
     "-encoding",
     "UTF-8"
   ),
-  addCompilerPlugin(("org.spire-math" % "kind-projector" % "0.9.9").cross(CrossVersion.binary)),
+  addCompilerPlugin(("org.spire-math" % "kind-projector" % "0.9.10").cross(CrossVersion.binary)),
 //  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
   publishMavenStyle := true,
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
@@ -91,17 +92,18 @@ lazy val api = (project in file("modules/api"))
     dockerBaseImage := "openjdk:11",
     dockerExposedPorts += 8090,
     libraryDependencies ++= Seq(
-      "eu.timepit"     %% "refined-cats"              % refinedVer,
-      "extruder"       %% "extruder-cats-effect"      % extruderVer,
-      "extruder"       %% "extruder-circe"            % extruderVer,
-      "extruder"       %% "extruder-refined"          % extruderVer,
-      "extruder"       %% "extruder-typesafe"         % extruderVer,
-      "ch.qos.logback" % "logback-classic"            % "1.2.3",
-      "org.http4s"     %% "http4s-blaze-server"       % http4sVer,
-      "org.http4s"     %% "http4s-circe"              % http4sVer,
-      "org.http4s"     %% "http4s-core"               % http4sVer,
-      "org.http4s"     %% "http4s-dsl"                % http4sVer,
-      "org.http4s"     %% "http4s-prometheus-metrics" % http4sVer
+      "eu.timepit"        %% "refined-cats"              % refinedVer,
+      "extruder"          %% "extruder-cats-effect"      % extruderVer,
+      "extruder"          %% "extruder-circe"            % extruderVer,
+      "extruder"          %% "extruder-refined"          % extruderVer,
+      "extruder"          %% "extruder-typesafe"         % extruderVer,
+      "ch.qos.logback"    % "logback-classic"            % "1.2.3",
+      "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
+      "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
+      "org.http4s"        %% "http4s-circe"              % http4sVer,
+      "org.http4s"        %% "http4s-core"               % http4sVer,
+      "org.http4s"        %% "http4s-dsl"                % http4sVer,
+      "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer
     )
   )
   .dependsOn(
@@ -297,7 +299,10 @@ lazy val cache = (project in file("modules/cache"))
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)
-  .settings(name := "controller-sonos")
+  .settings(
+    name := "controller-sonos",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+  )
   .dependsOn(sonosClientSubmodule, cache, remoteControl, switch, configSource, poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))

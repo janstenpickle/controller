@@ -4,6 +4,8 @@ import cats.effect._
 import cats.effect.concurrent.Ref
 import extruder.data.ValidationErrors
 import fs2.Stream
+import io.chrisdavenport.log4cats.Logger
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.api.Reloader.ExitSignal
 import io.janstenpickle.controller.api.config.{ConfigPoller, Configuration}
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
@@ -23,12 +25,17 @@ object Server extends IOApp {
 class Server[F[_]: ConcurrentEffect: ContextShift: Timer](configFile: Option[String]) extends Module[F] {
 
   val run: Stream[F, ExitCode] = Reloader[F] { (reload, signal) =>
-    Stream.resource(ConfigPoller[F](configFile, _ => Sync[F].suspend(reload.set(true)))).flatMap(server(_, signal))
+    for {
+      getConfig <- Stream.resource(ConfigPoller[F](configFile, _ => Sync[F].suspend(reload.set(true))))
+      logger <- Stream.eval(Slf4jLogger.fromClass[F](getClass))
+      exitCode <- server(getConfig, signal, logger)
+    } yield exitCode
   }
 
   private def server(
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
-    signal: ExitSignal[F]
+    signal: ExitSignal[F],
+    logger: Logger[F]
   ): Stream[F, ExitCode] = components(getConfig).flatMap {
     case (
         server,
@@ -47,7 +54,7 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer](configFile: Option[Str
         val fullStream = statsStream.through(MetricsSink[F](registry, ec))
 
         fullStream.handleErrorWith { th =>
-          Stream(th.printStackTrace()).flatMap(_ => fullStream)
+          Stream.eval(logger.error(th)("Stats published failed")).flatMap(_ => fullStream)
         }
       }
 

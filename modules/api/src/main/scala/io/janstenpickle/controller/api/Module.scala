@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.api
 
 import cats.data.EitherT
-import cats.effect.{Concurrent, ContextShift, Sync, Timer}
+import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Sync, Timer}
 import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -38,7 +38,7 @@ import io.prometheus.client.CollectorRegistry
 
 import scala.concurrent.ExecutionContext
 
-abstract class Module[F[_]: ContextShift: Timer](implicit F: Concurrent[F]) {
+abstract class Module[F[_]: ContextShift: Timer](implicit F: ConcurrentEffect[F]) {
   type ConfigResult[A] = EffectValidation[F, A]
   type ET[A] = EitherT[F, ControlError, A]
 

@@ -24,9 +24,8 @@ object SonosDeviceState {
         .flatMap(_.values.toList.traverse { device =>
           for {
             _ <- device.refresh
-            isPlaying <- device.isPlaying
-            nowPlaying <- device.nowPlaying
-          } yield s"${device.name}${device.label}$isPlaying$nowPlaying"
+            state <- device.getState
+          } yield s"${device.name}${device.label}${state.isPlaying}${state.nowPlaying}"
         })
         .map(_.toSet)
 
