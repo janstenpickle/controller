@@ -77,6 +77,7 @@ lazy val root = (project in file("."))
     hs100Switch,
     poller,
     pollingSwitch,
+    shellCmd,
     switch,
     sonosClientSubmodule,
     virtualSwitch,
@@ -304,6 +305,14 @@ lazy val sonos = (project in file("modules/sonos"))
     libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
   )
   .dependsOn(sonosClientSubmodule, cache, remoteControl, switch, configSource, poller)
+
+lazy val shellCmd = (project in file("modules/shell-cmd"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-shell-cmd",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+  )
+  .dependsOn(remoteControl, switch, poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)
