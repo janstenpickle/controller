@@ -1,20 +1,21 @@
 package io.janstenpickle.controller.multiswitch
 
-import cats.Applicative
 import cats.syntax.applicative._
 import cats.syntax.functor._
+import cats.syntax.parallel._
+import cats.{Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.configsource.MultiSwitchConfigSource
-import io.janstenpickle.controller.model.{State, SwitchAction}
+import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.model.{MultiSwitches, State, SwitchAction}
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider, Switches}
 
 object MultiSwitchProvider {
   private val deviceName: NonEmptyString = NonEmptyString("multi")
 
-  def apply[F[_]: Applicative](config: MultiSwitchConfigSource[F], switches: Switches[F]): SwitchProvider[F] =
+  def apply[F[_]: Monad: Parallel](config: ConfigSource[F, MultiSwitches], switches: Switches[F]): SwitchProvider[F] =
     new SwitchProvider[F] {
-      override def getSwitches: F[Map[SwitchKey, Switch[F]]] = config.getMultiSwitches.map { multiSwitches =>
+      override def getSwitches: F[Map[SwitchKey, Switch[F]]] = config.getConfig.map { multiSwitches =>
         multiSwitches.multiSwitches.map { switch =>
           val all = switch.primary :: switch.secondaries
 
@@ -28,7 +29,7 @@ object MultiSwitchProvider {
             }
 
             override def switchOn: F[Unit] =
-              all.traverse { ref =>
+              all.parTraverse { ref =>
                 ref.onAction match {
                   case SwitchAction.Nothing => ().pure
                   case SwitchAction.Perform => switches.switchOn(ref.device, ref.name)
@@ -37,7 +38,7 @@ object MultiSwitchProvider {
               }.void
 
             override def switchOff: F[Unit] =
-              all.traverse { ref =>
+              all.parTraverse { ref =>
                 ref.offAction match {
                   case SwitchAction.Nothing => ().pure
                   case SwitchAction.Perform => switches.switchOff(ref.device, ref.name)

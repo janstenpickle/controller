@@ -13,16 +13,9 @@ import eu.timepit.refined.types.string.NonEmptyString
 import extruder.core.{ExtruderErrors, Parser}
 import extruder.typesafe._
 import extruder.refined._
-import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig
 import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
-import io.janstenpickle.controller.configsource.extruder.{
-  ExtruderActivityConfigSource,
-  ExtruderButtonConfigSource,
-  ExtruderMultiSwitchConfigSource,
-  ExtruderRemoteConfigSource,
-  ExtruderVirtualSwitchConfigSource
-}
+import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
@@ -68,11 +61,11 @@ object Configuration {
   case class ConfigData(
     file: Path,
     pollInterval: FiniteDuration = 10.seconds,
-    activity: ExtruderActivityConfigSource.PollingConfig,
-    button: ExtruderButtonConfigSource.PollingConfig,
-    remote: ExtruderRemoteConfigSource.PollingConfig,
-    virtualSwitch: ExtruderVirtualSwitchConfigSource.PollingConfig,
-    multiSwitch: ExtruderMultiSwitchConfigSource.PollingConfig
+    activity: ExtruderConfigSource.PollingConfig,
+    button: ExtruderConfigSource.PollingConfig,
+    remote: ExtruderConfigSource.PollingConfig,
+    virtualSwitch: ExtruderConfigSource.PollingConfig,
+    multiSwitch: ExtruderConfigSource.PollingConfig
   )
 
   case class HS100(configs: List[HS100SmartPlug.Config] = List.empty, polling: HS100SmartPlug.PollingConfig)
@@ -84,8 +77,10 @@ object Configuration {
   implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))
 
   def load[F[_]: Sync: ExtruderErrors](config: Option[File] = None): F[Config] =
-    suspendErrors {
-      val tsConfig = ConfigFactory.load()
-      config.fold(tsConfig)(ConfigFactory.parseFile(_).withFallback(tsConfig))
-    }.flatMap(decodeF[F, Config](_))
+    Sync[F]
+      .delay {
+        val tsConfig = ConfigFactory.load()
+        config.fold(tsConfig)(ConfigFactory.parseFile(_).withFallback(tsConfig))
+      }
+      .flatMap(decodeF[F, Config](_))
 }

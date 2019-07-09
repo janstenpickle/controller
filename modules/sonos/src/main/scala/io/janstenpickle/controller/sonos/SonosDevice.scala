@@ -1,24 +1,23 @@
 package io.janstenpickle.controller.sonos
 
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, Timer}
 import cats.instances.list._
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.traverse._
+import cats.syntax.parallel._
 import com.vmichalak.sonoscontroller
 import com.vmichalak.sonoscontroller.model.{PlayState, TrackMetadata}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.catseffect.CatsEffect.suspendErrorsEvalOn
 import io.janstenpickle.controller.sonos.SonosDevice.DeviceState
+import natchez.{Trace, TraceValue}
 
 import scala.collection.JavaConverters._
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
 
 trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
@@ -46,27 +45,32 @@ object SonosDevice {
     devicesInGroup: Set[String]
   )
 
-  implicit def apply[F[_]: ContextShift: Timer](
+  implicit def apply[F[_]: ContextShift: Timer: Parallel](
     deviceId: String,
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
     underlying: sonoscontroller.SonosDevice,
     allDevices: Ref[F, Map[String, SonosDevice[F]]],
     commandTimeout: FiniteDuration,
-    ec: ExecutionContext,
+    blocker: Blocker,
     onUpdate: () => F[Unit]
-  )(implicit F: Concurrent[F]): F[SonosDevice[F]] = {
-    def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
+  )(implicit F: Concurrent[F], trace: Trace[F]): F[SonosDevice[F]] = {
+    def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] = trace.span(s"sonos$name") {
+      trace.put(
+        Seq[(String, TraceValue)]("device.id" -> deviceId, "device.name" -> formattedName.value) ++ extraFields: _*
+      ) *> k
+    }
 
-    def _isPlaying: F[Boolean] =
-      suspendErrorsEval(underlying.getPlayState).map {
+    def _isPlaying: F[Boolean] = span("ReadIsPlaying") {
+      blocker.delay(underlying.getPlayState).map {
         case PlayState.PLAYING => true
         case PlayState.TRANSITIONING => true
         case _ => false
       }
+    }
 
-    def _nowPlaying: F[Option[NowPlaying]] =
-      suspendErrorsEval(underlying.getCurrentTrackInfo).map { trackInfo =>
+    def _nowPlaying: F[Option[NowPlaying]] = span("ReadNowPlaying") {
+      blocker.delay(underlying.getCurrentTrackInfo).map { trackInfo =>
         def element(f: TrackMetadata => String): Option[String] = Option(f(trackInfo.getMetadata)).filterNot(_.isEmpty)
 
         for {
@@ -74,16 +78,18 @@ object SonosDevice {
           artist <- element(_.getCreator)
         } yield NowPlaying(track, artist, element(_.getAlbum), element(_.getAlbumArtist), element(_.getAlbumArtURI))
       }
+    }
 
-    def refreshState: F[DeviceState] =
-      for {
-        volume <- suspendErrorsEval(underlying.getVolume)
-        isGrouped <- suspendErrorsEval(underlying.isJoined)
-        isPlaying <- _isPlaying
-        nowPlaying <- _nowPlaying
-        isController <- suspendErrorsEval(underlying.isCoordinator)
-        devicesInGroup <- suspendErrorsEval(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet)
-      } yield DeviceState(volume, isGrouped, isPlaying, nowPlaying, isController, devicesInGroup)
+    def refreshState: F[DeviceState] = span("RefreshState") {
+      Parallel.parMap6(
+        trace.span("getVolume")(blocker.delay(underlying.getVolume)),
+        trace.span("isJoined")(blocker.delay(underlying.isJoined)),
+        _isPlaying,
+        _nowPlaying,
+        trace.span("isCoordinator")(blocker.delay(underlying.isCoordinator)),
+        trace.span("devicesInGroup")(blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
+      )(DeviceState.apply)
+    }
 
     for {
       logger <- Slf4jLogger.fromName[F](s"Sonos Device ${formattedName.value}")
@@ -99,125 +105,172 @@ object SonosDevice {
           state.update(_.copy(isPlaying = np))
         }
 
-        override def play: F[Unit] =
+        override def play: F[Unit] = span("Play") {
           (for {
             grouped <- isGrouped
             controller <- isController
+            _ <- trace.put("grouped" -> grouped, "controller" -> controller)
             _ <- if (grouped && !controller)
               doIfController(_.play)
-            else suspendErrorsEval(underlying.play())
+            else trace.span("playCmd")(blocker.delay(underlying.play()))
             _ <- state.update(_.copy(isPlaying = true))
             _ <- onUpdate()
           } yield ())
-            .handleErrorWith(logger.error(_)(s"Failed to send play command on Sonos device ${formattedName.value}"))
+            .handleErrorWith(
+              th =>
+                trace.put("error" -> true, "reason" -> th.getMessage) *> logger
+                  .error(th)(s"Failed to send play command on Sonos device ${formattedName.value}")
+            )
             .timeoutTo(
               commandTimeout,
-              logger.error(s"Timed out sending play command to Sonos device ${formattedName.value}")
+              trace.put("error" -> true, "reason" -> "command timed out") *> logger.error(
+                s"Timed out sending play command to Sonos device ${formattedName.value}"
+              )
             )
             .start
             .void
+        }
 
-        override def pause: F[Unit] =
+        override def pause: F[Unit] = span("Pause") {
           (for {
             grouped <- isGrouped
             controller <- isController
+            _ <- trace.put("grouped" -> grouped, "controller" -> controller)
             _ <- if (grouped && !controller)
               doIfController(_.pause)
-            else suspendErrorsEval(underlying.pause())
+            else trace.span("pauseCmd")(blocker.delay(underlying.pause()))
             _ <- state.update(_.copy(isPlaying = false))
             _ <- onUpdate()
           } yield ())
-            .handleErrorWith(logger.error(_)(s"Failed to send pause command on Sonos device ${formattedName.value}"))
+            .handleErrorWith(
+              th =>
+                trace.put("error" -> true, "reason" -> th.getMessage) *> logger
+                  .error(th)(s"Failed to send pause command on Sonos device ${formattedName.value}")
+            )
             .timeoutTo(
               commandTimeout,
-              logger.error(s"Timed out sending play command to Sonos device ${formattedName.value}")
+              trace.put("error" -> true, "reason" -> "command timed out") *> logger.error(
+                s"Timed out sending pause command to Sonos device ${formattedName.value}"
+              )
             )
             .start
             .void
+        }
 
-        override def isPlaying: F[Boolean] =
+        override def isPlaying: F[Boolean] = span("IsPlaying") {
           for {
             grouped <- isGrouped
             controller <- isController
+            _ <- trace.put("grouped" -> grouped, "controller" -> controller)
             playing <- if (grouped && !controller)
               groupDevices
-                .flatMap(_.flatTraverse(d => d.isController.map(if (_) List(d) else List.empty)))
+                .flatMap(_.parFlatTraverse(d => d.isController.map(if (_) List(d) else List.empty)))
                 .flatMap(_.headOption.fold(F.pure(false))(_.isPlaying))
             else state.get.map(_.isPlaying)
           } yield playing
+        }
 
-        override def volume: F[Int] = state.get.map(_.volume)
-        override def volumeUp: F[Unit] =
+        override def volume: F[Int] = span("Volume") { state.get.map(_.volume) }
+        override def volumeUp: F[Unit] = span("VolumeUp") {
           for {
             vol <- volume
+            _ <- trace.put("current.volume" -> vol)
             _ <- if (vol < 100) {
               val newVol = vol + 1
-              suspendErrorsEval(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol))
-            } else { F.unit }
+              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace.put(
+                "new.volume" -> newVol
+              )
+            } else {
+              F.unit
+            }
           } yield ()
+        }
 
-        override def volumeDown: F[Unit] =
+        override def volumeDown: F[Unit] = span("VolumeDown") {
           for {
             vol <- volume
+            _ <- trace.put("current.volume" -> vol)
             _ <- if (vol > 0) {
               val newVol = vol - 1
-              suspendErrorsEval(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol))
-            } else { F.unit }
+              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace.put(
+                "new.volume" -> newVol
+              )
+            } else {
+              F.unit
+            }
           } yield ()
-
-        override def mute: F[Unit] = suspendErrorsEval(underlying.switchMute())
-
-        override def next: F[Unit] = suspendErrorsEval(underlying.next()) *> refreshNowPlaying *> onUpdate()
-        override def previous: F[Unit] = suspendErrorsEval(underlying.previous()) *> refreshNowPlaying *> onUpdate()
-        private def refreshController: F[Unit] = suspendErrorsEval(underlying.isCoordinator).flatMap { con =>
-          state.update(_.copy(isController = con))
         }
-        override def isController: F[Boolean] = state.get.map(_.isController)
-        override def playPause: F[Unit] =
+
+        override def mute: F[Unit] = span("Mute") { blocker.delay(underlying.switchMute()) }
+
+        override def next: F[Unit] = span("Next") {
+          blocker.delay(underlying.next()) *> refreshNowPlaying *> onUpdate()
+        }
+        override def previous: F[Unit] = span("Previous") {
+          blocker.delay(underlying.previous()) *> refreshNowPlaying *> onUpdate()
+        }
+        private def refreshController: F[Unit] = span("RefreshController") {
+          blocker.delay(underlying.isCoordinator).flatMap { con =>
+            state.update(_.copy(isController = con))
+          }
+        }
+        override def isController: F[Boolean] = span("IsController") { state.get.map(_.isController) }
+        override def playPause: F[Unit] = span("PlayPause") {
           for {
             playing <- isPlaying
+            _ <- trace.put("is.playing" -> playing)
             _ <- if (playing) pause else play
           } yield ()
-
-        private def refreshNowPlaying: F[Unit] = _nowPlaying.flatMap { np =>
-          state.update(_.copy(nowPlaying = np))
         }
 
-        override def nowPlaying: F[Option[NowPlaying]] = state.get.map(_.nowPlaying)
+        private def refreshNowPlaying: F[Unit] = span("RefreshNowPlaying") {
+          _nowPlaying.flatMap { np =>
+            state.update(_.copy(nowPlaying = np))
+          }
+        }
 
-        override def group: F[Unit] =
-          isGrouped.flatMap(
-            if (_) F.unit
-            else
-              masterToJoin.flatMap(_.fold(F.unit) { m =>
-                suspendErrorsEval(underlying.join(m.id)) *> state
-                  .update(_.copy(isGrouped = true)) *> refreshGroup *> refreshIsPlaying *> refreshController
-              }) *> onUpdate()
-          )
+        override def nowPlaying: F[Option[NowPlaying]] = span("NowPlaying") { state.get.map(_.nowPlaying) }
 
-        override def unGroup: F[Unit] =
+        override def group: F[Unit] = span("Group") {
+          isGrouped.flatMap { grouped =>
+            trace.put("current.grouped" -> grouped) *> {
+              if (grouped) trace.put("new.grouped" -> grouped)
+              else
+                masterToJoin.flatMap(_.fold(F.unit) { m =>
+                  blocker.delay(underlying.join(m.id)) *> state
+                    .update(_.copy(isGrouped = true)) *> refreshGroup *> refreshIsPlaying *> refreshController *> trace
+                    .put("master.id" -> m.id, "master.name" -> m.name.value)
+                }) *> onUpdate()
+            }
+          }
+        }
+
+        override def unGroup: F[Unit] = span("UnGroup") {
           for {
             isC <- isController
             _ <- if (isC) F.unit
             else
-              suspendErrorsEval(underlying.unjoin()) *> state
-                .update(_.copy(isGrouped = false, isController = true)) *> refreshGroup *> refreshIsPlaying *> onUpdate()
+              blocker.delay(underlying.unjoin()) *> state
+                .update(_.copy(isGrouped = false, isController = true)) *> refreshGroup *> refreshIsPlaying *> onUpdate() *> trace
+                .put("current.grouped" -> true, "new.grouped" -> false)
           } yield ()
+        }
 
-        override def isGrouped: F[Boolean] = state.get.map(_.isGrouped)
+        override def isGrouped: F[Boolean] = span("IsGrouped") { state.get.map(_.isGrouped) }
 
         override def id: String = deviceId
 
-        private def refreshGroup: F[Unit] =
-          suspendErrorsEval(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet).flatMap { devs =>
-            state.update(_.copy(devicesInGroup = devs))
+        private def refreshGroup: F[Unit] = span("RefreshGroup") {
+          blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet).flatMap { devs =>
+            trace.put("group.devices" -> devs.mkString(",")) *> state.update(_.copy(devicesInGroup = devs))
           }
+        }
 
-        override def devicesInGroup: F[Set[String]] = state.get.map(_.devicesInGroup)
+        override def devicesInGroup: F[Set[String]] = span("DevicesInGroup") { state.get.map(_.devicesInGroup) }
 
         private def masterToJoin: F[Option[SonosDevice[F]]] =
           allDevices.get
-            .flatMap(_.toList.flatTraverse {
+            .flatMap(_.toList.parFlatTraverse {
               case (uid, device) =>
                 device.isController.map { isController =>
                   if (isController && uid != id) List(device)
@@ -234,15 +287,16 @@ object SonosDevice {
 
         private def doIfController(f: SonosDevice[F] => F[Unit]): F[Unit] =
           groupDevices
-            .flatMap(_.traverse { device =>
+            .flatMap(_.parTraverse { device =>
               device.isController.flatMap(if (_) f(device) else F.unit)
             })
             .void
 
-        override def refresh: F[Unit] =
+        override def refresh: F[Unit] = span("Refresh") {
           refreshState.flatMap(state.set)
+        }
 
-        override def getState: F[DeviceState] = state.get
+        override def getState: F[DeviceState] = span("GerState") { state.get }
       }
   }
 

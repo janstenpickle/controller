@@ -1,14 +1,14 @@
 package io.janstenpickle.controller.switch.virtual
 
 import cats.syntax.flatMap._
-import cats.{Monad, MonadError}
+import cats.{Monad, MonadError, Parallel}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
-import cats.syntax.traverse._
+import cats.syntax.parallel._
 import cats.instances.list._
 
 object SwitchDependentStore {
@@ -40,14 +40,14 @@ object SwitchDependentStore {
     }
   }
 
-  def fromProvider[F[_]](
+  def fromProvider[F[_]: Parallel](
     remotes: Map[NonEmptyString, SwitchKey],
     state: SwitchStateStore[F],
     provider: SwitchProvider[F]
   )(implicit F: MonadError[F, Throwable]): F[SwitchStateStore[F]] =
     provider.getSwitches.flatMap { switches =>
       remotes.toList
-        .traverse[F, (NonEmptyString, Switch[F])] {
+        .parTraverse[F, (NonEmptyString, Switch[F])] {
           case (remote, key) =>
             switches.get(key) match {
               case None =>

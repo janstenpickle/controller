@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.stats.`macro`
 
-import cats.{Apply, Monad}
+import cats.{Apply, Monad, Parallel}
 import cats.syntax.apply._
 import cats.data.NonEmptyList
 import cats.effect.Timer
@@ -10,6 +10,7 @@ import io.janstenpickle.controller.model.Command
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.store.MacroStore
 import io.janstenpickle.controller.switch.Switches
+import natchez.Trace
 
 object MacroStats {
   def apply[F[_]: Apply](underlying: Macro[F])(implicit stats: MacroStatsRecorder[F]): Macro[F] = new Macro[F] {
@@ -25,7 +26,7 @@ object MacroStats {
     override def listMacros: F[List[NonEmptyString]] = underlying.listMacros
   }
 
-  def apply[F[_]: Monad: Timer: MacroErrors: MacroStatsRecorder](
+  def apply[F[_]: Monad: Timer: Parallel: MacroErrors: MacroStatsRecorder: Trace](
     macroStore: MacroStore[F],
     remotes: RemoteControls[F],
     switches: Switches[F]

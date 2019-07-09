@@ -2,7 +2,7 @@ package io.janstenpickle.controller.stats.prometheus
 
 import java.util.concurrent.ConcurrentHashMap
 
-import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, Timer}
 import cats.syntax.applicative._
 import cats.effect.syntax.concurrent._
 import cats.syntax.apply._
@@ -12,12 +12,10 @@ import cats.syntax.flatMap._
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Pipe
-import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.controller.stats.Stats
 import io.janstenpickle.controller.stats.Stats._
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge}
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.Try
 
@@ -25,22 +23,20 @@ object MetricsSink {
 
   def apply[F[_]: Concurrent: ContextShift: Timer](
     registry: CollectorRegistry,
-    ec: ExecutionContext,
+    blocker: Blocker,
     parallelism: PosInt = PosInt(2),
     timeout: FiniteDuration = 500.millis
   ): Pipe[F, Stats, Unit] = { stream =>
-    def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn[F, A](thunk, ec)
-
     implicit class GaugeSyntax(gauge: F[Gauge]) {
       def set[A](labels: String*)(value: A)(implicit num: Numeric[A]): F[Unit] =
         gauge
-          .flatMap(g => suspendErrorsEval(g.labels(labels: _*).set(num.toDouble(value))))
+          .flatMap(g => blocker.delay(g.labels(labels: _*).set(num.toDouble(value))))
           .handleError(_.printStackTrace)
 
       def setMany[A](labels: String*)(values: Map[NonEmptyString, A])(implicit num: Numeric[A]): F[Unit] =
         gauge.flatMap(
           g =>
-            suspendErrorsEval {
+            blocker.delay {
               values.foreach { case (k, v) => g.labels(labels :+ k.value: _*).set(num.toDouble(v)) }
           }
         )
@@ -50,7 +46,7 @@ object MetricsSink {
       )(values: Map[NonEmptyString, Map[NonEmptyString, A]])(implicit num: Numeric[A]): F[Unit] =
         gauge.flatMap(
           g =>
-            suspendErrorsEval {
+            blocker.delay {
               values.foreach {
                 case (k0, v0) =>
                   v0.foreach { case (k1, v1) => g.labels(labels :+ k0.value :+ k1.value: _*).set(num.toDouble(v1)) }
@@ -63,17 +59,17 @@ object MetricsSink {
       def incByMany[A](labels: String*)(values: Map[NonEmptyString, A])(implicit num: Numeric[A]): F[Unit] =
         counter.flatMap(
           c =>
-            suspendErrorsEval {
+            blocker.delay {
               values.foreach { case (k, v) => c.labels(labels :+ k.value: _*).inc(num.toDouble(v)) }
           }
         )
 
       def incBy[A](labels: String*)(value: A)(implicit num: Numeric[A]): F[Unit] =
         counter
-          .flatMap(g => suspendErrorsEval(g.labels(labels: _*).inc(num.toDouble(value))))
+          .flatMap(g => blocker.delay(g.labels(labels: _*).inc(num.toDouble(value))))
           .handleError(_.printStackTrace)
       def inc(labels: String*): F[Unit] =
-        counter.flatMap(g => suspendErrorsEval(g.labels(labels: _*).inc())).handleError(_.printStackTrace)
+        counter.flatMap(g => blocker.delay(g.labels(labels: _*).inc())).handleError(_.printStackTrace)
     }
 
     def makeKey(name: String, labels: String*) = (name :: labels.toList).mkString("_")
@@ -82,7 +78,7 @@ object MetricsSink {
     val counters = new ConcurrentHashMap[String, Counter]()
 
     def getOrCreateGauge(name: String, help: String, labels: String*): F[Gauge] =
-      suspendErrorsEval {
+      blocker.delay {
         val key = makeKey(name, labels: _*)
         val gauge = gauges.getOrDefault(key, Gauge.build(name, help).labelNames(labels: _*).create())
         // doesn't matter if it throws an error saying already registered
@@ -92,7 +88,7 @@ object MetricsSink {
       }
 
     def getOrCreateCounter(name: String, help: String, labels: String*): F[Counter] =
-      suspendErrorsEval {
+      blocker.delay {
         val key = makeKey(name, labels: _*)
         val counter = counters.getOrDefault(key, Counter.build(name, help).labelNames(labels: _*).create())
         // doesn't matter if it throws an error saying already registered

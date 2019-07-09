@@ -1,86 +1,105 @@
 package io.janstenpickle.controller.broadlink.switch
 
 import cats.effect._
-import cats.syntax.apply._
 import cats.syntax.functor._
+import cats.syntax.flatMap._
 import com.github.mob41.blapi.{SP1Device, SP2Device}
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.catseffect.CatsEffect._
 import io.janstenpickle.control.switch.polling.{PollingSwitch, PollingSwitchErrors}
+import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.switch.SpSwitchConfig.{SP1, SP2}
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.switch.Switch
+import io.janstenpickle.controller.switch.trace.TracedSwitch
+import natchez.{Trace, TraceValue}
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 object SpSwitch {
   case class PollingConfig(pollInterval: FiniteDuration = 2.seconds, errorThreshold: PosInt = PosInt(2))
 
-  private def makeSp1[F[_]: Concurrent: ContextShift](
-    config: SP1,
-    store: SwitchStateStore[F],
-    ec: ExecutionContext
-  ): F[Switch[F]] = {
-    def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
+  private val manufacturerField: (String, TraceValue) = "manufacturer" -> "broadlink"
 
-    suspendErrors(new SP1Device(config.host.value, config.mac)).map { sp1 =>
-      new Switch[F] {
-        override def name: NonEmptyString = config.name
+  private def makeSp1[F[_]: Sync: ContextShift](config: SP1, store: SwitchStateStore[F], blocker: Blocker)(
+    implicit trace: Trace[F]
+  ): F[Switch[F]] =
+    Sync[F].delay(new SP1Device(config.host.value, config.mac)).map { sp1 =>
+      TracedSwitch(
+        new Switch[F] {
+          override val name: NonEmptyString = config.name
+          override val device: NonEmptyString = NonEmptyString("SP1")
 
-        override def device: NonEmptyString = NonEmptyString("SP1")
+          override def getState: F[State] = store.getState(device, device, name)
 
-        override def getState: F[State] = store.getState(device, device, name)
+          override def switchOn: F[Unit] =
+            for {
+              _ <- trace.span("auth") { blocker.delay(sp1.auth()) }
+              _ <- trace.span("setPower") { blocker.delay(sp1.setPower(true)) }
+              _ <- store.setOn(device, device, name)
+            } yield ()
 
-        override def switchOn: F[Unit] =
-          suspendErrorsEval(sp1.auth()) *> suspendErrorsEval(sp1.setPower(true)) *> store.setOn(device, device, name)
-
-        override def switchOff: F[Unit] =
-          suspendErrorsEval(sp1.auth()) *> suspendErrorsEval(sp1.setPower(false)) *> store.setOff(device, device, name)
-      }
+          override def switchOff: F[Unit] =
+            for {
+              _ <- trace.span("auth") { blocker.delay(sp1.auth()) }
+              _ <- trace.span("setPower") { blocker.delay(sp1.setPower(true)) }
+              _ <- store.setOff(device, device, name)
+            } yield ()
+        },
+        manufacturerField
+      )
     }
-  }
 
-  private def makeSp2[F[_]: Concurrent: ContextShift](config: SP2, ec: ExecutionContext): F[Switch[F]] = {
-    def suspendErrorsEval[A](thunk: => A): F[A] = suspendErrorsEvalOn(thunk, ec)
+  private def makeSp2[F[_]: Sync: ContextShift](config: SP2, blocker: Blocker)(implicit trace: Trace[F]): F[Switch[F]] =
+    Sync[F].delay(new SP2Device(config.host.value, config.mac)).map { sp2 =>
+      TracedSwitch(
+        new Switch[F] {
+          override val name: NonEmptyString = config.name
 
-    suspendErrors(new SP2Device(config.host.value, config.mac)).map { sp2 =>
-      new Switch[F] {
-        override def name: NonEmptyString = config.name
+          override val device: NonEmptyString = NonEmptyString("SP2")
 
-        override def device: NonEmptyString = NonEmptyString("SP2")
+          override def getState: F[State] =
+            for {
+              _ <- trace.span("auth") { blocker.delay(sp2.auth()) }
+              state <- trace.span("getState") { blocker.delay(State.fromBoolean(sp2.getState)) }
+            } yield state
 
-        override def getState: F[State] =
-          suspendErrorsEval(sp2.auth()) *> suspendErrorsEval(State.fromBoolean(sp2.getState))
+          override def switchOn: F[Unit] =
+            for {
+              _ <- trace.span("auth") { blocker.delay(sp2.auth()) }
+              _ <- trace.span("setState") { blocker.delay(sp2.setState(true)) }
+            } yield ()
 
-        override def switchOn: F[Unit] = suspendErrorsEval(sp2.auth()) *> suspendErrorsEval(sp2.setState(true))
-
-        override def switchOff: F[Unit] = suspendErrorsEval(sp2.auth()) *> suspendErrorsEval(sp2.setState(false))
-      }
+          override def switchOff: F[Unit] =
+            for {
+              _ <- trace.span("auth") { blocker.delay(sp2.auth()) }
+              _ <- trace.span("setState") { blocker.delay(sp2.setState(false)) }
+            } yield ()
+        },
+        manufacturerField
+      )
     }
-  }
 
-  def apply[F[_]: Concurrent: ContextShift](
+  def apply[F[_]: Sync: ContextShift: Trace](
     config: SpSwitchConfig,
     store: SwitchStateStore[F],
-    ec: ExecutionContext
+    blocker: Blocker
   ): F[Switch[F]] =
     config match {
-      case conf: SP1 => makeSp1[F](conf, store, ec)
-      case conf: SP2 => makeSp2[F](conf, ec)
+      case conf: SP1 => makeSp1[F](conf, store, blocker)
+      case conf: SP2 => makeSp2[F](conf, blocker)
     }
 
-  def polling[F[_]: Concurrent: ContextShift: Timer: PollingSwitchErrors](
+  def polling[F[_]: Sync: ContextShift: PollingSwitchErrors: Trace, G[_]: Concurrent: Timer](
     config: SpSwitchConfig,
     pollingConfig: PollingConfig,
     store: SwitchStateStore[F],
-    ec: ExecutionContext,
+    blocker: Blocker,
     onUpdate: State => F[Unit]
-  ): Resource[F, Switch[F]] =
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Switch[F]] =
     Resource
-      .liftF(apply(config, store, ec))
-      .flatMap(PollingSwitch(_, pollingConfig.pollInterval, pollingConfig.errorThreshold, onUpdate))
+      .liftF(apply(config, store, blocker))
+      .flatMap(PollingSwitch[F, G](_, pollingConfig.pollInterval, pollingConfig.errorThreshold, onUpdate))
 
 }

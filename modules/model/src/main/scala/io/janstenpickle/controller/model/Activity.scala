@@ -6,6 +6,7 @@ import cats.instances.boolean._
 import cats.instances.list._
 import cats.instances.option._
 import cats.instances.string._
+import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 
 case class Activity(
@@ -24,4 +25,6 @@ case class Activities(activities: List[Activity], errors: List[String] = List.em
 
 object Activities {
   implicit val eq: Eq[Activities] = semi.eq
+  implicit val monoid: Monoid[Activities] = semi.monoid
+  implicit val setErrors: SetErrors[Activities] = SetErrors((activities, errors) => activities.copy(errors = errors))
 }

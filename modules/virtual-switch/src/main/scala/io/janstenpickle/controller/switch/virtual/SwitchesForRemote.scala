@@ -10,7 +10,7 @@ import cats.syntax.functor._
 import cats.{Eq, Monad}
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.configsource.VirtualSwitchConfigSource
+import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
@@ -27,11 +27,11 @@ object SwitchesForRemote {
   private implicit def switchEq[F[_]]: Eq[Switch[F]] = Eq.by(s => (s.device, s.name))
 
   private def make[F[_]: Monad](
-    virtualSwitches: VirtualSwitchConfigSource[F],
+    virtualSwitches: ConfigSource[F, VirtualSwitches],
     remotes: RemoteControls[F],
     store: SwitchStateStore[F]
   ): F[Map[SwitchKey, Switch[F]]] =
-    virtualSwitches.getVirtualSwitches.map(_.virtualSwitches.map { virtual =>
+    virtualSwitches.getConfig.map(_.virtualSwitches.map { virtual =>
       SwitchKey(NonEmptyString.unsafeFrom(s"${virtual.remote}-${virtual.device}"), virtual.command) ->
         new Switch[F] {
           override def name: NonEmptyString = virtual.command
@@ -56,7 +56,7 @@ object SwitchesForRemote {
 
   def polling[F[_]: Concurrent: Timer](
     pollingConfig: PollingConfig,
-    virtualSwitches: VirtualSwitchConfigSource[F],
+    virtualSwitches: ConfigSource[F, VirtualSwitches],
     remotes: RemoteControls[F],
     state: SwitchStateStore[F],
     onUpdate: Map[SwitchKey, Switch[F]] => F[Unit]

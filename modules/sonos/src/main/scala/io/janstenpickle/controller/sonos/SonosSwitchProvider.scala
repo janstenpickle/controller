@@ -5,15 +5,19 @@ import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import natchez.Trace
 
 object SonosSwitchProvider {
-  def apply[F[_]: Async](deviceName: NonEmptyString, discovery: SonosDiscovery[F]): SwitchProvider[F] =
+  def apply[F[_]: Async](deviceName: NonEmptyString, discovery: SonosDiscovery[F])(
+    implicit trace: Trace[F]
+  ): SwitchProvider[F] =
     new SwitchProvider[F] {
-      override def getSwitches: F[Map[SwitchKey, Switch[F]]] =
+      override def getSwitches: F[Map[SwitchKey, Switch[F]]] = trace.span("sonosGetSwitches") {
         discovery.devices.map(_.flatMap {
           case (_, dev) =>
-            Map((SwitchKey(deviceName, dev.name), new Switch[F] {
+            Map((SwitchKey(deviceName, dev.name), TracedSwitch(new Switch[F] {
               override def name: NonEmptyString = dev.name
 
               override def device: NonEmptyString = deviceName
@@ -23,7 +27,7 @@ object SonosSwitchProvider {
               override def switchOn: F[Unit] = dev.play
 
               override def switchOff: F[Unit] = dev.pause
-            }), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_group")), new Switch[F] {
+            }, "manufacturer" -> "sonos")), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_group")), TracedSwitch(new Switch[F] {
               override def name: NonEmptyString = dev.name
 
               override def device: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_group")
@@ -33,7 +37,8 @@ object SonosSwitchProvider {
               override def switchOn: F[Unit] = dev.group
 
               override def switchOff: F[Unit] = dev.unGroup
-            }))
+            }, "manufacturer" -> "sonos")))
         })
+      }
     }
 }

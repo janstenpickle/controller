@@ -1,84 +1,105 @@
 package io.janstenpickle.controller.sonos
 
 import cats.instances.list._
+import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.traverse._
-import cats.{Applicative, MonadError}
+import cats.syntax.parallel._
+import cats.{Applicative, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.store.RemoteCommand
+import natchez.Trace
 
 object SonosRemoteControl {
-  def apply[F[_]](remoteName: NonEmptyString, combinedDeviceName: NonEmptyString, discovery: SonosDiscovery[F])(
-    implicit F: MonadError[F, Throwable],
-    errors: RemoteControlErrors[F]
-  ): RemoteControl[F] =
-    new RemoteControl[F] {
-      private val combinedDevice: SimpleSonosDevice[F] = new SimpleSonosDevice[F] {
-        override def applicative: Applicative[F] = Applicative[F]
+  def apply[F[_]: Parallel](
+    remoteName: NonEmptyString,
+    combinedDeviceName: NonEmptyString,
+    discovery: SonosDiscovery[F]
+  )(implicit F: MonadError[F, Throwable], errors: RemoteControlErrors[F], trace: Trace[F]): RemoteControl[F] =
+    RemoteControl
+      .traced(
+        new RemoteControl[F] {
+          private val combinedDevice: SimpleSonosDevice[F] = new SimpleSonosDevice[F] {
+            override def applicative: Applicative[F] = Applicative[F]
 
-        private def doOnAll(command: SonosDevice[F] => F[Unit]): F[Unit] =
-          discovery.devices.flatMap(_.values.toList.traverse(command).void)
+            private def doOnAll(command: SonosDevice[F] => F[Unit]): F[Unit] =
+              discovery.devices.flatMap(_.values.toList.parTraverse_(command))
 
-        private def doOnControllers(command: SonosDevice[F] => F[Unit]): F[Unit] =
-          discovery.devices.flatMap(_.values.toList.traverse { device =>
-            device.isController.flatMap(if (_) command(device) else F.unit)
-          }.void)
+            private def doOnControllers(command: SonosDevice[F] => F[Unit]): F[Unit] =
+              discovery.devices.flatMap(_.values.toList.parTraverse_ { device =>
+                device.isController.flatMap(if (_) command(device) else F.unit)
+              })
 
-        override def name: NonEmptyString = combinedDeviceName
-        override def play: F[Unit] = doOnControllers(_.play)
-        override def pause: F[Unit] = doOnControllers(_.pause)
-        override def playPause: F[Unit] = doOnControllers(_.playPause)
-        override def volumeUp: F[Unit] = doOnAll(_.volumeUp)
-        override def volumeDown: F[Unit] = doOnAll(_.volumeDown)
-        override def mute: F[Unit] = doOnAll(_.mute)
-        override def next: F[Unit] = doOnControllers(_.next)
-        override def previous: F[Unit] = doOnControllers(_.previous)
-      }
-
-      def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] =
-        discovery.devices.map(_.updated(combinedDeviceName, combinedDevice))
-
-      private val basicCommands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
-        Map(
-          (NonEmptyString("play"), _.play),
-          (NonEmptyString("pause"), _.pause),
-          (Commands.PlayPause, _.playPause),
-          (Commands.VolUp, _.volumeUp),
-          (Commands.VolDown, _.volumeDown),
-          (Commands.Mute, _.mute)
-        )
-
-      private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
-        basicCommands ++ Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]](
-          (Commands.Next, _.next),
-          (Commands.Previous, _.previous)
-        )
-
-      override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        errors.learningNotSupported(remoteName)
-
-      override def sendCommand(deviceName: NonEmptyString, name: NonEmptyString): F[Unit] =
-        devices.flatMap(_.get(deviceName) match {
-          case None => errors.commandNotFound(remoteName, deviceName, name)
-          case Some(device) =>
-            device.isController.flatMap { isController =>
-              (if (isController) commands else basicCommands).get(name) match {
-                case None => errors.commandNotFound(remoteName, deviceName, name)
-                case Some(command) => command(device)
-              }
+            def span[A](n: String)(k: F[A]): F[A] = trace.span(s"sonosCombined$n") {
+              trace.put("device.name" -> combinedDeviceName.value) *> k
             }
-        })
 
-      override def listCommands: F[List[RemoteCommand]] =
-        devices.flatMap(_.toList.flatTraverse {
-          case (deviceName, device) =>
-            device.isController.map { isController =>
-              (if (isController) commands else basicCommands).keys.toList.map { command =>
-                RemoteCommand(remoteName, deviceName, command)
-              }
+            override def name: NonEmptyString = combinedDeviceName
+            override def play: F[Unit] = span("Play") { doOnControllers(_.play) }
+            override def pause: F[Unit] = span("Pause") { doOnControllers(_.pause) }
+            override def playPause: F[Unit] = span("PlayPause") { doOnControllers(_.playPause) }
+            override def volumeUp: F[Unit] = span("VolumeUp") { doOnAll(_.volumeUp) }
+            override def volumeDown: F[Unit] = span("VolumeDown") { doOnAll(_.volumeDown) }
+            override def mute: F[Unit] = span("Mute") { doOnAll(_.mute) }
+            override def next: F[Unit] = span("Next") { doOnControllers(_.next) }
+            override def previous: F[Unit] = span("Previous") { doOnControllers(_.previous) }
+          }
+
+          def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] = trace.span("sonosListDevices") {
+            discovery.devices.map(_.updated(combinedDeviceName, combinedDevice)).flatMap { devices =>
+              trace.put("device.count" -> devices.size).as(devices)
             }
-        })
-    }
+          }
+
+          private val basicCommands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
+            Map(
+              (NonEmptyString("play"), _.play),
+              (NonEmptyString("pause"), _.pause),
+              (Commands.PlayPause, _.playPause),
+              (Commands.VolUp, _.volumeUp),
+              (Commands.VolDown, _.volumeDown),
+              (Commands.Mute, _.mute)
+            )
+
+          private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
+            basicCommands ++ Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]](
+              (Commands.Next, _.next),
+              (Commands.Previous, _.previous)
+            )
+
+          override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
+            trace.put("error" -> true, "reason" -> "learning not supported") *> errors.learningNotSupported(remoteName)
+
+          override def sendCommand(deviceName: NonEmptyString, name: NonEmptyString): F[Unit] =
+            devices.flatMap(_.get(deviceName) match {
+              case None =>
+                trace.put("error" -> true, "reason" -> "device not found") *> errors
+                  .commandNotFound(remoteName, deviceName, name)
+              case Some(device) =>
+                device.isController.flatMap { isController =>
+                  trace.put("controller" -> isController) *> {
+                    (if (isController) commands else basicCommands).get(name) match {
+                      case None => errors.commandNotFound(remoteName, deviceName, name)
+                      case Some(command) => command(device)
+                    }
+                  }
+                }
+            })
+
+          override def listCommands: F[List[RemoteCommand]] =
+            devices.flatMap(_.toList.parFlatTraverse {
+              case (deviceName, device) =>
+                device.isController.flatMap { isController =>
+                  trace
+                    .put("controller" -> isController)
+                    .as((if (isController) commands else basicCommands).keys.toList.map { command =>
+                      RemoteCommand(remoteName, deviceName, command)
+                    })
+                }
+            })
+        },
+        "remote" -> remoteName.value,
+        "manufacturer" -> "sonos"
+      )
 }

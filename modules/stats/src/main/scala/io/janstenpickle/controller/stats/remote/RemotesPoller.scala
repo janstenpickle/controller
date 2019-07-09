@@ -4,7 +4,8 @@ import cats.effect.{Concurrent, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
 import fs2.concurrent.Topic
-import io.janstenpickle.controller.configsource.RemoteConfigSource
+import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.model.Remotes
 import io.janstenpickle.controller.stats._
 
 import scala.concurrent.duration.FiniteDuration
@@ -14,7 +15,7 @@ object RemotesPoller {
 
   def apply[F[_]: Concurrent: Timer](
     pollInterval: FiniteDuration,
-    remotes: RemoteConfigSource[F],
+    remotes: ConfigSource[F, Remotes],
     update: Topic[F, Boolean]
   ): Stream[F, Stats] =
     Stream
@@ -22,7 +23,7 @@ object RemotesPoller {
       .map(_ => true)
       .merge(update.subscribe(1))
       .filter(identity)
-      .evalMap(_ => remotes.getRemotes)
+      .evalMap(_ => remotes.getConfig)
       .map { remotes =>
         val roomActivity = remotes.remotes
           .flatMap { remote =>
