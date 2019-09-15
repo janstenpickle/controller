@@ -3,27 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@types/node": "^11.9.5",
-    "@types/react": "^16.0.5",
-    "@types/react-dom": "^16.0.3",
+    "@types/node": "^11.13.20",
+    "@types/react": "^16.9.2",
+    "@types/react-dom": "^16.9.0",
     "@types/react-grid-layout": "0.16.7",
-    "@types/react-redux": "^7.0.1",
+    "@types/react-redux": "^7.1.2",
     "@types/react-scroll": "^1.5.1",
-    "ajv": "^6.9.2",
-    "aphrodite": "^2.3.1",
+    "ajv": "^6.10.2",
+    "aphrodite": "^2.4.0",
     "flexboxgrid": "^6.3.1",
-    "fp-ts": "^1.14.2",
-    "react": "^16.8.3",
+    "fp-ts": "^1.19.5",
+    "react": "^16.9.0",
     "react-checkbox": "^0.1.3",
-    "react-dom": "^16.8.3",
+    "react-dom": "^16.9.0",
     "react-grid-layout": "^0.16.2",
     "react-redux": "^6.0.1",
-    "react-scripts-ts": "3.1.0",
-    "react-scroll": "^1.5.4",
-    "reconnecting-websocket": "^4.1.10",
-    "redux": "^4.0.1",
+    "react-scripts-ts": "^4.0.8",
+    "react-scroll": "^1.7.14",
+    "reconnecting-websocket": "^4.2.0",
+    "redux": "^4.0.4",
     "redux-thunk": "^2.2.0",
-    "typescript": "^3.4.1",
+    "typescript": "^3.6.3",
     "typescript-collections": "^1.2.5",
     "typescript-map": "^0.0.7"
   },
@@ -35,8 +35,14 @@
     "eject": "react-scripts-ts eject"
   },
   "devDependencies": {
-    "@types/enzyme": "^3.1.6",
-    "enzyme": "^3.3.0",
+    "@types/enzyme": "^3.10.3",
+    "enzyme": "^3.10.0",
     "react-addons-test-utils": "^15.6.0"
-  }
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ]
 }
