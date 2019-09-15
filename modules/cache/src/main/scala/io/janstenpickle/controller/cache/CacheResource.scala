@@ -4,7 +4,6 @@ import java.util.concurrent.TimeUnit
 
 import cats.effect.{Async, Resource}
 import cats.syntax.functor._
-import io.janstenpickle.catseffect.CatsEffect._
 import org.cache2k.{Cache, Cache2kBuilder}
 import scalacache.CatsEffect.modes._
 import scalacache.cache2k.Cache2kCache
@@ -21,12 +20,12 @@ object CacheResource {
     implicit F: Async[F]
   ): Resource[F, Cache[A, B]] =
     Resource.make(
-      suspendErrors(
+      F.delay(
         Cache2kBuilder
           .of[A, B](keyClass, valueClass)
           .expireAfterWrite(timeout.toMillis, TimeUnit.MILLISECONDS)
           .enableJmx(true)
           .build()
       )
-    )(c => suspendErrors(c.close()))
+    )(c => F.delay(c.close()))
 }

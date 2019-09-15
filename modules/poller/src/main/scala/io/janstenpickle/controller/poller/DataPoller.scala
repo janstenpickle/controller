@@ -5,12 +5,15 @@ import java.util.concurrent.TimeUnit
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.syntax.applicativeError._
+import cats.syntax.apply._
 import cats.syntax.eq._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.{Applicative, Eq}
+import cats.{Applicative, Apply, Eq}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.Stream
+import io.janstenpickle.controller.arrow.ContextualLiftLower
+import natchez.Trace
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -75,6 +78,103 @@ object DataPoller {
       dataRef <- Ref.of(Data(data, updatedTime))
       p <- poller(getData, pollInterval, dataRef, onUpdate)
     } yield create(() => read(dataRef), update(dataRef)) -> F.suspend(p.cancel))
+  }
+
+  def traced[F[_], G[_], A, B](name: String): TracedPollerPartiallyApplied[F, G, A, B] =
+    new TracedPollerPartiallyApplied[F, G, A, B] {
+
+      private def span[C](n: String)(k: F[C])(implicit F: Apply[F], trace: Trace[F]): F[C] = trace.span(n) {
+        trace.put("poller.name" -> name) *> k
+      }
+
+      override def apply(
+        getData: Data[A] => F[A],
+        pollInterval: FiniteDuration,
+        errorThreshold: PosInt,
+        onUpdate: A => F[Unit]
+      )(create: (() => F[A], A => F[Unit]) => B)(
+        implicit F: Sync[F],
+        trace: Trace[F],
+        G: Concurrent[G],
+        timer: Timer[G],
+        empty: Empty[A],
+        eq: Eq[A],
+        liftLower: ContextualLiftLower[G, F, String]
+      ): Resource[F, B] = {
+        val low = liftLower.lower(s"${name}Poll")
+
+        DataPoller[G, A, B](getData.andThen { read =>
+          low(span("poll")(read))
+        }, pollInterval, errorThreshold, onUpdate.andThen(low.apply)) { (get, update) =>
+          create(
+            () => span("readState") { liftLower.lift(get()) },
+            a => span("updateState") { liftLower.lift(update(a)) }
+          )
+        }.mapK(liftLower.lift)
+      }
+
+      override def apply(
+        getData: Data[A] => F[A],
+        pollInterval: FiniteDuration,
+        errorThreshold: PosInt,
+        handleError: (Data[A], Throwable) => F[A],
+        onUpdate: A => F[Unit]
+      )(create: (() => F[A], A => F[Unit]) => B)(
+        implicit F: Sync[F],
+        trace: Trace[F],
+        G: Concurrent[G],
+        timer: Timer[G],
+        empty: Empty[A],
+        eq: Eq[A],
+        liftLower: ContextualLiftLower[G, F, String]
+      ): Resource[F, B] = {
+        val low = liftLower.lower(s"${name}Poll")
+
+        DataPoller[G, A, B](
+          getData.andThen { read =>
+            low(span("poll")(read))
+          },
+          pollInterval,
+          errorThreshold,
+          (data: Data[A], th: Throwable) => low(span("handleError")(handleError(data, th))),
+          onUpdate.andThen(low.apply)
+        ) { (get, update) =>
+          create(
+            () => span("readState") { liftLower.lift(get()) },
+            a => span("updateState") { liftLower.lift(update(a)) }
+          )
+        }.mapK(liftLower.lift)
+      }
+    }
+
+  trait TracedPollerPartiallyApplied[F[_], G[_], A, B] {
+    def apply(getData: Data[A] => F[A], pollInterval: FiniteDuration, errorThreshold: PosInt, onUpdate: A => F[Unit])(
+      create: (() => F[A], A => F[Unit]) => B
+    )(
+      implicit F: Sync[F],
+      trace: Trace[F],
+      G: Concurrent[G],
+      timer: Timer[G],
+      empty: Empty[A],
+      eq: Eq[A],
+      liftLower: ContextualLiftLower[G, F, String]
+    ): Resource[F, B]
+
+    def apply(
+      getData: Data[A] => F[A],
+      pollInterval: FiniteDuration,
+      errorThreshold: PosInt,
+      handleError: (Data[A], Throwable) => F[A],
+      onUpdate: A => F[Unit]
+    )(create: (() => F[A], A => F[Unit]) => B)(
+      implicit F: Sync[F],
+      trace: Trace[F],
+      G: Concurrent[G],
+      timer: Timer[G],
+      empty: Empty[A],
+      eq: Eq[A],
+      liftLower: ContextualLiftLower[G, F, String]
+    ): Resource[F, B]
   }
 
   def apply[F[_]: Timer, A: Empty: Eq, B](

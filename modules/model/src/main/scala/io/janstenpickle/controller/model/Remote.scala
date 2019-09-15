@@ -6,6 +6,7 @@ import cats.derived.semi
 import cats.instances.list._
 import cats.instances.map._
 import cats.instances.string._
+import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 
 case class Remote(
@@ -24,4 +25,6 @@ case class Remotes(remotes: List[Remote], errors: List[String] = List.empty)
 
 object Remotes {
   implicit val eq: Eq[Remotes] = semi.eq
+  implicit val monoid: Monoid[Remotes] = semi.monoid
+  implicit val setErrors: SetErrors[Remotes] = SetErrors((remotes, errors) => remotes.copy(errors = errors))
 }

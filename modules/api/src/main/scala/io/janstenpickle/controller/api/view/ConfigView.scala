@@ -3,24 +3,25 @@ package io.janstenpickle.controller.api.view
 import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.traverse._
-import cats.{Monad, Traverse}
+import cats.syntax.parallel._
+import cats.{Monad, Parallel, Traverse}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
+import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model.Button._
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
-import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.switch.model.SwitchKey
+import natchez.Trace
 
-class ConfigView[F[_]](
-  activity: ActivityConfigSource[F],
-  button: ButtonConfigSource[F],
-  remote: RemoteConfigSource[F],
+class ConfigView[F[_]: Parallel](
+  activity: ConfigSource[F, Activities],
+  button: ConfigSource[F, Buttons],
+  remote: ConfigSource[F, Remotes],
   macros: MacroStore[F],
   activityStore: ActivityStore[F],
   switches: Switches[F]
-)(implicit F: Monad[F]) {
+)(implicit F: Monad[F], trace: Trace[F]) {
   private def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, a: A, op: State => A): F[A] =
     switches.list.flatMap { switchList =>
       if (switchList.contains(SwitchKey(device, name))) switches.getState(device, name).map(op) else F.pure(a)
@@ -53,7 +54,7 @@ class ConfigView[F[_]](
           }
     }
 
-  private def addSwitchState[G[_]: Traverse](buttons: G[Button]): F[G[Button]] = buttons.traverse {
+  private def addSwitchState[G[_]: Traverse](buttons: G[Button]): F[G[Button]] = buttons.parTraverse {
     case button: SwitchIcon => doIfPresent(button.device, button.name, button, state => button.copy(isOn = state.isOn))
     case button: SwitchLabel => doIfPresent(button.device, button.name, button, state => button.copy(isOn = state.isOn))
     case macroButton: MacroIcon =>
@@ -65,7 +66,7 @@ class ConfigView[F[_]](
 
   private def addActiveActivity(activities: Activities): F[Activities] =
     activities.activities
-      .traverse { activity =>
+      .parTraverse { activity =>
         activityStore
           .loadActivity(activity.room)
           .map(
@@ -76,19 +77,23 @@ class ConfigView[F[_]](
         activities.copy(activities = acts)
       }
 
-  def getActivities: F[Activities] = activity.getActivities.flatMap(addActiveActivity)
+  def getActivities: F[Activities] = trace.span("getActivities") { activity.getConfig.flatMap(addActiveActivity) }
 
-  def getRemotes: F[Remotes] = remote.getRemotes.flatMap { remotes =>
-    remotes.remotes
-      .traverse { remote =>
-        addSwitchState(remote.buttons).map(b => remote.copy(buttons = b))
-      }
-      .map(rs => remotes.copy(remotes = rs))
+  def getRemotes: F[Remotes] = trace.span("getRemotes") {
+    remote.getConfig.flatMap { remotes =>
+      remotes.remotes
+        .parTraverse { remote =>
+          addSwitchState(remote.buttons).map(b => remote.copy(buttons = b))
+        }
+        .map(rs => remotes.copy(remotes = rs))
+    }
   }
 
-  def getCommonButtons: F[Buttons] = button.getCommonButtons.flatMap { buttons =>
-    addSwitchState(buttons.buttons).map { bs =>
-      buttons.copy(buttons = bs)
+  def getCommonButtons: F[Buttons] = trace.span("getCommonButtons") {
+    button.getConfig.flatMap { buttons =>
+      addSwitchState(buttons.buttons).map { bs =>
+        buttons.copy(buttons = bs)
+      }
     }
   }
 
@@ -96,19 +101,23 @@ class ConfigView[F[_]](
     override def compare(x: Int, y: Int): Int = if (x < y) 1 else if (x > y) -1 else 0
   }
 
-  def getRooms: F[Rooms] =
-    for {
-      r <- remote.getRemotes
-      a <- activity.getActivities
-      b <- button.getCommonButtons
-    } yield
+  def getRooms: F[Rooms] = trace.span("getRooms") {
+    List(
+      trace.span("getRemotes") { remote.getConfig.map(r => r.remotes.flatMap(_.rooms) -> r.errors) },
+      trace.span("getActivities") { activity.getConfig.map(a => a.activities.map(_.room) -> a.errors) },
+      trace.span("getCommonButtons") { button.getConfig.map(b => b.buttons.flatMap(_.room) -> b.errors) }
+    ).parSequence.map { data =>
+      val (remotes, errors) = data.unzip
+
       Rooms(
-        (r.remotes.flatMap(_.rooms) ++ a.activities.map(_.room) ++ b.buttons.flatMap(_.room))
+        remotes.flatten
           .groupBy(identity)
           .mapValues(_.size)
           .toList
           .sortBy(_._2)
           .map(_._1),
-        r.errors ++ a.errors ++ b.errors
+        errors.flatten
       )
+    }
+  }
 }

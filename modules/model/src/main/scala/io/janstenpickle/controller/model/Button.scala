@@ -4,8 +4,10 @@ import cats.Eq
 import cats.derived.semi
 import cats.instances.boolean._
 import cats.instances.string._
+import cats.instances.list._
 import cats.instances.option._
 import cats.instances.string._
+import cats.kernel.{Monoid, Semigroup}
 import eu.timepit.refined.types.string.NonEmptyString
 
 sealed trait Button {
@@ -122,4 +124,6 @@ case class Buttons(buttons: List[Button], errors: List[String] = List.empty)
 
 object Buttons {
   implicit val eq: Eq[Buttons] = semi.eq
+  implicit val monoid: Monoid[Buttons] = semi.monoid
+  implicit val setErrors: SetErrors[Buttons] = SetErrors((buttons, errors) => buttons.copy(errors = errors))
 }

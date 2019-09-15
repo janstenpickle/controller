@@ -1,268 +1,370 @@
 package io.janstenpickle.controller.api
 
-import cats.data.EitherT
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Sync, Timer}
+import java.util.concurrent.Executors
+
+import cats.data.{EitherT, Kleisli, OptionT}
+import cats.effect.{Blocker, Bracket, Concurrent, ContextShift, Resource, Sync, Timer}
 import cats.instances.list._
+import cats.instances.parallel._
+import cats.mtl.ApplicativeHandle
+import cats.mtl.implicits._
+import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.traverse._
-import cats.~>
+import cats.syntax.parallel._
+import cats.{~>, Applicative, ApplicativeError, Parallel}
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
 import fs2.Stream
 import fs2.concurrent.Topic
-import io.janstenpickle.catseffect.CatsEffect._
+import io.chrisdavenport.log4cats.Logger
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.config.Configuration
+import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
+import io.janstenpickle.controller.api.trace.implicits._
 import io.janstenpickle.controller.api.view.ConfigView
+import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
 import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
 import io.janstenpickle.controller.cache.monitoring.CacheCollector
-import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.configsource._
+import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
-import io.janstenpickle.controller.stats.{Stats, StatsStream}
-import io.janstenpickle.controller.store.SwitchStateStore
+import io.janstenpickle.controller.stats.StatsStream
+import io.janstenpickle.controller.stats.prometheus.MetricsSink
 import io.janstenpickle.controller.store.file._
 import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
 import io.prometheus.client.CollectorRegistry
+import natchez._
+import natchez.jaeger.Jaeger
+import org.http4s.dsl.Http4sDsl
+import org.http4s.metrics.prometheus.PrometheusExportService
+import org.http4s.server.Router
+import org.http4s.{HttpRoutes, Request, Response}
 
-import scala.concurrent.ExecutionContext
+object Module {
+  def entryPoint[F[_]: Sync]: Resource[F, EntryPoint[F]] =
+    Jaeger.entryPoint[F]("controller") { c =>
+      Sync[F].delay {
+        c.withSampler(SamplerConfiguration.fromEnv)
+          .withReporter(ReporterConfiguration.fromEnv)
+          .getTracer
+      }
+    }
 
-abstract class Module[F[_]: ContextShift: Timer](implicit F: ConcurrentEffect[F]) {
-  type ConfigResult[A] = EffectValidation[F, A]
-  type ET[A] = EitherT[F, ControlError, A]
+  def components[F[_]: Concurrent: ContextShift: Timer: Parallel](
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] =
+    entryPoint[F].flatMap(components(getConfig, _))
 
-  implicit val errors: ErrorInterpreter[F] = new ErrorInterpreter[F]()
+  def emptySpan[F[_]](implicit F: Applicative[F]): Span[F] = new Span[F] {
+    override def put(fields: (String, TraceValue)*): F[Unit] = F.unit
+    override def kernel: F[Kernel] = F.pure(Kernel(Map.empty))
+    override def span(name: String): Resource[F, Span[F]] = Resource.pure(emptySpan)
+  }
 
-  def configOrError(result: F[Either[ValidationErrors, Configuration.Config]]): ET[Configuration.Config] =
-    EitherT(
-      result.flatMap(
-        _.fold[EitherT[F, ControlError, Configuration.Config]](
-          errs =>
-            EitherT.liftF[F, ControlError, Configuration.Config](
-              F.raiseError(ValidationErrorsToThrowable.defaultValidationErrorsThrowable.convertErrors(errs))
-          ),
-          EitherT.pure(_)
-        ).value
-      )
+  def components[F[_]: ContextShift: Timer: Parallel](
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
+    ep: EntryPoint[F]
+  )(
+    implicit F: Concurrent[F]
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] = {
+    type G[A] = Kleisli[F, Span[F], A]
+
+    val lift = λ[F ~> G](fa => Kleisli(_ => fa))
+
+    implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
+      λ[G ~> F](_.run(emptySpan)),
+      name => λ[G ~> F](ga => ep.root(name).use(ga.run))
     )
 
-  val translateF: ET ~> F = new (ET ~> F) {
-    override def apply[A](fa: ET[A]): F[A] = fa.value.flatMap {
-      case Left(err) => F.raiseError(err)
-      case Right(a) => F.pure(a)
+    val liftedConfig: () => G[Either[ValidationErrors, Configuration.Config]] = () => lift(getConfig())
+
+    eitherTComponents[G, F](liftedConfig).mapK(liftLower.lower).map {
+      case (config, routes, registry, stats) =>
+        (config, ep.liftT(routes), registry, stats)
     }
   }
 
-  implicit val commandPayloadSerde: CommandSerde[ET, CommandPayload] =
-    CommandSerde[ET, String].imap(CommandPayload)(_.hexValue)
+  private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: Concurrent: ContextShift: Timer](
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
+  )(
+    implicit F: Concurrent[F],
+    trace: Trace[F],
+    invk: ContextualLiftLower[M, F, String]
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[M, Unit])] = {
+    type G[A] = EitherT[F, ControlError, A]
 
-  def notifyUpdate[A](topic: Topic[ET, Boolean], topics: Topic[ET, Boolean]*): A => ET[Unit] =
-    _ => (topic :: topics.toList).traverse(_.publish1(true)).void
+    val lift = λ[F ~> G](EitherT.liftF(_))
+    val lower =
+      λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
 
-  def components(getConfig: () => F[Either[ValidationErrors, Configuration.Config]]): Stream[
-    F,
-    (
-      Configuration.Server,
-      Activity[ET],
-      Macro[ET],
-      RemoteControls[ET],
-      Switches[ET],
-      ActivityConfigSource[ET],
-      ConfigView[ET],
-      ExecutionContext,
-      UpdateTopics[ET],
-      CollectorRegistry,
-      Stream[F, Stats]
+    implicit val cInvK: ContextualLiftLower[M, G, String] = invk.imapK[G](λ[F ~> G](EitherT.liftF(_)))(
+      λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
     )
-  ] =
-    (for {
-      config <- Stream.eval[ET, Configuration.Config](configOrError(getConfig()))
-      executor <- Stream.resource(cachedExecutorResource[ET])
-      registry <- Stream[ET, CollectorRegistry](new CollectorRegistry(true))
-      _ <- Stream.eval(Sync[ET].delay(registry.register(new CacheCollector())))
 
-      activitiesUpdate <- Stream.eval(Topic[ET, Boolean](false))
-      buttonsUpdate <- Stream.eval(Topic[ET, Boolean](false))
-      remotesUpdate <- Stream.eval(Topic[ET, Boolean](false))
-      roomsUpdate <- Stream.eval(Topic[ET, Boolean](false))
-      statsSwitchUpdate <- Stream.eval(Topic[ET, Boolean](false))
-      statsConfigUpdate <- Stream.eval(Topic[ET, Boolean](false))
+    implicit val etTrace: Trace[G] = new Trace[G] {
+      override def put(fields: (String, TraceValue)*): EitherT[F, ControlError, Unit] =
+        lift(trace.put(fields: _*))
+      override def kernel: EitherT[F, ControlError, Kernel] = lift(trace.kernel)
+      override def span[A](name: String)(k: EitherT[F, ControlError, A]): EitherT[F, ControlError, A] =
+        lift(trace.span(name)(k.value.flatMap(_.fold[F[A]](F.raiseError, F.pure))))
+    }
 
-      configFileSource <- Stream.resource[ET, ConfigFileSource[ET]](
-        ConfigFileSource.polling[ET](config.config.file, config.config.pollInterval, executor)
-      )
-      activityConfig <- Stream.resource[ET, ActivityConfigSource[ET]](
-        ExtruderActivityConfigSource
-          .polling[ET](
-            configFileSource,
-            config.config.activity,
-            notifyUpdate(activitiesUpdate, roomsUpdate, statsConfigUpdate)
-          )
-      )
-      buttonConfig <- Stream.resource[ET, ButtonConfigSource[ET]](
-        ExtruderButtonConfigSource
-          .polling[ET](
-            configFileSource,
-            config.config.button,
-            notifyUpdate(buttonsUpdate, roomsUpdate, statsConfigUpdate)
-          )
-      )
-      remoteConfig <- Stream.resource[ET, RemoteConfigSource[ET]](
-        ExtruderRemoteConfigSource
-          .polling[ET](
-            configFileSource,
-            config.config.remote,
-            notifyUpdate(remotesUpdate, roomsUpdate, statsConfigUpdate)
-          )
-      )
-      virtualSwitchConfig <- Stream.resource[ET, VirtualSwitchConfigSource[ET]](
-        ExtruderVirtualSwitchConfigSource
-          .polling[ET](
-            configFileSource,
-            config.config.virtualSwitch,
-            notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
-          )
-      )
-      multiSwitchConfig <- Stream.resource[ET, MultiSwitchConfigSource[ET]](
-        ExtruderMultiSwitchConfigSource
-          .polling[ET](
-            configFileSource,
-            config.config.multiSwitch,
-            notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
-          )
-      )
+    implicit val bracket: Bracket[G, Throwable] = Sync[G]
 
-      activityStore <- Stream.eval(FileActivityStore[ET](config.stores.activityStore, executor))
-      macroStore <- Stream.eval(FileMacroStore[ET](config.stores.macroStore, executor))
-      commandStore <- Stream.eval(
-        FileRemoteCommandStore[ET, CommandPayload](config.stores.remoteCommandStore, executor)
-      )
+    val liftedConfig: () => G[Either[ValidationErrors, Configuration.Config]] = () => lift(getConfig())
 
-      switchStateFileStore <- Stream
-        .resource[ET, SwitchStateStore[ET]](
-          FileSwitchStateStore.polling[ET](
-            config.stores.switchStateStore,
-            config.stores.switchStatePolling,
-            executor,
-            notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
-          )
-        )
+    Resource
+      .liftF(Slf4jLogger.fromName[G]("Controller Error"))
+      .flatMap { implicit logger =>
+        tracedComponents[G, M](liftedConfig).map {
+          case (config, routes, registry, stream) =>
+            val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
+              OptionT(handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
+            }
 
-      rm2RemoteControls <- Stream.eval(RmRemoteControls[ET](config.rm.map(_.config), commandStore, executor))
+            (config, r, registry, stream)
+        }
+      }
+      .mapK(lower)
+  }
 
-      hs100SwitchProvider <- Stream
-        .resource[ET, SwitchProvider[ET]](
-          HS100SwitchProvider[ET](
-            config.hs100.configs,
-            config.hs100.polling,
-            notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate),
-            executor
-          )
-        )
+  def handleControlError[F[_]: Sync](
+    result: F[Option[Response[F]]]
+  )(implicit trace: Trace[F], logger: Logger[F], ah: ApplicativeHandle[F, ControlError]): F[Option[Response[F]]] = {
+    val dsl = Http4sDsl[F]
+    import dsl._
 
-      spSwitchProvider <- Stream.resource[ET, SwitchProvider[ET]](
-        SpSwitchProvider[ET](
-          config.sp.configs,
-          config.sp.polling,
-          switchStateFileStore,
-          executor,
-          notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
+    ah.attempt(result)
+      .flatMap({
+        case Left(err @ ControlError.Missing(message)) =>
+          trace.put("error" -> true, "reason" -> "missing", "message" -> message) *> logger
+            .warn(err)("Missing resource") *> NotFound(message).map(Some(_))
+        case Left(err @ ControlError.Internal(message)) =>
+          trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
+            .error(err)("Internal error") *> InternalServerError(message)
+            .map(Some(_))
+        case Left(err @ ControlError.Combined(_, _)) if err.isSevere =>
+          trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
+            .error(err)("Internal error") *> InternalServerError(err.message)
+            .map(Some(_))
+        case Left(err @ ControlError.Combined(_, _)) =>
+          trace.put("error" -> true, "reason" -> "missing", "message" -> err.message) *> logger
+            .warn(err)("Missing resource") *> NotFound(err.message).map(Some(_))
+        case Right(a) => trace.put("error" -> false).as(a)
+      })
+  }
+
+  private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: Concurrent: ContextShift: Timer](
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
+  )(
+    implicit F: Concurrent[F],
+    trace: Trace[F],
+    errors: ErrorInterpreter[F],
+    ah: ApplicativeHandle[F, ControlError],
+    liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[G, Unit])] = {
+    type ConfigResult[A] = EffectValidation[F, A]
+
+    def configOrError(result: F[Either[ValidationErrors, Configuration.Config]]): F[Configuration.Config] =
+      result.flatMap(
+        _.fold[F[Configuration.Config]](
+          errs => F.raiseError(ValidationErrorsToThrowable.defaultValidationErrorsThrowable.convertErrors(errs)),
+          F.pure
         )
       )
 
-      sonosComponents <- Stream.resource[ET, SonosComponents[ET]](
-        SonosComponents[ET](
-          config.sonos,
-          () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-          executor,
-          () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
-        )
+    implicit val commandPayloadSerde: CommandSerde[F, CommandPayload] =
+      CommandSerde[F, String].imap(CommandPayload)(_.hexValue)
+
+    def notifyUpdate[A](topic: Topic[F, Boolean], topics: Topic[F, Boolean]*): A => F[Unit] =
+      _ => (topic :: topics.toList).parTraverse(_.publish1(true)).void
+
+    def makeRegistry: Resource[F, CollectorRegistry] =
+      Resource.make[F, CollectorRegistry](Sync[F].delay {
+        val registry = new CollectorRegistry(true)
+        registry.register(new CacheCollector())
+        registry
+      })(r => Sync[F].delay(r.clear()))
+
+    for {
+      config <- Resource.liftF[F, Configuration.Config](configOrError(getConfig()))
+      blocker <- Resource
+        .make(Sync[F].delay(Executors.newCachedThreadPool()))(es => Sync[F].delay(es.shutdown()))
+        .map(e => Blocker.liftExecutorService(e))
+      registry <- makeRegistry
+      activitiesUpdate <- Resource.liftF(Topic[F, Boolean](false))
+      buttonsUpdate <- Resource.liftF(Topic[F, Boolean](false))
+      remotesUpdate <- Resource.liftF(Topic[F, Boolean](false))
+      roomsUpdate <- Resource.liftF(Topic[F, Boolean](false))
+      statsSwitchUpdate <- Resource.liftF(Topic[F, Boolean](false))
+      statsConfigUpdate <- Resource.liftF(Topic[F, Boolean](false))
+
+      configFileSource <- ConfigFileSource.polling[F, G](config.config.file, config.config.pollInterval, blocker)
+
+      activityConfig <- ExtruderActivityConfigSource[F, G](
+        configFileSource,
+        config.config.activity,
+        notifyUpdate(activitiesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
-      combinedActivityConfig = ActivityConfigSource.combined[ET](activityConfig, sonosComponents.activityConfig)
-      combinedRemoteConfig = RemoteConfigSource.combined[ET](sonosComponents.remoteConfig, remoteConfig)
+      buttonConfig <- ExtruderButtonConfigSource[F, G](
+        configFileSource,
+        config.config.button,
+        notifyUpdate(buttonsUpdate, roomsUpdate, statsConfigUpdate)
+      )
+
+      remoteConfig <- ExtruderRemoteConfigSource[F, G](
+        configFileSource,
+        config.config.remote,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsConfigUpdate)
+      )
+
+      virtualSwitchConfig <- ExtruderVirtualSwitchConfigSource[F, G](
+        configFileSource,
+        config.config.virtualSwitch,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      )
+
+      multiSwitchConfig <- ExtruderMultiSwitchConfigSource[F, G](
+        configFileSource,
+        config.config.multiSwitch,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      )
+
+      activityStore <- Resource.liftF(FileActivityStore[F](config.stores.activityStore, blocker))
+      macroStore <- Resource.liftF(FileMacroStore[F](config.stores.macroStore, blocker))
+      commandStore <- Resource.liftF(
+        FileRemoteCommandStore[F, CommandPayload](config.stores.remoteCommandStore, blocker)
+      )
+
+      switchStateFileStore <- FileSwitchStateStore.polling[F, G](
+        config.stores.switchStateStore,
+        config.stores.switchStatePolling,
+        blocker,
+        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
+      )
+
+      rm2RemoteControls <- Resource.liftF(RmRemoteControls[F](config.rm.map(_.config), commandStore, blocker))
+
+      hs100SwitchProvider <- HS100SwitchProvider[F, G](
+        config.hs100.configs,
+        config.hs100.polling,
+        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate),
+        blocker
+      )
+
+      spSwitchProvider <- SpSwitchProvider[F, G](
+        config.sp.configs,
+        config.sp.polling,
+        switchStateFileStore,
+        blocker,
+        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
+      )
+
+      sonosComponents <- SonosComponents[F, G](
+        config.sonos,
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        blocker,
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+      )
+
+      combinedActivityConfig = ConfigSource.combined(activityConfig, sonosComponents.activityConfig)
+      combinedRemoteConfig = ConfigSource.combined(sonosComponents.remoteConfig, remoteConfig)
       remoteControls = RemoteControls
-        .combined[ET](rm2RemoteControls, RemoteControls[ET](Map(config.sonos.remote -> sonosComponents.remote)))
+        .combined[F](rm2RemoteControls, RemoteControls[F](Map(config.sonos.remote -> sonosComponents.remote)))
 
-      switchStateStore <- Stream.eval(
-        SwitchDependentStore.fromProvider[ET](
+      switchStateStore <- Resource.liftF(
+        SwitchDependentStore.fromProvider[F](
           config.rm.flatMap(c => c.dependentSwitch.map(c.config.name -> _)).toMap,
           switchStateFileStore,
           SwitchProvider.combined(hs100SwitchProvider, spSwitchProvider)
         )
       )
 
-      virtualSwitches <- Stream.resource[ET, SwitchProvider[ET]](
-        SwitchesForRemote.polling[ET](
-          config.virtualSwitch,
-          virtualSwitchConfig,
-          rm2RemoteControls,
-          switchStateStore,
-          notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
-        )
+      virtualSwitches <- SwitchesForRemote.polling[F](
+        config.virtualSwitch,
+        virtualSwitchConfig,
+        rm2RemoteControls,
+        switchStateStore,
+        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
       )
 
       combinedSwitchProvider = SwitchProvider
-        .combined[ET](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
+        .combined[F](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
 
-      multiSwitchProvider = MultiSwitchProvider[ET](multiSwitchConfig, Switches[ET](combinedSwitchProvider))
+      multiSwitchProvider = MultiSwitchProvider[F](multiSwitchConfig, Switches[F](combinedSwitchProvider))
 
-      switches = Switches[ET](SwitchProvider.combined[ET](combinedSwitchProvider, multiSwitchProvider))
+      switches = Switches[F](SwitchProvider.combined[F](combinedSwitchProvider, multiSwitchProvider))
 
-      instrumentation <- Stream.resource[ET, StatsStream.Instrumented[ET]](
-        StatsStream[ET](
-          config.stats,
-          remoteControls,
-          switches,
-          combinedActivityConfig,
-          buttonConfig,
-          macroStore,
-          remoteConfig,
-          combinedSwitchProvider
-        )(
-          m =>
-            Activity.dependsOnSwitch[ET](
-              config.activity.dependentSwitches,
-              combinedSwitchProvider,
-              activityStore,
-              m,
-              notifyUpdate(activitiesUpdate)
-          ),
-          (r, s) => Macro[ET](macroStore, r, s)
-        )(statsConfigUpdate, statsSwitchUpdate)
-      )
-
-      configView = new ConfigView(
+      instrumentation <- StatsStream[F](
+        config.stats,
+        remoteControls,
+        switches,
         combinedActivityConfig,
         buttonConfig,
-        combinedRemoteConfig,
         macroStore,
-        activityStore,
-        switches
-      )
-    } yield
-      (
-        config.server,
-        instrumentation.activity,
-        instrumentation.`macro`,
-        instrumentation.remote,
-        instrumentation.switch,
-        combinedActivityConfig,
-        configView,
-        executor,
-        UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate),
-        registry,
-        instrumentation.statsStream.translate(translateF)
-      )).translate(translateF)
+        remoteConfig,
+        combinedSwitchProvider
+      )(
+        m =>
+          Activity.dependsOnSwitch[F](
+            config.activity.dependentSwitches,
+            combinedSwitchProvider,
+            activityStore,
+            m,
+            notifyUpdate(activitiesUpdate)
+        ),
+        (r, s) => Macro[F](macroStore, r, s)
+      )(statsConfigUpdate, statsSwitchUpdate)
+
+      l <- Resource.liftF(Slf4jLogger.fromName[F]("stats"))
+    } yield {
+      val configView =
+        new ConfigView(combinedActivityConfig, buttonConfig, combinedRemoteConfig, macroStore, activityStore, switches)
+      val router =
+        Router(
+          "/control/remote" -> new RemoteApi[F](instrumentation.remote).routes,
+          "/control/switch" -> new SwitchApi[F](instrumentation.switch).routes,
+          "/control/macro" -> new MacroApi[F](instrumentation.`macro`).routes,
+          "/control/activity" -> new ActivityApi[F](instrumentation.activity, combinedActivityConfig).routes,
+          "/control/context" -> new ContextApi[F](
+            instrumentation.activity,
+            instrumentation.`macro`,
+            instrumentation.remote,
+            activityConfig
+          ).routes,
+          "/config" -> new ConfigApi[F, G](
+            configView,
+            UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
+          ).routes,
+          "/" -> new ControllerUi[F](blocker).routes,
+          "/" -> PrometheusExportService.service[F](registry)
+        )
+
+      val logger: Logger[G] = l.mapK(liftLower.lower)
+
+      val stats: Stream[G, Unit] = {
+        val fullStream =
+          instrumentation.statsStream.translate(liftLower.lower).through(MetricsSink[G](registry, blocker))
+
+        fullStream.handleErrorWith { th =>
+          Stream.eval(logger.error(th)("Stats publish failed")).flatMap(_ => fullStream)
+        }
+      }
+      (config.server, router, registry, stats)
+    }
+  }
 }

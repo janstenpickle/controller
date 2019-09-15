@@ -5,6 +5,7 @@ import cats.data.NonEmptyList
 import cats.derived.semi
 import cats.instances.list._
 import cats.instances.string._
+import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 
 sealed trait SwitchAction {
@@ -53,4 +54,6 @@ case class MultiSwitches(multiSwitches: List[MultiSwitch] = List.empty, errors: 
 
 object MultiSwitches {
   implicit val eq: Eq[MultiSwitches] = semi.eq
+  implicit val monoid: Monoid[MultiSwitches] = semi.monoid
+  implicit val setErrors: SetErrors[MultiSwitches] = SetErrors((switches, errors) => switches.copy(errors = errors))
 }

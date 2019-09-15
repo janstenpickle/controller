@@ -1,11 +1,11 @@
 package io.janstenpickle.controller.activity
 
-import cats.{Apply, Monad, MonadError}
+import cats.{Apply, Monad, MonadError, Parallel}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.applicative._
-import cats.syntax.traverse._
+import cats.syntax.parallel._
 import cats.instances.list._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
@@ -53,7 +53,7 @@ object Activity {
     }
   }
 
-  def dependsOnSwitch[F[_]](
+  def dependsOnSwitch[F[_]: Parallel](
     switches: Map[Room, SwitchKey],
     switchProvider: SwitchProvider[F],
     activities: ActivityStore[F],
@@ -62,7 +62,7 @@ object Activity {
   )(implicit F: MonadError[F, Throwable]): F[Activity[F]] =
     switchProvider.getSwitches.flatMap { sws =>
       switches.toList
-        .traverse[F, (Room, Switch[F])] {
+        .parTraverse[F, (Room, Switch[F])] {
           case (room, key) =>
             sws.get(key) match {
               case None =>

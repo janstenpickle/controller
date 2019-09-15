@@ -4,8 +4,8 @@ import cats.instances.list._
 import cats.syntax.applicative._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
-import cats.syntax.traverse._
-import cats.{Applicative, FlatMap}
+import cats.syntax.parallel._
+import cats.{FlatMap, Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.store.RemoteCommand
 
@@ -18,7 +18,7 @@ trait RemoteControls[F[_]] {
 
 object RemoteControls {
 
-  def apply[F[_]: Applicative](
+  def apply[F[_]: Monad: Parallel](
     remotes: Map[NonEmptyString, RemoteControl[F]]
   )(implicit errors: RemoteControlErrors[F]): RemoteControls[F] = new RemoteControls[F] {
     private def exec[A](remote: NonEmptyString)(f: RemoteControl[F] => F[A]): F[A] =
@@ -30,7 +30,7 @@ object RemoteControls {
     def learn(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit] =
       exec(remote)(_.learn(device, name))
 
-    def listCommands: F[List[RemoteCommand]] = remotes.values.toList.flatTraverse(_.listCommands)
+    def listCommands: F[List[RemoteCommand]] = remotes.values.toList.parFlatTraverse(_.listCommands)
 
     override def provides(remote: NonEmptyString): F[Boolean] = remotes.contains(remote).pure[F]
   }

@@ -1,16 +1,17 @@
 import sbt.Keys.libraryDependencies
 import sbt.url
 
-val catsVer = "1.6.1"
-val catsEffectVer = "1.3.1"
+val catsVer = "2.0.0-RC2"
+val catsEffectVer = "2.0.0-RC2"
 val circeVer = "0.11.1"
-val extruderVer = "0.10.0"
+val extruderVer = "0.10.1"
 val fs2Ver = "1.0.5"
-val http4sVer = "0.20.3"
+val http4sVer = "0.20.10"
 val kittensVer = "1.2.1"
-val log4catsVer = "0.4.0-M1"
+val log4catsVer = "1.0.0-RC3"
+val natchezVer = "0.0.8"
 val prometheusVer = "0.6.0"
-val refinedVer = "0.9.8"
+val refinedVer = "0.9.9"
 val scalaCacheVer = "0.27.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
@@ -18,7 +19,7 @@ val scalaTestVer = "3.0.8"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
-  scalaVersion := "2.12.8",
+  scalaVersion := "2.12.9",
   scalacOptions ++= Seq(
     "-unchecked",
     "-feature",
@@ -33,7 +34,7 @@ val commonSettings = Seq(
     "-encoding",
     "UTF-8"
   ),
-  addCompilerPlugin(("org.spire-math" % "kind-projector" % "0.9.10").cross(CrossVersion.binary)),
+  addCompilerPlugin(("org.typelevel" %% "kind-projector" % "0.10.3").cross(CrossVersion.binary)),
 //  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
   publishMavenStyle := true,
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
@@ -58,13 +59,15 @@ val commonSettings = Seq(
   parallelExecution in ThisBuild := true,
   logBuffered in Test := false,
   libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalaTestVer % Test),
-  test in assembly := {}
+  packExcludeJars := Seq("slf4j-jdk14.*\\.jar"),
+  resolvers += Resolver.jcenterRepo
 )
 
 lazy val root = (project in file("."))
   .settings(commonSettings)
   .settings(name := "controller")
   .aggregate(
+    api,
     model,
     remote,
     broadlink,
@@ -93,20 +96,23 @@ lazy val api = (project in file("modules/api"))
     dockerExposedPorts += 8090,
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "refined-cats"              % refinedVer,
-      "extruder"          %% "extruder-cats-effect"      % extruderVer,
-      "extruder"          %% "extruder-circe"            % extruderVer,
-      "extruder"          %% "extruder-refined"          % extruderVer,
-      "extruder"          %% "extruder-typesafe"         % extruderVer,
+      "io.extruder"       %% "extruder-cats-effect"      % extruderVer,
+      "io.extruder"       %% "extruder-circe"            % extruderVer,
+      "io.extruder"       %% "extruder-refined"          % extruderVer,
+      "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
-      "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer
+      "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
+      "org.typelevel"     %% "cats-mtl-core"             % "0.5.0",
+      "org.tpolecat"      %% "natchez-jaeger"            % natchezVer
     )
   )
   .dependsOn(
+    arrow,
     hs100Switch,
     broadlink,
     fileStore,
@@ -120,17 +126,7 @@ lazy val api = (project in file("modules/api"))
     stats,
     prometheusStats
   )
-  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin)
-
-lazy val catsEffect = (project in file("modules/cats-effect"))
-  .settings(commonSettings)
-  .settings(
-    name := "controller-cats-effect",
-    libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core"   % catsVer,
-      "org.typelevel" %% "cats-effect" % catsEffectVer
-    )
-  )
+  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
 lazy val model = (project in file("modules/model"))
   .settings(commonSettings)
@@ -148,37 +144,62 @@ lazy val configSource = (project in file("modules/config-source"))
   .settings(name := "controller-config-source")
   .dependsOn(model)
 
+lazy val tracedConfigSource = (project in file("modules/trace-config-source"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-trace-config-source",
+    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(configSource)
+
 lazy val extruder = (project in file("modules/extruder"))
   .settings(commonSettings)
   .settings(
     name := "controller-extruder",
     libraryDependencies ++= Seq(
-      "io.circe" %% "circe-parser"         % circeVer,
-      "extruder" %% "extruder-cats-effect" % extruderVer,
-      "extruder" %% "extruder-circe"       % extruderVer,
-      "extruder" %% "extruder-refined"     % extruderVer,
-      "extruder" %% "extruder-typesafe"    % extruderVer
+      "io.circe"    %% "circe-parser"         % circeVer,
+      "io.extruder" %% "extruder-cats-effect" % extruderVer,
+      "io.extruder" %% "extruder-circe"       % extruderVer,
+      "io.extruder" %% "extruder-refined"     % extruderVer,
+      "io.extruder" %% "extruder-typesafe"    % extruderVer
     )
   )
-  .dependsOn(catsEffect, poller)
+  .dependsOn(poller)
 
 lazy val extruderConfigSource = (project in file("modules/extruder-config-source"))
   .settings(commonSettings)
   .settings(name := "controller-extruder-config-source")
-  .dependsOn(configSource, extruder)
+  .dependsOn(configSource, extruder, tracedConfigSource)
 
 lazy val remote = (project in file("modules/remote"))
   .settings(commonSettings)
   .settings(name := "controller-remote")
   .dependsOn(model)
 
+lazy val arrow = (project in file("modules/arrow"))
+  .settings(commonSettings)
+  .settings(name := "controller-arrow", libraryDependencies ++= Seq("org.typelevel" %% "cats-core" % catsVer))
+  .dependsOn(model)
+
+lazy val tracedRemote = (project in file("modules/trace-remote"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-trace-remote",
+    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(remote)
+
 lazy val broadlink = (project in file("modules/broadlink"))
   .settings(commonSettings)
   .settings(
     name := "controller-broadlink",
-    libraryDependencies ++= Seq("javax.xml.bind" % "jaxb-api" % "2.3.0", "eu.timepit" %% "refined" % refinedVer)
+    libraryDependencies ++= Seq(
+      "javax.xml.bind" % "jaxb-api"     % "2.3.0",
+      "eu.timepit"     %% "refined"     % refinedVer,
+      "org.typelevel"  %% "cats-effect" % catsEffectVer
+    )
   )
-  .dependsOn(broadlinkApiSubmodule, remote, switch, remoteControl, catsEffect, pollingSwitch)
+  .dependsOn(broadlinkApiSubmodule, remote, tracedRemote, switch, tracedSwitch, remoteControl, pollingSwitch)
 
 lazy val switch = (project in file("modules/switch"))
   .settings(commonSettings)
@@ -202,22 +223,31 @@ lazy val hs100Switch = (project in file("modules/hs100-switch"))
   .settings(
     name := "controller-hs100-switch",
     libraryDependencies ++= Seq(
-      "io.circe"   %% "circe-core"   % circeVer,
-      "io.circe"   %% "circe-parser" % circeVer,
-      "eu.timepit" %% "refined"      % refinedVer
+      "io.circe"      %% "circe-core"   % circeVer,
+      "io.circe"      %% "circe-parser" % circeVer,
+      "eu.timepit"    %% "refined"      % refinedVer,
+      "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
-  .dependsOn(catsEffect, pollingSwitch)
+  .dependsOn(pollingSwitch, tracedSwitch)
 
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
   .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(store, configSource, catsEffect, pollingSwitch, remoteControl)
+  .dependsOn(store, configSource, pollingSwitch, remoteControl)
 
 lazy val multiSwitch = (project in file("modules/multi-switch"))
   .settings(commonSettings)
   .settings(name := "controller-multi-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(configSource, catsEffect, switch)
+  .dependsOn(configSource, switch)
+
+lazy val tracedSwitch = (project in file("modules/trace-switch"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-trace-switch",
+    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(switch)
 
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)
@@ -229,26 +259,45 @@ lazy val fileStore = (project in file("modules/file-store"))
   .settings(
     name := "controller-file-store",
     libraryDependencies ++= Seq(
-      "commons-io" % "commons-io"        % "2.6",
-      "io.circe"   %% "circe-parser"     % circeVer,
-      "extruder"   %% "extruder-circe"   % extruderVer,
-      "extruder"   %% "extruder-refined" % extruderVer,
-      "eu.timepit" %% "refined"          % refinedVer
+      "commons-io"    % "commons-io"        % "2.6",
+      "io.circe"      %% "circe-parser"     % circeVer,
+      "io.extruder"   %% "extruder-circe"   % extruderVer,
+      "io.extruder"   %% "extruder-refined" % extruderVer,
+      "eu.timepit"    %% "refined"          % refinedVer,
+      "org.typelevel" %% "cats-effect"      % catsEffectVer
     )
   )
-  .dependsOn(catsEffect, store, poller)
+  .dependsOn(tracedStore, poller)
+
+lazy val tracedStore = (project in file("modules/trace-store"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-trace-store",
+    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(store)
 
 lazy val remoteControl = (project in file("modules/remote-control"))
   .settings(commonSettings)
   .settings(
     name := "controller-remote-control",
-    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.typelevel" %% "cats-core" % catsVer)
+    libraryDependencies ++= Seq(
+      "eu.timepit"    %% "refined"      % refinedVer,
+      "org.typelevel" %% "cats-core"    % catsVer,
+      "org.tpolecat"  %% "natchez-core" % natchezVer
+    )
   )
   .dependsOn(remote, store)
 
 lazy val `macro` = (project in file("modules/macro"))
   .settings(commonSettings)
-  .settings(name := "controller-macro", libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % catsEffectVer))
+  .settings(
+    name := "controller-macro",
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-effect"  % catsEffectVer,
+      "org.tpolecat"  %% "natchez-core" % natchezVer
+    )
+  )
   .dependsOn(remoteControl, switch, store, configSource)
 
 lazy val activity = (project in file("modules/activity"))
@@ -260,9 +309,13 @@ lazy val poller = (project in file("modules/poller"))
   .settings(commonSettings)
   .settings(
     name := "controller-poller",
-    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "eu.timepit" %% "refined" % refinedVer)
+    libraryDependencies ++= Seq(
+      "co.fs2"       %% "fs2-core"     % fs2Ver,
+      "eu.timepit"   %% "refined"      % refinedVer,
+      "org.tpolecat" %% "natchez-core" % natchezVer
+    )
   )
-  .dependsOn(catsEffect)
+  .dependsOn(arrow)
 
 lazy val stats = (project in file("modules/stats"))
   .settings(commonSettings)
@@ -270,7 +323,7 @@ lazy val stats = (project in file("modules/stats"))
     name := "controller-stats",
     libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "eu.timepit" %% "refined" % refinedVer)
   )
-  .dependsOn(catsEffect, remoteControl, activity, `macro`, switch, configSource)
+  .dependsOn(remoteControl, activity, `macro`, switch, configSource)
 
 lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   .settings(commonSettings)
@@ -283,7 +336,7 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
       "org.http4s"    %% "http4s-dsl"         % http4sVer
     )
   )
-  .dependsOn(stats, catsEffect)
+  .dependsOn(stats)
 
 lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
@@ -292,10 +345,10 @@ lazy val cache = (project in file("modules/cache"))
     libraryDependencies ++= Seq(
       "com.github.cb372" %% "scalacache-cache2k"     % scalaCacheVer,
       "com.github.cb372" %% "scalacache-cats-effect" % scalaCacheVer,
-      "io.prometheus"    % "simpleclient_hotspot"    % prometheusVer
+      "io.prometheus"    % "simpleclient_hotspot"    % prometheusVer,
+      "org.typelevel"    %% "cats-effect"            % catsEffectVer
     )
   )
-  .dependsOn(catsEffect)
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)
@@ -303,7 +356,17 @@ lazy val sonos = (project in file("modules/sonos"))
     name := "controller-sonos",
     libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
   )
-  .dependsOn(sonosClientSubmodule, cache, remoteControl, switch, configSource, poller)
+  .dependsOn(
+    sonosClientSubmodule,
+    cache,
+    remoteControl,
+    tracedRemote,
+    switch,
+    tracedSwitch,
+    configSource,
+    tracedConfigSource,
+    poller
+  )
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

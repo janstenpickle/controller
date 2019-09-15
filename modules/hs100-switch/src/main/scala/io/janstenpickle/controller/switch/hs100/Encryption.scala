@@ -4,7 +4,6 @@ import java.io.InputStream
 import java.nio.ByteBuffer
 
 import cats.effect.Sync
-import io.janstenpickle.catseffect.CatsEffect._
 
 import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
@@ -34,7 +33,7 @@ object Encryption {
   }
 
   def decrypt[F[_]](inputStream: InputStream)(implicit F: Sync[F]): F[String] =
-    suspendErrors {
+    F.delay {
       @tailrec
       def loop(buffer: ArrayBuffer[Byte]): ArrayBuffer[Byte] = {
         val array: Array[Byte] = Array.fill(4096)(1)

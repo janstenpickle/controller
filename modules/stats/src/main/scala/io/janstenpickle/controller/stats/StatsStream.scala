@@ -2,9 +2,12 @@ package io.janstenpickle.controller.stats
 
 import cats.effect.{Concurrent, Resource, Timer}
 import eu.timepit.refined.types.numeric.PosInt
+import fs2.Stream
+import fs2.concurrent.Topic
 import io.janstenpickle.controller.`macro`.{Macro, MacroErrors}
 import io.janstenpickle.controller.activity.Activity
-import io.janstenpickle.controller.configsource.{ActivityConfigSource, ButtonConfigSource, RemoteConfigSource}
+import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.model.{Activities, Buttons, Remotes}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.stats.`macro`.{MacroPoller, MacroStats, MacroStatsRecorder}
 import io.janstenpickle.controller.stats.activity.{ActivityPoller, ActivityStats, ActivityStatsRecorder}
@@ -13,8 +16,6 @@ import io.janstenpickle.controller.stats.remote.{RemoteControlsStats, RemoteStat
 import io.janstenpickle.controller.stats.switch.{SwitchStatsRecorder, SwitchesPoller, SwitchesStats}
 import io.janstenpickle.controller.store.MacroStore
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
-import fs2.Stream
-import fs2.concurrent.Topic
 
 import scala.concurrent.duration._
 
@@ -44,10 +45,10 @@ object StatsStream {
     config: Config,
     remote: RemoteControls[F],
     switch: Switches[F],
-    activities: ActivityConfigSource[F],
-    buttons: ButtonConfigSource[F],
+    activities: ConfigSource[F, Activities],
+    buttons: ConfigSource[F, Buttons],
     macros: MacroStore[F],
-    remotes: RemoteConfigSource[F],
+    remotes: ConfigSource[F, Remotes],
     switches: SwitchProvider[F]
   )(
     makeActivity: Macro[F] => F[Activity[F]],
