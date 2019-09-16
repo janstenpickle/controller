@@ -239,7 +239,7 @@ lazy val virtualSwitch = (project in file("modules/virtual-switch"))
 lazy val multiSwitch = (project in file("modules/multi-switch"))
   .settings(commonSettings)
   .settings(name := "controller-multi-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(configSource, switch)
+  .dependsOn(configSource, switch, tracedSwitch)
 
 lazy val tracedSwitch = (project in file("modules/trace-switch"))
   .settings(commonSettings)
@@ -302,7 +302,7 @@ lazy val `macro` = (project in file("modules/macro"))
 
 lazy val activity = (project in file("modules/activity"))
   .settings(commonSettings)
-  .settings(name := "controller-activity")
+  .settings(name := "controller-activity", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
   .dependsOn(`macro`)
 
 lazy val poller = (project in file("modules/poller"))

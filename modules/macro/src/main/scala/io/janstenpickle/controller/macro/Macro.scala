@@ -66,9 +66,14 @@ object Macro {
         )
     }
 
-    def maybeExecuteMacro(name: NonEmptyString): F[Unit] =
-      macroStore.loadMacro(name).flatMap(_.fold(F.unit)(execute(name)))
+    def maybeExecuteMacro(name: NonEmptyString): F[Unit] = span("maybeExecuteMacro", name) {
+      macroStore
+        .loadMacro(name)
+        .flatMap(
+          _.fold(trace.put("macro.exists" -> false))(cmds => trace.put("macro.exists" -> true) *> execute(name)(cmds))
+        )
+    }
 
-    def listMacros: F[List[NonEmptyString]] = macroStore.listMacros
+    def listMacros: F[List[NonEmptyString]] = trace.span("listMacros") { macroStore.listMacros }
   }
 }

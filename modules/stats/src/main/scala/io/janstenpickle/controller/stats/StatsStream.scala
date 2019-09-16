@@ -51,7 +51,7 @@ object StatsStream {
     remotes: ConfigSource[F, Remotes],
     switches: SwitchProvider[F]
   )(
-    makeActivity: Macro[F] => F[Activity[F]],
+    makeActivity: Macro[F] => Activity[F],
     makeMacro: (RemoteControls[F], Switches[F]) => Macro[F]
   )(configUpdate: Topic[F, Boolean], switchUpdate: Topic[F, Boolean]): Resource[F, Instrumented[F]] = {
     def instrumentedComponents(
@@ -59,14 +59,12 @@ object StatsStream {
       mr: MacroStatsRecorder[F],
       rr: RemoteStatsRecorder[F],
       switchStatsRecorder: SwitchStatsRecorder[F]
-    ): Resource[F, (Activity[F], Macro[F], RemoteControls[F], Switches[F])] = {
+    ): (Activity[F], Macro[F], RemoteControls[F], Switches[F]) = {
       val instrumentedRemotes = RemoteControlsStats(remote)
       val instrumentedSwitches = SwitchesStats(switch)
       val instrumentedMacro = MacroStats(makeMacro(instrumentedRemotes, instrumentedSwitches))
 
-      Resource.liftF(makeActivity(instrumentedMacro)).map { act =>
-        (ActivityStats(act), instrumentedMacro, instrumentedRemotes, instrumentedSwitches)
-      }
+      (ActivityStats(makeActivity(instrumentedMacro)), instrumentedMacro, instrumentedRemotes, instrumentedSwitches)
     }
 
     for {
@@ -74,13 +72,10 @@ object StatsStream {
       macroRecorder <- MacroStatsRecorder.stream[F](config.maxQueued)
       remoteRecorder <- RemoteStatsRecorder.stream[F](config.maxQueued)
       switchRecorder <- SwitchStatsRecorder.stream[F](config.maxQueued)
-      instrumented <- instrumentedComponents(
-        activityRecorder._1,
-        macroRecorder._1,
-        remoteRecorder._1,
-        switchRecorder._1
-      )
-    } yield
+    } yield {
+      val instrumented =
+        instrumentedComponents(activityRecorder._1, macroRecorder._1, remoteRecorder._1, switchRecorder._1)
+
       Instrumented(
         instrumented._1,
         instrumented._2,
@@ -96,5 +91,6 @@ object StatsStream {
           .merge(RemotesPoller(config.pollInterval, remotes, configUpdate))
           .merge(SwitchesPoller(config.pollInterval, config.parallelism, switches, switchUpdate))
       )
+    }
   }
 }
