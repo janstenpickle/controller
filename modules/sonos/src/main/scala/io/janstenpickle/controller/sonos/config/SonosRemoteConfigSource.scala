@@ -95,7 +95,7 @@ object SonosRemoteConfigSource {
                       Remote(
                         remoteName,
                         buttons,
-                        List(activityName),
+                        Set(activityName),
                         if (allRooms) List.empty
                         else List(remoteName),
                         nowPlaying.fold(Map.empty[String, String])(_.toMap)

@@ -21,8 +21,6 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
   implicit trace: Trace[F],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {
-  implicit val remoteCommandEncoder: EntityEncoder[F, List[RemoteCommand]] = extruderEncoder[List[RemoteCommand]]
-
   def refineOrBadReq(name: String, device: String, command: String)(
     f: (NonEmptyString, NonEmptyString, NonEmptyString) => F[Response[F]]
   ): F[Response[F]] =

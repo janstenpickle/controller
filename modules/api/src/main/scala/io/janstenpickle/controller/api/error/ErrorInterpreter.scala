@@ -3,6 +3,7 @@ package io.janstenpickle.controller.api.error
 import java.time.Instant
 
 import cats.Apply
+import cats.data.NonEmptyList
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -12,6 +13,8 @@ import io.circe
 import io.circe.CursorOp
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.`macro`.MacroErrors
+import io.janstenpickle.controller.api.service.ConfigServiceErrors
+import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
@@ -27,7 +30,8 @@ class ErrorInterpreter[F[_]: Apply](
     with RemoteControlErrors[F]
     with HS100Errors[F]
     with PollingSwitchErrors[F]
-    with ExtruderErrors[F] {
+    with ExtruderErrors[F]
+    with ConfigServiceErrors[F] {
 
   private def raise[A](error: ControlError): F[A] =
     error match {
@@ -78,9 +82,14 @@ class ErrorInterpreter[F[_]: Apply](
   override def fallback[A](fa: F[A])(thunk: => F[A]): F[A] =
     ah.handleWith(fa)(_ => thunk)
 
-  override def macroAlreadyExists[A](name: NonEmptyString): F[A] = ???
+  override def macroAlreadyExists[A](name: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Macro '$name' already exists"))
 
-  override def learningNotSupported[A](remote: NonEmptyString): F[A] = ???
+  override def learningNotSupported[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Remote '$remote' does not support learning mode"))
+
+  override def configValidationFailed[A](failures: NonEmptyList[ConfigValidation.ValidationFailure]): F[A] =
+    raise(ControlError.InvalidInput(s"Failed to validate configuration\n ${failures.toList.mkString("\n")}"))
 }
 
 object ErrorInterpreter {

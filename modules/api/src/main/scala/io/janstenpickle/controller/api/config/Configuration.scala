@@ -61,6 +61,7 @@ object Configuration {
   case class ConfigData(
     file: Path,
     pollInterval: FiniteDuration = 10.seconds,
+    writeTimeout: FiniteDuration = 1.seconds,
     activity: ExtruderConfigSource.PollingConfig,
     button: ExtruderConfigSource.PollingConfig,
     remote: ExtruderConfigSource.PollingConfig,

@@ -157,6 +157,7 @@ lazy val extruder = (project in file("modules/extruder"))
   .settings(
     name := "controller-extruder",
     libraryDependencies ++= Seq(
+      "commons-io"  % "commons-io"            % "2.6",
       "io.circe"    %% "circe-parser"         % circeVer,
       "io.extruder" %% "extruder-cats-effect" % extruderVer,
       "io.extruder" %% "extruder-circe"       % extruderVer,

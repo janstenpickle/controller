@@ -1,27 +1,31 @@
-package io.janstenpickle.controller.api.view
+package io.janstenpickle.controller.api.service
 
+import cats.data.NonEmptyList
 import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.{Monad, Parallel, Traverse}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.Button._
+import io.janstenpickle.controller.api.validation.ConfigValidation
+import io.janstenpickle.controller.configsource.WritableConfigSource
+import io.janstenpickle.controller.model.Button.{MacroIcon, MacroLabel, SwitchIcon, SwitchLabel}
 import io.janstenpickle.controller.model._
+import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
-class ConfigView[F[_]: Parallel](
-  activity: ConfigSource[F, Activities],
-  button: ConfigSource[F, Buttons],
-  remote: ConfigSource[F, Remotes],
+class ConfigService[F[_]: Parallel](
+  activity: WritableConfigSource[F, Activities],
+  button: WritableConfigSource[F, Buttons],
+  remote: WritableConfigSource[F, Remotes],
   macros: MacroStore[F],
   activityStore: ActivityStore[F],
-  switches: Switches[F]
-)(implicit F: Monad[F], trace: Trace[F]) {
+  switches: Switches[F],
+  validation: ConfigValidation[F]
+)(implicit F: Monad[F], errors: ConfigServiceErrors[F], trace: Trace[F]) {
   private def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, a: A, op: State => A): F[A] =
     switches.list.flatMap { switchList =>
       if (switchList.contains(SwitchKey(device, name))) switches.getState(device, name).map(op) else F.pure(a)
@@ -79,6 +83,15 @@ class ConfigView[F[_]: Parallel](
 
   def getActivities: F[Activities] = trace.span("getActivities") { activity.getConfig.flatMap(addActiveActivity) }
 
+  def addActivity(a: Activity): F[Activities] = trace.span("addActivity") {
+    validation
+      .validateActivity(a)
+      .flatMap(NonEmptyList.fromList(_) match {
+        case None => activity.mergeConfig(Activities(List(a)))
+        case Some(errs) => errors.configValidationFailed[Activities](errs)
+      })
+  }
+
   def getRemotes: F[Remotes] = trace.span("getRemotes") {
     remote.getConfig.flatMap { remotes =>
       remotes.remotes
@@ -89,12 +102,30 @@ class ConfigView[F[_]: Parallel](
     }
   }
 
+  def addRemote(r: Remote): F[Remotes] = trace.span("addRemote") {
+    validation
+      .validateRemote(r)
+      .flatMap(NonEmptyList.fromList(_) match {
+        case None => remote.mergeConfig(Remotes(List(r)))
+        case Some(errs) => errors.configValidationFailed[Remotes](errs)
+      })
+  }
+
   def getCommonButtons: F[Buttons] = trace.span("getCommonButtons") {
     button.getConfig.flatMap { buttons =>
       addSwitchState(buttons.buttons).map { bs =>
         buttons.copy(buttons = bs)
       }
     }
+  }
+
+  def addCommonButton(b: Button): F[Buttons] = trace.span("addCommonButton") {
+    validation
+      .validateButton(b)
+      .flatMap(NonEmptyList.fromList(_) match {
+        case None => button.mergeConfig(Buttons(List(b)))
+        case Some(errs) => errors.configValidationFailed[Buttons](errs)
+      })
   }
 
   implicit val ord: Ordering[Int] = new Ordering[Int] {

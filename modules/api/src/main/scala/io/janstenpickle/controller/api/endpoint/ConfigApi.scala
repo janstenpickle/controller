@@ -12,31 +12,25 @@ import fs2.Stream
 import fs2.concurrent.Topic
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.api.trace.Http4sUtils
-import io.janstenpickle.controller.api.view.ConfigView
+import io.janstenpickle.controller.api.service.ConfigService
 import io.janstenpickle.controller.api.{UpdateTopics, ValidatingOptionalQueryParamDecoderMatcher}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model._
 import natchez.Trace
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
-import org.http4s.{EntityEncoder, HttpRoutes, ParseFailure, QueryParamDecoder, QueryParameterValue, Request, Response}
+import org.http4s.{HttpRoutes, ParseFailure, QueryParamDecoder, QueryParameterValue, Request, Response}
 
 import scala.concurrent.duration._
 
-class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](view: ConfigView[F], updateTopics: UpdateTopics[F])(
+class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](view: ConfigService[F], updateTopics: UpdateTopics[F])(
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
   trace: Trace[F],
   liftLower: ContextualLiftLower[G, F, String]
 ) extends Common[F] {
-
   import ConfigApi._
-
-  implicit val activitiesEncoder: EntityEncoder[F, Activities] = extruderEncoder[Activities]
-  implicit val remotesEncoder: EntityEncoder[F, Remotes] = extruderEncoder[Remotes]
-  implicit val buttonsEncoder: EntityEncoder[F, Buttons] = extruderEncoder[Buttons]
-  implicit val roomsEncoder: EntityEncoder[F, Rooms] = extruderEncoder[Rooms]
 
   private def stream[A: DSEncoder](
     req: Request[F],
@@ -81,6 +75,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](view: ConfigView[F], updat
         stream(req, updateTopics.activities, () => view.getActivities, err => Activities(List.empty, List(err.message)))
       )
     case GET -> Root / "remotes" => Ok(view.getRemotes)
+//    case PUT -> Root / "remote" =>
     case req @ GET -> Root / "remotes" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,

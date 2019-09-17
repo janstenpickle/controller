@@ -12,9 +12,6 @@ import io.janstenpickle.controller.model.Command
 import org.http4s.{EntityDecoder, EntityEncoder, HttpRoutes}
 
 class MacroApi[F[_]: Sync](macros: Macro[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {
-  implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
-  implicit val macrosEncoder: EntityEncoder[F, List[NonEmptyString]] = extruderEncoder[List[NonEmptyString]]
-
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / "send" / mac =>
       refineOrBadReq(mac)(m => Ok(macros.executeMacro(m)))

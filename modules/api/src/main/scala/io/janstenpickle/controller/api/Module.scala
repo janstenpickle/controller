@@ -27,7 +27,8 @@ import io.janstenpickle.controller.api.config.Configuration
 import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
 import io.janstenpickle.controller.api.trace.implicits._
-import io.janstenpickle.controller.api.view.ConfigView
+import io.janstenpickle.controller.api.service.ConfigService
+import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
 import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
@@ -156,6 +157,9 @@ object Module {
           trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
             .error(err)("Internal error") *> InternalServerError(message)
             .map(Some(_))
+        case Left(err @ ControlError.InvalidInput(message)) =>
+          trace.put("error" -> true, "reason" -> "invalid input", "message" -> message) *> logger
+            .info(err)("Invalid input") *> BadRequest(message).map(Some(_))
         case Left(err @ ControlError.Combined(_, _)) if err.isSevere =>
           trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
             .error(err)("Internal error") *> InternalServerError(err.message)
@@ -212,7 +216,8 @@ object Module {
       statsSwitchUpdate <- Resource.liftF(Topic[F, Boolean](false))
       statsConfigUpdate <- Resource.liftF(Topic[F, Boolean](false))
 
-      configFileSource <- ConfigFileSource.polling[F, G](config.config.file, config.config.pollInterval, blocker)
+      configFileSource <- ConfigFileSource
+        .polling[F, G](config.config.file, config.config.pollInterval, blocker, config.config.writeTimeout)
 
       activityConfig <- ExtruderActivityConfigSource[F, G](
         configFileSource,
@@ -281,8 +286,8 @@ object Module {
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
-      combinedActivityConfig = ConfigSource.combined(activityConfig, sonosComponents.activityConfig)
-      combinedRemoteConfig = ConfigSource.combined(sonosComponents.remoteConfig, remoteConfig)
+      combinedActivityConfig = WritableConfigSource.combined(activityConfig, sonosComponents.activityConfig)
+      combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, sonosComponents.remoteConfig)
       remoteControls = RemoteControls
         .combined[F](rm2RemoteControls, RemoteControls[F](Map(config.sonos.remote -> sonosComponents.remote)))
 
@@ -332,8 +337,20 @@ object Module {
 
       l <- Resource.liftF(Slf4jLogger.fromName[F]("stats"))
     } yield {
-      val configView =
-        new ConfigView(combinedActivityConfig, buttonConfig, combinedRemoteConfig, macroStore, activityStore, switches)
+      val validation =
+        new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, instrumentation.switch)
+
+      val configService =
+        new ConfigService(
+          combinedActivityConfig,
+          buttonConfig,
+          combinedRemoteConfig,
+          macroStore,
+          activityStore,
+          switches,
+          validation
+        )
+
       val router =
         Router(
           "/control/remote" -> new RemoteApi[F](instrumentation.remote).routes,
@@ -347,7 +364,7 @@ object Module {
             activityConfig
           ).routes,
           "/config" -> new ConfigApi[F, G](
-            configView,
+            configService,
             UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
           ).routes,
           "/" -> new ControllerUi[F](blocker).routes,

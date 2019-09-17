@@ -18,8 +18,6 @@ import io.janstenpickle.controller.switch.model.SwitchKey
 import org.http4s.{EntityEncoder, HttpRoutes, Response}
 
 class SwitchApi[F[_]: Sync](switches: Switches[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {
-  implicit val switchesEncoder: EntityEncoder[F, List[SwitchKey]] = extruderEncoder[List[SwitchKey]]
-
   def refineOrBadReq(device: String, name: String)(
     f: (NonEmptyString, NonEmptyString) => F[Response[F]]
   ): F[Response[F]] =

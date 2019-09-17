@@ -13,6 +13,7 @@ object ControlError {
   sealed trait SimpleControlError extends ControlError
   case class Missing(message: String) extends SimpleControlError
   case class Internal(message: String) extends SimpleControlError
+  case class InvalidInput(message: String) extends SimpleControlError
   case class Combined(first: ControlError, second: ControlError) extends ControlError {
     lazy val toList: List[SimpleControlError] = (first, second) match {
       case (f: Combined, s: Combined) => f.toList ++ s.toList

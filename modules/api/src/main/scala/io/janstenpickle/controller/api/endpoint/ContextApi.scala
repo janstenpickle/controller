@@ -29,8 +29,6 @@ class ContextApi[F[_]: Sync](
   activitySource: ConfigSource[F, Activities]
 )(implicit fr: FunctorRaise[F, ControlError], ah: ApplicativeHandle[F, ControlError])
     extends Common[F] {
-  implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
-
   def refineOrBadReq(room: String, name: String)(
     f: (NonEmptyString, NonEmptyString) => F[Response[F]]
   ): F[Response[F]] =
