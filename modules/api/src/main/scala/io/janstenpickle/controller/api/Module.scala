@@ -108,19 +108,18 @@ object Module {
     type G[A] = EitherT[F, ControlError, A]
 
     val lift = λ[F ~> G](EitherT.liftF(_))
+
     val lower =
       λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
 
-    implicit val cInvK: ContextualLiftLower[M, G, String] = invk.imapK[G](λ[F ~> G](EitherT.liftF(_)))(
-      λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
-    )
+    implicit val cInvK: ContextualLiftLower[M, G, String] = invk.imapK[G](lift)(lower)
 
     implicit val etTrace: Trace[G] = new Trace[G] {
       override def put(fields: (String, TraceValue)*): EitherT[F, ControlError, Unit] =
         lift(trace.put(fields: _*))
       override def kernel: EitherT[F, ControlError, Kernel] = lift(trace.kernel)
       override def span[A](name: String)(k: EitherT[F, ControlError, A]): EitherT[F, ControlError, A] =
-        lift(trace.span(name)(k.value.flatMap(_.fold[F[A]](F.raiseError, F.pure))))
+        EitherT(trace.span(name)(k.value))
     }
 
     implicit val bracket: Bracket[G, Throwable] = Sync[G]
@@ -148,27 +147,25 @@ object Module {
     val dsl = Http4sDsl[F]
     import dsl._
 
-    ah.attempt(result)
-      .flatMap({
-        case Left(err @ ControlError.Missing(message)) =>
-          trace.put("error" -> true, "reason" -> "missing", "message" -> message) *> logger
-            .warn(err)("Missing resource") *> NotFound(message).map(Some(_))
-        case Left(err @ ControlError.Internal(message)) =>
-          trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
-            .error(err)("Internal error") *> InternalServerError(message)
-            .map(Some(_))
-        case Left(err @ ControlError.InvalidInput(message)) =>
-          trace.put("error" -> true, "reason" -> "invalid input", "message" -> message) *> logger
-            .info(err)("Invalid input") *> BadRequest(message).map(Some(_))
-        case Left(err @ ControlError.Combined(_, _)) if err.isSevere =>
-          trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
-            .error(err)("Internal error") *> InternalServerError(err.message)
-            .map(Some(_))
-        case Left(err @ ControlError.Combined(_, _)) =>
-          trace.put("error" -> true, "reason" -> "missing", "message" -> err.message) *> logger
-            .warn(err)("Missing resource") *> NotFound(err.message).map(Some(_))
-        case Right(a) => trace.put("error" -> false).as(a)
-      })
+    ah.handleWith(result) {
+      case err @ ControlError.Missing(message) =>
+        trace.put("error" -> true, "reason" -> "missing", "message" -> message) *> logger
+          .warn(err)("Missing resource") *> NotFound(message).map(Some(_))
+      case err @ ControlError.Internal(message) =>
+        trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
+          .error(err)("Internal error") *> InternalServerError(message)
+          .map(Some(_))
+      case err @ ControlError.InvalidInput(message) =>
+        trace.put("error" -> true, "reason" -> "invalid input", "message" -> message) *> logger
+          .info(err)("Invalid input") *> BadRequest(message).map(Some(_))
+      case err @ ControlError.Combined(_, _) if err.isSevere =>
+        trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
+          .error(err)("Internal error") *> InternalServerError(err.message)
+          .map(Some(_))
+      case err @ ControlError.Combined(_, _) =>
+        trace.put("error" -> true, "reason" -> "missing", "message" -> err.message) *> logger
+          .warn(err)("Missing resource") *> NotFound(err.message).map(Some(_))
+    }
   }
 
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: Concurrent: ContextShift: Timer](
@@ -216,35 +213,72 @@ object Module {
       statsSwitchUpdate <- Resource.liftF(Topic[F, Boolean](false))
       statsConfigUpdate <- Resource.liftF(Topic[F, Boolean](false))
 
-      configFileSource <- ConfigFileSource
-        .polling[F, G](config.config.file, config.config.pollInterval, blocker, config.config.writeTimeout)
+      activityConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("activity"),
+          config.config.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
 
       activityConfig <- ExtruderActivityConfigSource[F, G](
-        configFileSource,
+        activityConfigFileSource,
         config.config.activity,
         notifyUpdate(activitiesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
+      buttonConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("button"),
+          config.config.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       buttonConfig <- ExtruderButtonConfigSource[F, G](
-        configFileSource,
+        buttonConfigFileSource,
         config.config.button,
         notifyUpdate(buttonsUpdate, roomsUpdate, statsConfigUpdate)
       )
 
+      remoteConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("remote"),
+          config.config.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       remoteConfig <- ExtruderRemoteConfigSource[F, G](
-        configFileSource,
+        remoteConfigFileSource,
         config.config.remote,
         notifyUpdate(remotesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
+      virtualSwitchConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("virtual-switch"),
+          config.config.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       virtualSwitchConfig <- ExtruderVirtualSwitchConfigSource[F, G](
-        configFileSource,
+        virtualSwitchConfigFileSource,
         config.config.virtualSwitch,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )
 
+      multiSwitchConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("multi-switch"),
+          config.config.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       multiSwitchConfig <- ExtruderMultiSwitchConfigSource[F, G](
-        configFileSource,
+        multiSwitchConfigFileSource,
         config.config.multiSwitch,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )

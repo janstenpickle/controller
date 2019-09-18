@@ -19,18 +19,29 @@ object TracedConfigSource {
     }
   }
 
-  def writable[F[_]: Apply, A](
-    source: ConfigSource[F, A],
+  def writable[F[_]: Apply, A, K](
+    source: WritableConfigSource[F, A, K],
     name: String,
     `type`: String,
     extraFields: (String, TraceValue)*
-  )(implicit trace: Trace[F]): WritableConfigSource[F, A] = new WritableConfigSource[F, A] {
-    override def getConfig: F[A] = trace.span("getConfig") {
-      trace
-        .put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> source.getConfig
+  )(implicit trace: Trace[F]): WritableConfigSource[F, A, K] = new WritableConfigSource[F, A, K] {
+    private def span[B](n: String)(k: F[B]): F[B] = trace.span(n) {
+      trace.put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
     }
-    override def setConfig(a: A): F[Unit] = ???
 
-    override def mergeConfig(a: A): F[A] = ???
+    override def getConfig: F[A] = span("getConfig") {
+      source.getConfig
+    }
+    override def setConfig(a: A): F[Unit] = span("setConfig") {
+      source.setConfig(a)
+    }
+
+    override def mergeConfig(a: A): F[A] = span("mergeConfig") {
+      source.mergeConfig(a)
+    }
+
+    override def deleteItem(key: K): F[A] = span("deleteItem") {
+      source.deleteItem(key)
+    }
   }
 }

@@ -2,6 +2,7 @@ package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect.{Concurrent, Resource, Sync, Timer}
 import com.typesafe.config.{Config => TConfig}
+import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.typesafe.instances._
@@ -22,13 +23,26 @@ object ExtruderVirtualSwitchConfigSource {
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     onUpdate: VirtualSwitches => F[Unit]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, WritableConfigSource[F, VirtualSwitches]] = {
+  )(
+    implicit liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, WritableConfigSource[F, VirtualSwitches, String]] = {
     type EV[A] = EffectValidation[F, A]
     val decoder: Decoder[EV, (Settings, CirceSettings), VirtualSwitches, (TConfig, Json)] =
       Decoder[EV, (Settings, CirceSettings), VirtualSwitches, (TConfig, Json)]
     val encoder: Encoder[F, Settings, VirtualSwitches, Config] = Encoder[F, Settings, VirtualSwitches, Config]
 
     ExtruderConfigSource
-      .polling[F, G, VirtualSwitches]("virtualSwitches", pollingConfig, config, onUpdate, decoder, encoder)
+      .polling[F, G, VirtualSwitches, String](
+        "virtualSwitches",
+        pollingConfig,
+        config,
+        onUpdate,
+        (key, switches) =>
+          switches.copy(virtualSwitches = switches.virtualSwitches.filterNot { s =>
+            s"${s.remote}-${s.device}-${s.command}" == key
+          }),
+        decoder,
+        encoder
+      )
   }
 }

@@ -1,9 +1,10 @@
 package io.janstenpickle.controller.api.config
 
 import java.nio.file.{Path, Paths}
+import java.util.concurrent.Executors
 
 import cats.Eq
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import cats.instances.all._
 import com.github.mob41.blapi.mac.Mac
@@ -13,18 +14,15 @@ import extruder.cats.effect.EffectValidation
 import extruder.core.ExtruderErrors
 import extruder.data.ValidationErrors
 import io.janstenpickle.controller.poller.DataPoller.Data
-import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration._
 
 object ConfigPoller {
-  private val log = LoggerFactory.getLogger(getClass)
-
   implicit val pathEq: Eq[Path] = Eq.by(_.toString)
   implicit val macEq: Eq[Mac] = Eq.by(_.getMacString)
   implicit val configEq: Eq[Configuration.Config] = cats.derived.semi.eq[Configuration.Config]
 
-  def apply[F[_]: Timer: ExtruderErrors](
+  def apply[F[_]: ContextShift: Timer: ExtruderErrors](
     config: Option[String],
     onUpdate: Either[ValidationErrors, Configuration.Config] => F[Unit]
   )(implicit F: Concurrent[F]): Resource[F, () => F[Either[ValidationErrors, Configuration.Config]]] = {
@@ -32,19 +30,26 @@ object ConfigPoller {
 
     val configFile = config.map(Paths.get(_).toAbsolutePath.toFile)
 
-    Resource.liftF(Configuration.load[ConfigResult](configFile).value).flatMap { initial =>
-      implicit val empty: Empty[Either[ValidationErrors, Configuration.Config]] = Empty(initial)
+    for {
+      blocker <- Resource
+        .make(F.delay(Executors.newCachedThreadPool()))(es => F.delay(es.shutdown()))
+        .map(e => Blocker.liftExecutorService(e))
+      initial <- Resource.liftF(Configuration.load[ConfigResult](blocker, configFile).value)
+      getConfig <- {
+        implicit val empty: Empty[Either[ValidationErrors, Configuration.Config]] = Empty(initial)
 
-      DataPoller[F, Either[ValidationErrors, Configuration.Config], () => F[
-        Either[ValidationErrors, Configuration.Config]
-      ]](
-        (_: Data[Either[ValidationErrors, Configuration.Config]]) => Configuration.load[ConfigResult](configFile).value,
-        1.minute,
-        PosInt(1),
-        onUpdate
-      ) { (get, _) =>
-        get
+        DataPoller[F, Either[ValidationErrors, Configuration.Config], () => F[
+          Either[ValidationErrors, Configuration.Config]
+        ]](
+          (_: Data[Either[ValidationErrors, Configuration.Config]]) =>
+            Configuration.load[ConfigResult](blocker, configFile).value,
+          30.seconds,
+          PosInt(1),
+          onUpdate
+        ) { (get, _) =>
+          get
+        }
       }
-    }
+    } yield getConfig
   }
 }

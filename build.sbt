@@ -19,7 +19,7 @@ val scalaTestVer = "3.0.8"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
-  scalaVersion := "2.12.9",
+  scalaVersion := "2.12.10",
   scalacOptions ++= Seq(
     "-unchecked",
     "-feature",

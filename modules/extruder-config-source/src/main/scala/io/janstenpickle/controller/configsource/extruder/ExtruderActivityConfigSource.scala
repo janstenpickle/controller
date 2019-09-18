@@ -2,6 +2,7 @@ package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect._
 import com.typesafe.config.{Config => TConfig}
+import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.typesafe.instances._
@@ -23,7 +24,9 @@ object ExtruderActivityConfigSource {
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     onUpdate: Activities => F[Unit]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, WritableConfigSource[F, Activities]] = {
+  )(
+    implicit liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, WritableConfigSource[F, Activities, NonEmptyString]] = {
     type EV[A] = EffectValidation[F, A]
     val decoder: Decoder[EV, (Settings, CirceSettings), Activities, (TConfig, Json)] =
       Decoder[EV, (Settings, CirceSettings), Activities, (TConfig, Json)]
@@ -31,6 +34,14 @@ object ExtruderActivityConfigSource {
     val encoder: Encoder[F, Settings, Activities, Config] = Encoder[F, Settings, Activities, Config]
 
     ExtruderConfigSource
-      .polling[F, G, Activities]("activities", pollingConfig, config, onUpdate, decoder, encoder)
+      .polling[F, G, Activities, NonEmptyString](
+        "activities",
+        pollingConfig,
+        config,
+        onUpdate,
+        (key, activities) => activities.copy(activities = activities.activities.filterNot(_.name == key)),
+        decoder,
+        encoder
+      )
   }
 }

@@ -75,11 +75,12 @@ object ExtruderConfigSource {
 
   }
 
-  def polling[F[_]: Trace, G[_]: Concurrent: Timer, A: Eq](
+  def polling[F[_]: Trace, G[_]: Concurrent: Timer, A: Eq, K](
     name: String,
     config: PollingConfig,
     configFileSource: ConfigFileSource[F],
     onUpdate: A => F[Unit],
+    delete: (K, A) => A,
     decoder: Decoder[EffectValidation[F, *], (Settings, CirceSettings), A, (TConfig, Json)],
     encoder: Encoder[F, Settings, A, Config]
   )(
@@ -87,22 +88,26 @@ object ExtruderConfigSource {
     setErrors: SetErrors[A],
     liftLower: ContextualLiftLower[G, F, String],
     monoid: Monoid[A]
-  ): Resource[F, WritableConfigSource[F, A]] = {
+  ): Resource[F, WritableConfigSource[F, A, K]] = {
     val source = decode[F, A](configFileSource, decoder)
     val sink = encode[F, A](configFileSource, encoder)
 
-    DataPoller.traced[F, G, A, WritableConfigSource[F, A]](name)(
+    DataPoller.traced[F, G, A, WritableConfigSource[F, A, K]](name)(
       (data: Data[A]) => source(data.value),
       config.pollInterval,
       PosInt(1),
       (data: Data[A], th: Throwable) => F.pure(setErrors.setErrors(data.value)(List(th.getMessage))),
       onUpdate
     ) { (getData, update) =>
-      TracedConfigSource.writable(new WritableConfigSource[F, A] {
+      TracedConfigSource.writable(new WritableConfigSource[F, A, K] {
         override def getConfig: F[A] = getData()
         override def setConfig(a: A): F[Unit] = sink(a) *> update(a)
         override def mergeConfig(a: A): F[A] = getData().flatMap { current =>
           val updated = monoid.combine(a, current)
+          setConfig(updated).as(updated)
+        }
+        override def deleteItem(key: K): F[A] = getData().flatMap { a =>
+          val updated = delete(key, a)
           setConfig(updated).as(updated)
         }
       }, name, "extruder")

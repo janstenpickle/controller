@@ -8,12 +8,14 @@ import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model.Activities
-import org.http4s.HttpRoutes
+import org.http4s.{EntityDecoder, HttpRoutes}
 
 class ActivityApi[F[_]: Sync](activities: Activity[F], activitySource: ConfigSource[F, Activities])(
   implicit fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {
+  implicit val stringDecoder: EntityDecoder[F, String] = EntityDecoder.text[F]
+
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case GET -> Root / room =>
       refineOrBadReq(room)(r => Ok(activities.getActivity(r).map(_.fold("")(_.value))))

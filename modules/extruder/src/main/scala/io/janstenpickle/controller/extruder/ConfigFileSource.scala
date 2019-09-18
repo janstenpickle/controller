@@ -31,7 +31,8 @@ trait ConfigFileSource[F[_]] {
 object ConfigFileSource {
   case class ConfigFiles(typesafe: Config, json: Json, error: Option[Throwable] = None)
 
-  private final val renderOpts: ConfigRenderOptions = ConfigRenderOptions.defaults().setJson(true)
+  private final val renderOpts: ConfigRenderOptions =
+    ConfigRenderOptions.defaults().setJson(true).setComments(false).setOriginComments(false)
   private final val typesafeExtension = "conf"
   private final val jsonExtension = "json"
 

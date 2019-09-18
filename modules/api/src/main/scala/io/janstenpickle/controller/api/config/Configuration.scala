@@ -3,7 +3,7 @@ package io.janstenpickle.controller.api.config
 import java.io.File
 import java.nio.file.{Path, Paths}
 
-import cats.effect.Sync
+import cats.effect.{Blocker, ContextShift, Sync}
 import cats.syntax.flatMap._
 import com.github.mob41.blapi.mac.Mac
 import com.typesafe.config.ConfigFactory
@@ -59,7 +59,7 @@ object Configuration {
   )
 
   case class ConfigData(
-    file: Path,
+    dir: Path,
     pollInterval: FiniteDuration = 10.seconds,
     writeTimeout: FiniteDuration = 1.seconds,
     activity: ExtruderConfigSource.PollingConfig,
@@ -77,8 +77,8 @@ object Configuration {
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
   implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))
 
-  def load[F[_]: Sync: ExtruderErrors](config: Option[File] = None): F[Config] =
-    Sync[F]
+  def load[F[_]: Sync: ContextShift: ExtruderErrors](blocker: Blocker, config: Option[File] = None): F[Config] =
+    blocker
       .delay {
         val tsConfig = ConfigFactory.load()
         config.fold(tsConfig)(ConfigFactory.parseFile(_).withFallback(tsConfig))

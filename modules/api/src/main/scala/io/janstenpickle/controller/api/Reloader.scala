@@ -6,6 +6,7 @@ import cats.syntax.apply._
 import cats.syntax.flatMap._
 import fs2.Stream
 import fs2.concurrent.SignallingRef
+import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
@@ -17,19 +18,16 @@ object Reloader {
   def apply[F[_]](
     makeStream: (ReloadSignal[F], ExitSignal[F]) => Stream[F, ExitCode]
   )(implicit F: Concurrent[F], timer: Timer[F]): Stream[F, ExitCode] = {
-    def repeatStream(reload: ReloadSignal[F], signal: ExitSignal[F]): Stream[F, ExitCode] =
-      Stream
-        .eval(Slf4jLogger.fromClass[F](getClass))
-        .flatMap(
-          logger =>
-            makeStream(reload, signal).handleErrorWith(
-              th =>
-                Stream
-                  .eval(logger.error(th)("Failed to start Controller"))
-                  .evalMap(_ => timer.sleep(10.seconds))
-                  .flatMap(_ => repeatStream(reload, signal))
-          )
+    def repeatStream(reload: ReloadSignal[F], signal: ExitSignal[F], logger: Logger[F]): Stream[F, ExitCode] =
+      makeStream(reload, signal)
+        .handleErrorWith(
+          th =>
+            Stream
+              .eval(logger.error(th)("Failed to start Controller"))
+              .evalMap(_ => timer.sleep(10.seconds))
+              .flatMap(_ => repeatStream(reload, signal, logger))
         )
+        .onComplete(repeatStream(reload, signal, logger))
 
     def processSignal(
       reload: ReloadSignal[F],
@@ -49,7 +47,8 @@ object Reloader {
       reload <- Stream.eval(SignallingRef[F, Boolean](false))
       signal <- Stream.eval(SignallingRef[F, Boolean](false))
       stop <- Stream.eval(SignallingRef[F, Boolean](false))
-      code <- repeatStream(reload, signal).concurrently(processSignal(reload, signal, stop)).interruptWhen(stop)
+      logger <- Stream.eval(Slf4jLogger.fromClass[F](getClass))
+      code <- repeatStream(reload, signal, logger).concurrently(processSignal(reload, signal, stop)).interruptWhen(stop)
     } yield code
   }
 

@@ -11,16 +11,15 @@ import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.model.Button.{MacroIcon, MacroLabel, SwitchIcon, SwitchLabel}
 import io.janstenpickle.controller.model._
-import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 class ConfigService[F[_]: Parallel](
-  activity: WritableConfigSource[F, Activities],
-  button: WritableConfigSource[F, Buttons],
-  remote: WritableConfigSource[F, Remotes],
+  activity: WritableConfigSource[F, Activities, NonEmptyString],
+  button: WritableConfigSource[F, Buttons, NonEmptyString],
+  remote: WritableConfigSource[F, Remotes, NonEmptyString],
   macros: MacroStore[F],
   activityStore: ActivityStore[F],
   switches: Switches[F],
@@ -92,6 +91,19 @@ class ConfigService[F[_]: Parallel](
       })
   }
 
+  def deleteActivity(a: NonEmptyString): F[Activities] = trace.span("deleteActivity") {
+    activity.getConfig.flatMap { activities =>
+      if (activities.activities.map(_.name).contains(a)) remote.getConfig.flatMap { remotes =>
+        val rs = remotes.remotes.collect {
+          case r if r.activities.contains(a) => r.name
+        }
+        if (rs.nonEmpty) errors.activityInUse(a, rs)
+        else activity.deleteItem(a)
+      } else errors.activityMissing[Activities](a)
+
+    }
+  }
+
   def getRemotes: F[Remotes] = trace.span("getRemotes") {
     remote.getConfig.flatMap { remotes =>
       remotes.remotes
@@ -111,6 +123,13 @@ class ConfigService[F[_]: Parallel](
       })
   }
 
+  def deleteRemote(r: NonEmptyString): F[Remotes] = trace.span("deleteRemote") {
+    remote.getConfig.flatMap { remotes =>
+      if (remotes.remotes.map(_.name).contains(r)) remote.deleteItem(r)
+      else errors.remoteMissing[Remotes](r)
+    }
+  }
+
   def getCommonButtons: F[Buttons] = trace.span("getCommonButtons") {
     button.getConfig.flatMap { buttons =>
       addSwitchState(buttons.buttons).map { bs =>
@@ -126,6 +145,13 @@ class ConfigService[F[_]: Parallel](
         case None => button.mergeConfig(Buttons(List(b)))
         case Some(errs) => errors.configValidationFailed[Buttons](errs)
       })
+  }
+
+  def deleteCommonButton(b: NonEmptyString): F[Buttons] = trace.span("deleteCommonButton") {
+    button.getConfig.flatMap { buttons =>
+      if (buttons.buttons.map(_.name).contains(b)) button.deleteItem(b)
+      else errors.buttonMissing[Buttons](b)
+    }
   }
 
   implicit val ord: Ordering[Int] = new Ordering[Int] {

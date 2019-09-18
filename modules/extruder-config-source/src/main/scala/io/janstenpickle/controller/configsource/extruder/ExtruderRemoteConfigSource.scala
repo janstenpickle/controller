@@ -2,6 +2,7 @@ package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect._
 import com.typesafe.config.{Config => TConfig}
+import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import io.janstenpickle.controller.model.Remotes
@@ -22,13 +23,23 @@ object ExtruderRemoteConfigSource {
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     onUpdate: Remotes => F[Unit]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, WritableConfigSource[F, Remotes]] = {
+  )(
+    implicit liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, WritableConfigSource[F, Remotes, NonEmptyString]] = {
     type EV[A] = EffectValidation[F, A]
     val decoder: Decoder[EV, (Settings, CirceSettings), Remotes, (TConfig, Json)] =
       Decoder[EV, (Settings, CirceSettings), Remotes, (TConfig, Json)]
     val encoder: Encoder[F, Settings, Remotes, Config] = Encoder[F, Settings, Remotes, Config]
 
     ExtruderConfigSource
-      .polling[F, G, Remotes]("remotes", pollingConfig, config, onUpdate, decoder, encoder)
+      .polling[F, G, Remotes, NonEmptyString](
+        "remotes",
+        pollingConfig,
+        config,
+        onUpdate,
+        (key, remotes) => remotes.copy(remotes = remotes.remotes.filterNot(_.name == key)),
+        decoder,
+        encoder
+      )
   }
 }

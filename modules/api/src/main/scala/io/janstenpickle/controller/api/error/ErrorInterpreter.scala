@@ -35,6 +35,7 @@ class ErrorInterpreter[F[_]: Apply](
 
   private def raise[A](error: ControlError): F[A] =
     error match {
+      case ControlError.InvalidInput(_) => fr.raise(error)
       case ControlError.Missing(_) => fr.raise(error)
       case ControlError.Internal(message) => logger.warn(message) *> fr.raise(error)
       case e @ ControlError.Combined(_, _) if e.isSevere => logger.warn(e.message) *> fr.raise(error)
@@ -90,6 +91,22 @@ class ErrorInterpreter[F[_]: Apply](
 
   override def configValidationFailed[A](failures: NonEmptyList[ConfigValidation.ValidationFailure]): F[A] =
     raise(ControlError.InvalidInput(s"Failed to validate configuration\n ${failures.toList.mkString("\n")}"))
+
+  override def remoteMissing[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Remote '$remote' not found"))
+
+  override def buttonMissing[A](button: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Button '$button' not found"))
+
+  override def activityMissing[A](activity: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Activity '$activity' not found"))
+
+  override def activityInUse[A](activity: NonEmptyString, remotes: List[NonEmptyString]): F[A] =
+    raise(
+      ControlError.InvalidInput(
+        s"Cannot delete activity '$activity' because it is use in the following remotes ${remotes.mkString(",")}"
+      )
+    )
 }
 
 object ErrorInterpreter {
