@@ -50,7 +50,7 @@ class ContextApi[F[_]: Sync](
               .map(_.activities.filter(_.room == r).groupBy(_.name).mapValues(_.headOption).get(act).flatten)
               .flatMap {
                 case None =>
-                  fr.raise(ControlError.Missing(s"Current activity '$act' is present in configuration"))
+                  fr.raise(ControlError.Missing(s"Current activity '$act' is not present in configuration"))
                 case Some(a) => a.pure[F]
               }
         }

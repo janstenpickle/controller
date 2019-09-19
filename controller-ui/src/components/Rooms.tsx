@@ -37,6 +37,10 @@ export default class Rooms extends React.Component<Props,{}> {
                 </button>
                 <ul className="mdl-menu mdl-menu--bottom-left mdl-js-menu mdl-js-ripple-effect" data-mdl-for="rooms-menu" >
                     {rooms.map(listItem)}
+                    <li className="mdl-menu__item--full-bleed-divider" key="divider"/>
+                    <li className="mdl-menu__item" key="settings-menu-item">
+                      <b>Settings</b>
+                    </li>
                 </ul>
             </div>
         );

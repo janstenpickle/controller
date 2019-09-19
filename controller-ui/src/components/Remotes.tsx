@@ -50,10 +50,13 @@ export default class Remotes extends React.Component<Props,{}> {
       return (
         <div className='mdl-shadow--2dp mdl-color--grey-100' key={data.name}>
           <div className='center-align'>
-            {data.name}
-          </div>
+            {data.name}  
+         </div> 
           <div className='center-align'>
             {buttons}
+          </div>
+          <div id='add-remote-button'>
+            <div className="icon material-icons">add</div>  
           </div>
         </div>
       )

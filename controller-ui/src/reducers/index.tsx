@@ -1,7 +1,7 @@
 import { ControllerAction, setActivity, setRoom } from '../actions';
 import { toTitleCase } from '../components/Rooms'
 import { StoreState, RemoteButtons, RemoteData } from '../types/index';
-import { FOCUS_REMOTE, TOGGLE_REMOTE, LOADED_BUTTONS, LOADED_REMOTES, LOADED_ACTIVITIES, LOADED_ROOMS, SET_ACTIVITY, TOGGLE_SHOW_ALL, UPDATE_PLUG_STATE, SET_ROOM } from '../constants/index';
+import { FOCUS_REMOTE, TOGGLE_REMOTE, LOADED_BUTTONS, LOADED_REMOTES, LOADED_ACTIVITIES, LOADED_ROOMS, SET_ACTIVITY, TOGGLE_SHOW_ALL, UPDATE_PLUG_STATE, SET_ROOM, OPEN_DIALOG, CLOSE_DIALOG, ADD_REMOTE } from '../constants/index';
 import { TSMap } from "typescript-map";
 
 const isActive = (currentRoom: string, currentActivity: TSMap<string, string>, remote: RemoteData) => {
@@ -24,6 +24,24 @@ const isActive = (currentRoom: string, currentActivity: TSMap<string, string>, r
 
 export function controller(state: StoreState, action: ControllerAction): StoreState {
   switch (action.type) {
+    case OPEN_DIALOG:
+      return { ...state, newRemoteDialogOpen: true };
+    case CLOSE_DIALOG:
+      return { ...state, newRemoteDialogOpen: false };
+    case ADD_REMOTE:
+      const newRemote: RemoteData = {
+        name: action.remote,
+        rooms: [state.currentRoom],
+        activities: action.activities,
+        isActive: false,
+        buttons: [] 
+      }
+      newRemote.isActive = isActive(state.currentRoom, state.currentActivity, newRemote)
+
+      const newRemotes = state.remotes.clone()
+      newRemotes.set(action.remote, newRemote)
+
+      return { ...state, remotes: newRemotes }
     case FOCUS_REMOTE:
       return { ...state, focusedRemote: action.name };
     case TOGGLE_REMOTE:
@@ -97,6 +115,7 @@ export function controller(state: StoreState, action: ControllerAction): StoreSt
       )
       return { ... state, buttons: buttons }
     default:
+      console.log("unmatched action " + action)
       return state;
   }
 }

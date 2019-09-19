@@ -3,6 +3,8 @@ import * as ReactDOM from 'react-dom';
 import registerServiceWorker from './registerServiceWorker';
 import './index.css';
 import Remotes from './containers/Remotes';
+import AddRemote from './containers/AddRemote';
+import AddRemoteDialog from './containers/AddRemoteDialog';
 import MainButtons from './containers/MainButtons';
 import Activities from './containers/Activities';
 import ToggleShowAll from './containers/ToggleShowAll';
@@ -23,7 +25,8 @@ const store = createStore<StoreState, ControllerAction, any, any>(controller, {
   focusedRemote: 'TV',
   currentActivity: new TSMap<string, string>(),
   currentRoom: localStorage.getItem('room') || '',
-  showAll: !(document.documentElement.clientWidth < 900)
+  showAll: !(document.documentElement.clientWidth < 900),
+  newRemoteDialogOpen: false
 }, applyMiddleware(thunk));
 
 ReactDOM.render(
@@ -45,6 +48,20 @@ ReactDOM.render(
     <Remotes />
   </Provider>,
   document.getElementById('remotes') as HTMLElement
+);
+
+ReactDOM.render(
+  <Provider store={store}>
+    <AddRemote />
+  </Provider>,
+  document.getElementById('add-remote') as HTMLElement
+);
+
+ReactDOM.render(
+  <Provider store={store}>
+    <AddRemoteDialog />
+  </Provider>,
+  document.getElementById('dialog') as HTMLElement
 );
 
 ReactDOM.render(

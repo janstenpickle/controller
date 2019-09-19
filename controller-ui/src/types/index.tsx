@@ -9,6 +9,7 @@ export interface StoreState {
     currentActivity: TSMap<string, string>;
     focusedRemote: string;
     showAll: boolean;
+    newRemoteDialogOpen: boolean;
 }
 
 export interface RemoteData {

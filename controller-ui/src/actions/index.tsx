@@ -37,6 +37,19 @@ export interface ShowAll {
     type: constants.TOGGLE_SHOW_ALL;
 }
 
+export interface OpenDialog {
+    type: constants.OPEN_DIALOG;
+}
+
+export interface CloseDialog {
+    type: constants.CLOSE_DIALOG;
+}
+
+export interface AddRemote {
+    type: constants.ADD_REMOTE;
+    remote: string;
+    activities: string[];
+}
 
 const createPoller = (interval: number, initialDelay: number) => {
   let timeoutId: number = 0;
@@ -126,7 +139,7 @@ export interface LoadedRemotes {
   payload: TSMap<string, RemoteData>;
 }
 
-export type ControllerAction = FocusRemote | ToggleRemote | LoadedButtons | LoadedRemotes | LoadedActivities | LoadedRooms | SetActivity | SetRoom | ShowAll | UpdatePlugState;
+export type ControllerAction = FocusRemote | ToggleRemote | LoadedButtons | LoadedRemotes | LoadedActivities | LoadedRooms | SetActivity | SetRoom | ShowAll | UpdatePlugState | OpenDialog | CloseDialog | AddRemote;
 
 export function setActivity(room: string, name: string): SetActivity {
   return {
@@ -197,5 +210,26 @@ export function updatePlugState(state:boolean, plug?: string): UpdatePlugState {
     type: constants.UPDATE_PLUG_STATE,
     plug: plug,
     state: state
+  }
+}
+
+
+export function openDialog(): OpenDialog {
+  return {
+    type: constants.OPEN_DIALOG
+  };
+}
+
+export function closeDialog(): CloseDialog {
+  return {
+    type: constants.CLOSE_DIALOG
+  };
+}
+
+export function addRemote(remote: string, activities: string[]): AddRemote {
+  return {
+    type: constants.ADD_REMOTE,
+    remote,
+    activities
   }
 }

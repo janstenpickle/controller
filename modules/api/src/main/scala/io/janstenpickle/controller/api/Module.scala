@@ -395,7 +395,7 @@ object Module {
             instrumentation.activity,
             instrumentation.`macro`,
             instrumentation.remote,
-            activityConfig
+            combinedActivityConfig
           ).routes,
           "/config" -> new ConfigApi[F, G](
             configService,

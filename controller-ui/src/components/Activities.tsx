@@ -45,7 +45,7 @@ export default class Activities extends React.Component<Props,{}> {
       .filter((buttonData: ActivityButton) => (buttonData.room || '') === this.props.currentRoom )
       .map((buttonData: ActivityButton) =>  renderButton(buttonData, this.props.currentActivity, this.props.currentRoom, this.props.activate));
 
-    return(<div className='center-align mdl-color--grey-100 mdl-cell--12-col'>
+    return(<div className='center-align mdl-cell--12-col'>
       {renderedButtons}
     </div>);
   }

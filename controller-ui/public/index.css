@@ -44,3 +44,19 @@
 .mdl-layout__header-row {
   padding: 0 16px 0 10px;
 }
+
+div#add-remote-button {
+  position: absolute; 
+  bottom: 0;
+  right: 0;
+}
+
+div#add-remote {
+  padding: 10px;
+}
+
+dialog {
+  position: fixed;
+  top: 50%;
+  transform: translate(0, -50%);
+}
