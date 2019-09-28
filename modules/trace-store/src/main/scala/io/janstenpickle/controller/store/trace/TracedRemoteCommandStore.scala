@@ -2,11 +2,12 @@ package io.janstenpickle.controller.store.trace
 
 import cats.Monad
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.store.{RemoteCommand, RemoteCommandStore}
+import io.janstenpickle.controller.store.RemoteCommandStore
 import natchez.{Trace, TraceValue}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import io.janstenpickle.controller.model.RemoteCommand
 
 object TracedRemoteCommandStore {
   def apply[F[_]: Monad, T](store: RemoteCommandStore[F, T], `type`: String, extraFields: (String, TraceValue)*)(

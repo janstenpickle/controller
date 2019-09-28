@@ -7,7 +7,7 @@ import cats.syntax.flatMap._
 import cats.syntax.parallel._
 import cats.{FlatMap, Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.store.RemoteCommand
+import io.janstenpickle.controller.model.RemoteCommand
 
 trait RemoteControls[F[_]] {
   def send(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit]

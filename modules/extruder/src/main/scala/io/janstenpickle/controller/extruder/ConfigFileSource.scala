@@ -68,9 +68,8 @@ object ConfigFileSource {
         def writeFile(extension: String)(contents: Array[Byte]): F[Unit] = trace.span("writeFile") {
           val file = getFile(extension)
           evalMutex(
-            trace.put("file.name" -> file.toString) *> blocker.blockOn(
-              F.delay(FileUtils.forceMkdirParent(file.toFile)).flatMap(_ => F.delay(Files.write(file, contents)))
-            )
+            trace.put("file.name" -> file.toString) *> blocker
+              .blockOn(F.delay(FileUtils.forceMkdirParent(file.toFile)) *> F.delay(Files.write(file, contents)).void)
           )
         }
 

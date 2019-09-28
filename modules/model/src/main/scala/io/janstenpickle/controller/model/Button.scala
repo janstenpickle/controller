@@ -4,10 +4,11 @@ import cats.Eq
 import cats.derived.semi
 import cats.instances.boolean._
 import cats.instances.string._
+import cats.instances.int._
 import cats.instances.list._
 import cats.instances.option._
 import cats.instances.string._
-import cats.kernel.{Monoid, Semigroup}
+import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 
 sealed trait Button {
@@ -16,6 +17,7 @@ sealed trait Button {
   def colored: Option[Boolean]
   def color: Option[NonEmptyString]
   def room: Option[NonEmptyString]
+  def order: Option[Int]
 }
 
 object Button {
@@ -34,7 +36,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Remote
 
   case class RemoteLabel(
@@ -45,7 +48,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Remote
 
   sealed trait Switch extends Button {
@@ -61,7 +65,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Switch
 
   case class SwitchLabel(
@@ -72,7 +77,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Switch
 
   sealed trait Macro extends Button {
@@ -86,7 +92,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Macro
 
   case class MacroLabel(
@@ -96,7 +103,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Macro
 
   sealed trait Context extends Button
@@ -107,7 +115,8 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Context
 
   case class ContextLabel(
@@ -116,14 +125,7 @@ object Button {
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
-    room: Option[NonEmptyString]
+    room: Option[NonEmptyString],
+    order: Option[Int] = None
   ) extends Context
-}
-
-case class Buttons(buttons: List[Button], errors: List[String] = List.empty)
-
-object Buttons {
-  implicit val eq: Eq[Buttons] = semi.eq
-  implicit val monoid: Monoid[Buttons] = semi.monoid
-  implicit val setErrors: SetErrors[Buttons] = SetErrors((buttons, errors) => buttons.copy(errors = errors))
 }

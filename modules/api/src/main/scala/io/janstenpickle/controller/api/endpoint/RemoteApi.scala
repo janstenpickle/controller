@@ -13,9 +13,8 @@ import extruder.circe.instances._
 import extruder.refined._
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import io.janstenpickle.controller.store.RemoteCommand
 import natchez.{Trace, TraceValue}
-import org.http4s.{EntityEncoder, HttpRoutes, Response}
+import org.http4s.{HttpRoutes, Response}
 
 class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
   implicit trace: Trace[F],

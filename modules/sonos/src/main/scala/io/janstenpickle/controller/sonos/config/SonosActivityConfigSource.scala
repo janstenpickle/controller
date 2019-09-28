@@ -4,8 +4,8 @@ import cats.Applicative
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.config.trace.TracedConfigSource
-import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.{Activities, Activity, ContextButtonMapping}
+import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
+import io.janstenpickle.controller.model.{Activity, ContextButtonMapping}
 import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
 import natchez.Trace
 
@@ -21,15 +21,15 @@ object SonosActivityConfigSource {
     previousMappingName: NonEmptyString = Commands.Previous
   )
 
-  def apply[F[_]: Applicative: Trace](config: Config, discovery: SonosDiscovery[F]): ConfigSource[F, Activities] =
+  def apply[F[_]: Applicative: Trace](config: Config, discovery: SonosDiscovery[F]): ConfigSource[F, String, Activity] =
     TracedConfigSource(
-      new ConfigSource[F, Activities] {
-        override def getConfig: F[Activities] =
+      new ConfigSource[F, String, Activity] {
+        override def getConfig: F[ConfigResult[String, Activity]] =
           discovery.devices.map(
             devices =>
-              Activities(devices.toList.collect {
+              ConfigResult(devices.map {
                 case (name, _) =>
-                  Activity(
+                  s"${name.value}-${config.name}" -> Activity(
                     name = config.name,
                     label = config.label,
                     contextButtons = List(
@@ -43,8 +43,10 @@ object SonosActivityConfigSource {
                     None,
                     name
                   )
-              })
+              }, List.empty)
           )
+
+        override def getValue(key: String): F[Option[Activity]] = getConfig.map(_.values.get(key))
       },
       "activities",
       "sonos"

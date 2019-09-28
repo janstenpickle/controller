@@ -1,22 +1,22 @@
-import { StoreState } from '../types/index';
+import { StoreState, RemoteData, ActivityData } from '../types/index';
 import { connect } from 'react-redux';
 import { Dispatch } from 'react';
 import * as actions from '../actions/';
 import AddRemoteDialog from '../components/AddRemoteDialog';
-import { ActivityButton } from '../types/index';
 
-export function mapStateToProps({ activities, currentRoom, newRemoteDialogOpen }: StoreState) {
+export function mapStateToProps({ activities, currentRoom, editMode, remotes }: StoreState) {
   return {
-    activities: activities.filter((buttonData: ActivityButton) => buttonData.room === currentRoom).map((buttonData: ActivityButton) => buttonData.name),
-    isOpen: newRemoteDialogOpen
+    activities: activities.clone().values().filter((activity: ActivityData) => activity.room === currentRoom).map((activity: ActivityData) => activity.name),
+    currentRoom: currentRoom,
+    editMode: editMode,
+    remotes: remotes.clone().filter((remote: RemoteData) => remote.rooms.includes(currentRoom) || remote.rooms.length === 0)
   };
 }
 
 export function mapDispatchToProps(dispatch: Dispatch<any>) {
   return {
-    openModal: () => dispatch(actions.openDialog()),
-    closeModal: () => dispatch(actions.closeDialog()),
-    addRemote: (remote: string, activities: string[]) => dispatch(actions.addRemote(remote, activities))
+    addRemote: (remote: RemoteData) => dispatch(actions.addRemote(remote)),
+    fetchActivities: () => dispatch(actions.loadActivitiesAction()),
   };
 }
 

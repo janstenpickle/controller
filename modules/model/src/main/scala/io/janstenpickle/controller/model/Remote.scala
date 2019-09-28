@@ -4,28 +4,25 @@ import cats.Eq
 import cats.data.NonEmptyList
 import cats.derived.semi
 import cats.instances.list._
+import cats.instances.int._
 import cats.instances.map._
 import cats.instances.set._
 import cats.instances.string._
-import cats.kernel.Monoid
+import cats.instances.boolean._
 import eu.timepit.refined.types.string.NonEmptyString
 
 case class Remote(
   name: NonEmptyString,
-  buttons: NonEmptyList[Button],
+  label: NonEmptyString,
+  buttons: List[Button],
   activities: Set[NonEmptyString] = Set.empty,
   rooms: List[Room] = List.empty,
-  metadata: Map[String, String] = Map.empty
+  order: Option[Int] = None,
+  metadata: Map[String, String] = Map.empty,
+  editable: Boolean = false
 )
 
 object Remote {
   implicit val eq: Eq[Remote] = semi.eq
-}
-
-case class Remotes(remotes: List[Remote], errors: List[String] = List.empty)
-
-object Remotes {
-  implicit val eq: Eq[Remotes] = semi.eq
-  implicit val monoid: Monoid[Remotes] = semi.monoid
-  implicit val setErrors: SetErrors[Remotes] = SetErrors((remotes, errors) => remotes.copy(errors = errors))
+  implicit val setEditable: SetEditable[Remote] = SetEditable((remote, editable) => remote.copy(editable = editable))
 }

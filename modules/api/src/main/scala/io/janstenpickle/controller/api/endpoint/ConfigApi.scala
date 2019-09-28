@@ -7,6 +7,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.apply._
 import cats.~>
+import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe._
 import extruder.refined._
 import fs2.Stream
@@ -16,6 +17,7 @@ import io.janstenpickle.controller.api.trace.Http4sUtils
 import io.janstenpickle.controller.api.service.ConfigService
 import io.janstenpickle.controller.api.{UpdateTopics, ValidatingOptionalQueryParamDecoderMatcher}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.configsource.ConfigResult
 import io.janstenpickle.controller.model._
 import natchez.Trace
 import org.http4s.server.websocket.WebSocketBuilder
@@ -70,7 +72,8 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
       .fold(failures => BadRequest(failures.map(_.message).toList.mkString(",")), i => op(i.getOrElse(20.seconds)))
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
-    case req @ PUT -> Root / "activity" => Ok(req.as[Activity].flatMap(service.addActivity))
+    case req @ PUT -> Root / "activity" / a => Ok(req.as[Activity].flatMap(service.updateActivity(a, _)))
+    case req @ POST -> Root / "activity" => Ok(req.as[Activity].flatMap(service.addActivity))
     case DELETE -> Root / "activity" / a =>
       refineOrBadReq(a) { activity =>
         Ok(service.deleteActivity(activity))
@@ -83,10 +86,15 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
           req,
           updateTopics.activities,
           () => service.getActivities,
-          err => Activities(List.empty, List(err.message))
+          err => ConfigResult[String, Activity](Map.empty, List(err.message))
         )
       )
-    case req @ PUT -> Root / "remote" => Ok(req.as[Remote].flatMap(service.addRemote))
+    case req @ POST -> Root / "remote" =>
+      Ok(req.as[Remote].flatMap(service.addRemote))
+    case req @ PUT -> Root / "remote" / r =>
+      refineOrBadReq(r) { remoteName =>
+        Ok(req.as[Remote].flatMap(service.updateRemote(remoteName, _)))
+      }
     case DELETE -> Root / "remote" / r =>
       refineOrBadReq(r) { remote =>
         Ok(service.deleteRemote(remote))
@@ -95,18 +103,28 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     case req @ GET -> Root / "remotes" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(req, updateTopics.remotes, () => service.getRemotes, err => Remotes(List.empty, List(err.message)))
+        stream(
+          req,
+          updateTopics.remotes,
+          () => service.getRemotes,
+          err => ConfigResult[NonEmptyString, Remote](Map.empty, List(err.message))
+        )
       )
     case req @ PUT -> Root / "button" => Ok(req.as[Button].flatMap(service.addCommonButton))
     case DELETE -> Root / "button" / b =>
       refineOrBadReq(b) { button =>
-        Ok(service.deleteCommonButton(button))
+        Ok(service.deleteCommonButton(button.value))
       }
     case GET -> Root / "buttons" => Ok(service.getCommonButtons)
     case req @ GET -> Root / "buttons" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(req, updateTopics.buttons, () => service.getCommonButtons, err => Buttons(List.empty, List(err.message)))
+        stream(
+          req,
+          updateTopics.buttons,
+          () => service.getCommonButtons,
+          err => ConfigResult[String, Button](Map.empty, List(err.message))
+        )
       )
     case GET -> Root / "rooms" => Ok(service.getRooms)
     case req @ GET -> Root / "rooms" / "ws" :? OptionalDurationParamMatcher(interval) =>

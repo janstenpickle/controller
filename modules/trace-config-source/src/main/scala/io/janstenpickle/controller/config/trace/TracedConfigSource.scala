@@ -2,46 +2,62 @@ package io.janstenpickle.controller.config.trace
 
 import cats.Apply
 import cats.syntax.apply._
-import io.janstenpickle.controller.configsource.{ConfigSource, WritableConfigSource}
+import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource, WritableConfigSource}
 import natchez.TraceValue.StringValue
 import natchez.{Trace, TraceValue}
 
 object TracedConfigSource {
-  def apply[F[_]: Apply, A](
-    source: ConfigSource[F, A],
+  def apply[F[_]: Apply, K, V](
+    source: ConfigSource[F, K, V],
     name: String,
     `type`: String,
     extraFields: (String, TraceValue)*
-  )(implicit trace: Trace[F]): ConfigSource[F, A] = new ConfigSource[F, A] {
-    override def getConfig: F[A] = trace.span("getConfig") {
+  )(implicit trace: Trace[F]): ConfigSource[F, K, V] = new ConfigSource[F, K, V] {
+    private def span[A](n: String)(k: F[A]): F[A] = trace.span(n) {
       trace
-        .put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> source.getConfig
+        .put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
+    }
+
+    override def getConfig: F[ConfigResult[K, V]] = span("getConfig") {
+      source.getConfig
+    }
+
+    override def getValue(key: K): F[Option[V]] = span("getValue") {
+      source.getValue(key)
     }
   }
 
-  def writable[F[_]: Apply, A, K](
-    source: WritableConfigSource[F, A, K],
+  def writable[F[_]: Apply, K, V](
+    source: WritableConfigSource[F, K, V],
     name: String,
     `type`: String,
     extraFields: (String, TraceValue)*
-  )(implicit trace: Trace[F]): WritableConfigSource[F, A, K] = new WritableConfigSource[F, A, K] {
+  )(implicit trace: Trace[F]): WritableConfigSource[F, K, V] = new WritableConfigSource[F, K, V] {
     private def span[B](n: String)(k: F[B]): F[B] = trace.span(n) {
       trace.put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
     }
 
-    override def getConfig: F[A] = span("getConfig") {
+    override def getConfig: F[ConfigResult[K, V]] = span("getConfig") {
       source.getConfig
     }
-    override def setConfig(a: A): F[Unit] = span("setConfig") {
+    override def setConfig(a: Map[K, V]): F[Unit] = span("setConfig") {
       source.setConfig(a)
     }
 
-    override def mergeConfig(a: A): F[A] = span("mergeConfig") {
+    override def mergeConfig(a: Map[K, V]): F[ConfigResult[K, V]] = span("mergeConfig") {
       source.mergeConfig(a)
     }
 
-    override def deleteItem(key: K): F[A] = span("deleteItem") {
+    override def deleteItem(key: K): F[ConfigResult[K, V]] = span("deleteItem") {
       source.deleteItem(key)
+    }
+
+    override def upsert(key: K, value: V): F[ConfigResult[K, V]] = span("upsert") {
+      source.upsert(key, value)
+    }
+
+    override def getValue(key: K): F[Option[V]] = span("getValue") {
+      source.getValue(key)
     }
   }
 }

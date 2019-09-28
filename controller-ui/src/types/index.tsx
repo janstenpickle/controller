@@ -4,20 +4,62 @@ export interface StoreState {
     currentRoom: string;
     rooms: string[];
     buttons: RemoteButtons[];
-    activities: ActivityButton[];
+    activities: TSMap<string, ActivityData>;
     remotes: TSMap<string, RemoteData>;
     currentActivity: TSMap<string, string>;
     focusedRemote: string;
     showAll: boolean;
-    newRemoteDialogOpen: boolean;
+    editMode: boolean;
+}
+
+export interface Switch {
+  device: string;
+  name: string;
+}
+
+export interface RemoteCommand {
+  remote: string;
+  device: string;
+  name: string;
 }
 
 export interface RemoteData {
   name: string;
+  label: string;
   rooms: string[];
   activities: string[];
   isActive: boolean;
   buttons: RemoteButtons[];
+  order?: number;
+  editable: boolean;
+}
+
+export interface ActivityData {
+  name: string;
+  label: string;
+  room: string;
+  isActive?: boolean;
+  order?: number;
+  contextButtons: ContextButtons[];
+  editable: boolean;
+}
+
+export type ContextButtons = ContextButtonMappingRemote | ContextButtonMappingMacro
+
+export interface ContextButtonMapping {
+  name: string
+}
+
+export interface ContextButtonMappingRemote extends ContextButtonMapping {
+  tag: "remote"
+  remote: string
+  device: string
+  command: string
+}
+
+export interface ContextButtonMappingMacro extends ContextButtonMapping {
+  tag: "macro"
+  macro: string
 }
 
 export type RemoteButtons = RemoteButtonIcon | RemoteButtonLabel | SwitchButtonIcon | SwitchButtonLabel | MacroButtonIcon | MacroButtonLabel | ContextButtonIcon | ContextButtonLabel

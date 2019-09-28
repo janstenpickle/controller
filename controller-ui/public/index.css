@@ -27,36 +27,40 @@
   padding: 16px;
 }
 
-@media only screen and (max-width: 600px) { 
-  .mdl-button-size-override{
-    width: 50px !important;
-    height: 50px !important;
-    min-width: initial;
-  }
+.mdc-fab--color-override {
+  background-color: #e0e0e0;
+  color: black
 }
 
-.mdl-button-size-big {
-  width: 100px !important;
-  height: 100px !important;
-  min-width: initial;
+.mdc-fab--small {
+  height: 30px;
+  width: 30px;
 }
 
-.mdl-layout__header-row {
-  padding: 0 16px 0 10px;
+
+.mdc-card--background {
+  background-color: rgb(247, 247, 247)
 }
 
-div#add-remote-button {
-  position: absolute; 
+.remote-edit {
+  font-size: small;
+  padding: 4px;
+}
+
+.button-add {
+  position: fixed;
+  font-size: medium;
+  padding: 4px;
   bottom: 0;
-  right: 0;
+  vertical-align: middle;
 }
 
 div#add-remote {
   padding: 10px;
 }
 
-dialog {
+/* dialog {
   position: fixed;
   top: 50%;
   transform: translate(0, -50%);
-}
+} */

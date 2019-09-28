@@ -3,8 +3,8 @@ package io.janstenpickle.controller.stats.remote
 import cats.Apply
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.model.RemoteCommand
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import io.janstenpickle.controller.store.RemoteCommand
 
 object RemoteControlsStats {
   def apply[F[_]: Apply](underlying: RemoteControls[F])(implicit stats: RemoteStatsRecorder[F]): RemoteControls[F] =

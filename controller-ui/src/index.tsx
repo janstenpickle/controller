@@ -3,31 +3,20 @@ import * as ReactDOM from 'react-dom';
 import registerServiceWorker from './registerServiceWorker';
 import './index.css';
 import Remotes from './containers/Remotes';
-import AddRemote from './containers/AddRemote';
 import AddRemoteDialog from './containers/AddRemoteDialog';
 import MainButtons from './containers/MainButtons';
 import Activities from './containers/Activities';
 import ToggleShowAll from './containers/ToggleShowAll';
 import Rooms from './containers/Rooms';
 
-import { TSMap } from 'typescript-map';
 import { Provider } from 'react-redux';
 import { createStore, applyMiddleware } from 'redux';
-import { controller } from './reducers/index';
-import { StoreState, RemoteData } from './types/index';
+import { controller, initialState } from './reducers/index';
+import { StoreState } from './types/index';
 import thunk from 'redux-thunk';
 import { ControllerAction } from './actions';
 
-const store = createStore<StoreState, ControllerAction, any, any>(controller, {
-  buttons: [],
-  activities: [],
-  remotes: new TSMap<string, RemoteData>(),
-  focusedRemote: 'TV',
-  currentActivity: new TSMap<string, string>(),
-  currentRoom: localStorage.getItem('room') || '',
-  showAll: !(document.documentElement.clientWidth < 900),
-  newRemoteDialogOpen: false
-}, applyMiddleware(thunk));
+const store = createStore<StoreState, ControllerAction, any, any>(controller, initialState, applyMiddleware(thunk));
 
 ReactDOM.render(
   <Provider store={store}>
@@ -52,16 +41,9 @@ ReactDOM.render(
 
 ReactDOM.render(
   <Provider store={store}>
-    <AddRemote />
-  </Provider>,
-  document.getElementById('add-remote') as HTMLElement
-);
-
-ReactDOM.render(
-  <Provider store={store}>
     <AddRemoteDialog />
   </Provider>,
-  document.getElementById('dialog') as HTMLElement
+  document.getElementById('add-remote') as HTMLElement
 );
 
 ReactDOM.render(

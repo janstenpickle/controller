@@ -1,7 +1,7 @@
 import { ControllerAction, setActivity, setRoom } from '../actions';
 import { toTitleCase } from '../components/Rooms'
-import { StoreState, RemoteButtons, RemoteData } from '../types/index';
-import { FOCUS_REMOTE, TOGGLE_REMOTE, LOADED_BUTTONS, LOADED_REMOTES, LOADED_ACTIVITIES, LOADED_ROOMS, SET_ACTIVITY, TOGGLE_SHOW_ALL, UPDATE_PLUG_STATE, SET_ROOM, OPEN_DIALOG, CLOSE_DIALOG, ADD_REMOTE } from '../constants/index';
+import { StoreState, RemoteButtons, RemoteData, ActivityData } from '../types/index';
+import { FOCUS_REMOTE, TOGGLE_REMOTE, LOADED_BUTTONS, LOADED_REMOTES, LOADED_ACTIVITIES, LOADED_ROOMS, SET_ACTIVITY, TOGGLE_SHOW_ALL, UPDATE_PLUG_STATE, SET_ROOM, ADD_REMOTE, EDIT_MODE } from '../constants/index';
 import { TSMap } from "typescript-map";
 
 const isActive = (currentRoom: string, currentActivity: TSMap<string, string>, remote: RemoteData) => {
@@ -22,24 +22,27 @@ const isActive = (currentRoom: string, currentActivity: TSMap<string, string>, r
   }
 }
 
-export function controller(state: StoreState, action: ControllerAction): StoreState {
+export const initialState: StoreState = {
+  buttons: [],
+  activities: new TSMap<string, ActivityData>(),
+  remotes: new TSMap<string, RemoteData>(),
+  focusedRemote: 'TV',
+  currentActivity: new TSMap<string, string>(),
+  currentRoom: localStorage.getItem('room') || '',
+  showAll: !(document.documentElement.clientWidth < 900),
+  editMode: true,
+  rooms: []
+}
+
+export function controller (state: StoreState = initialState, action: ControllerAction): StoreState {
   switch (action.type) {
-    case OPEN_DIALOG:
-      return { ...state, newRemoteDialogOpen: true };
-    case CLOSE_DIALOG:
-      return { ...state, newRemoteDialogOpen: false };
+    case EDIT_MODE:
+      return { ...state, editMode: action.enabled }
     case ADD_REMOTE:
-      const newRemote: RemoteData = {
-        name: action.remote,
-        rooms: [state.currentRoom],
-        activities: action.activities,
-        isActive: false,
-        buttons: [] 
-      }
-      newRemote.isActive = isActive(state.currentRoom, state.currentActivity, newRemote)
+      action.remote.isActive = isActive(state.currentRoom, state.currentActivity, action.remote)
 
       const newRemotes = state.remotes.clone()
-      newRemotes.set(action.remote, newRemote)
+      newRemotes.set(action.remote.name, action.remote)
 
       return { ...state, remotes: newRemotes }
     case FOCUS_REMOTE:
@@ -60,16 +63,16 @@ export function controller(state: StoreState, action: ControllerAction): StoreSt
     }
     case LOADED_ACTIVITIES:
       const current = new TSMap<string, string>(
-        action.payload
-          .filter(button => (button.isActive || false))
-          .map(button => [button.room || '', button.name])
+        action.payload.clone()
+          .filter(activity => (activity.isActive || false))
+          .map(activity => [activity.room || '', activity.name])
       )
 
-      if (state.currentActivity != current) {
+      if (state.currentActivity !== current) {
         const activity = current.get(state.currentRoom) || ''
-        return controller({ ...state, activities: action.payload, currentActivity: current },  setActivity(state.currentRoom, activity))
+        return controller({ ...state, activities: action.payload.clone(), currentActivity: current },  setActivity(state.currentRoom, activity))
       } else {
-        return { ...state, activities: action.payload };
+        return { ...state, activities: action.payload.clone() };
       }
     case LOADED_ROOMS:
       const currentRoom = () => { 
@@ -97,7 +100,7 @@ export function controller(state: StoreState, action: ControllerAction): StoreSt
     }
     case UPDATE_PLUG_STATE:
       const buttons = state.buttons.map ((button: RemoteButtons) => {
-          if (button.name == action.plug) {
+          if (button.name === action.plug) {
             switch (button.tag) {
               case "macro": 
                 button.isOn = action.state;
@@ -113,9 +116,10 @@ export function controller(state: StoreState, action: ControllerAction): StoreSt
           }
         }
       )
-      return { ... state, buttons: buttons }
+      return { ...state, buttons: buttons }
     default:
       console.log("unmatched action " + action)
       return state;
   }
 }
+

@@ -1,21 +1,21 @@
 package io.janstenpickle.controller.api.validation
 
-import cats.{Apply, Monad, NonEmptyParallel, Parallel}
+import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.apply._
-import cats.data.NonEmptyList
+import cats.{Monad, NonEmptyParallel, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.{Activities, Activity, Button, Buttons, ContextButtonMapping, Remote, Remotes}
+import io.janstenpickle.controller.model
+import io.janstenpickle.controller.model.{Activity, Button, ContextButtonMapping, Remote, RemoteCommand}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import io.janstenpickle.controller.store.{MacroStore, RemoteCommand}
+import io.janstenpickle.controller.store.MacroStore
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.{Trace, TraceValue}
 
 class ConfigValidation[F[_]: Monad: NonEmptyParallel](
-  activitySource: ConfigSource[F, Activities],
+  activitySource: ConfigSource[F, String, Activity],
   remoteControls: RemoteControls[F],
   macros: MacroStore[F],
   switches: Switches[F]
@@ -35,31 +35,35 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
   )(remoteCommands: List[RemoteCommand], macros: List[NonEmptyString]): List[ValidationFailure] =
     buttons.flatMap {
       case ContextButtonMapping.Remote(_, remote, device, command) =>
-        val cmd = RemoteCommand(remote, device, command)
+        val cmd = model.RemoteCommand(remote, device, command)
         conditionalFailure(!remoteCommands.contains(cmd))(ValidationFailure.RemoteCommandNotFound(cmd))
       case ContextButtonMapping.Macro(_, m) =>
         conditionalFailure(!macros.contains(m))(ValidationFailure.MacroNotFound(m))
     }
 
   def validateActivity(activity: Activity): F[List[ValidationFailure]] = trace.span("validateActivity") {
-    traceErrors("activity.name" -> activity.name.value, "activity.label" -> activity.label.value)(
+    traceErrors(
+      "activity.name" -> activity.name.value,
+      "activity.label" -> activity.label.value,
+      "activity.room" -> activity.room.value
+    )(
       Parallel
         .parMap2(remoteControls.listCommands, macros.listMacros) { (cmds, ms) =>
-          validateContextButtons(activity.contextButtons)(cmds, ms) ++ conditionalFailure(!ms.contains(activity.name))(
-            ValidationFailure.MacroNotFound(activity.name)
-          )
+          validateContextButtons(activity.contextButtons)(cmds, ms) ++ conditionalFailure(
+            !ms.contains(NonEmptyString.unsafeFrom(s"${activity.room.value}-${activity.name.value}"))
+          )(ValidationFailure.MacroNotFound(activity.name))
         }
     )
   }
 
-  private def validateButtons(buttons: NonEmptyList[Button])(
+  private def validateButtons(buttons: List[Button])(
     remoteCommands: List[RemoteCommand],
     switches: List[SwitchKey],
     macros: List[NonEmptyString]
   ): List[ValidationFailure] =
-    buttons.toList.flatMap {
+    buttons.flatMap {
       case button: Button.Remote =>
-        val cmd = RemoteCommand(button.remote, button.device, button.name)
+        val cmd = model.RemoteCommand(button.remote, button.device, button.name)
         conditionalFailure(!remoteCommands.contains(cmd))(ValidationFailure.RemoteCommandNotFound(cmd))
       case button: Button.Switch =>
         val key = SwitchKey(button.device, button.name)
@@ -74,7 +78,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
       Parallel
         .parMap4(activitySource.getConfig, macros.listMacros, remoteControls.listCommands, switches.list) {
           (activities, ms, commands, sws) =>
-            val activityDiff = remote.activities.diff(activities.activities.map(_.name).toSet)
+            val activityDiff = remote.activities.diff(activities.values.values.map(_.name).toSet)
 
             validateButtons(remote.buttons)(commands, sws, ms) ++ conditionalFailure(activityDiff.nonEmpty)(
               ValidationFailure.ActivitiesNotFound(activityDiff)
@@ -85,9 +89,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
 
   def validateButton(button: Button): F[List[ValidationFailure]] = trace.span("validateButton") {
     traceErrors("button.name" -> button.name.value)(
-      Parallel.parMap3(remoteControls.listCommands, switches.list, macros.listMacros)(
-        validateButtons(NonEmptyList.one(button))
-      )
+      Parallel.parMap3(remoteControls.listCommands, switches.list, macros.listMacros)(validateButtons(List(button)))
     )
   }
 

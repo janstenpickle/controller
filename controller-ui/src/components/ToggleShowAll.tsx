@@ -6,7 +6,6 @@ interface Props {
 }
 
 export default class ToggleShowAll extends React.Component<Props,{}> {
-
   public render() {
     const icon = () => {
       if (this.props.showAll) {
@@ -19,8 +18,8 @@ export default class ToggleShowAll extends React.Component<Props,{}> {
     const button = () => {
       if (document.documentElement.clientWidth > 900) {
         return(
-          <button className="mdl-button mdl-js-button mdl-button--fab mdl-button--mini-fab mdl-button--colored mdl-button-size-override" onClick={this.props.toggle}>
-            <i className="material-icons">{icon()}</i>
+          <button className="mdc-ripple-upgraded mdc-fab mdc-button--raised mdc-fab--mini" onClick={this.props.toggle}>
+            <span className="mdc-fab__icon material-icons">{icon()}</span>
           </button>);
       } else {
         return '';

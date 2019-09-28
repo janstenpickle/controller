@@ -42,11 +42,18 @@ import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
-import io.janstenpickle.controller.store.file._
+import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
+import io.janstenpickle.controller.store.trace.{
+  TracedActivityStore,
+  TracedMacroStore,
+  TracedRemoteCommandStore,
+  TracedSwitchStateStore
+}
 import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
 import io.prometheus.client.CollectorRegistry
+import natchez.TraceValue.NumberValue
 import natchez._
 import natchez.jaeger.Jaeger
 import org.http4s.dsl.Http4sDsl
@@ -187,9 +194,6 @@ object Module {
         )
       )
 
-    implicit val commandPayloadSerde: CommandSerde[F, CommandPayload] =
-      CommandSerde[F, String].imap(CommandPayload)(_.hexValue)
-
     def notifyUpdate[A](topic: Topic[F, Boolean], topics: Topic[F, Boolean]*): A => F[Unit] =
       _ => (topic :: topics.toList).parTraverse(_.publish1(true)).void
 
@@ -216,85 +220,156 @@ object Module {
       activityConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("activity"),
-          config.config.pollInterval,
+          config.config.polling.pollInterval,
           blocker,
           config.config.writeTimeout
         )
 
       activityConfig <- ExtruderActivityConfigSource[F, G](
         activityConfigFileSource,
-        config.config.activity,
+        config.config.polling,
         notifyUpdate(activitiesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
       buttonConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("button"),
-          config.config.pollInterval,
+          config.config.polling.pollInterval,
           blocker,
           config.config.writeTimeout
         )
 
       buttonConfig <- ExtruderButtonConfigSource[F, G](
         buttonConfigFileSource,
-        config.config.button,
+        config.config.polling,
         notifyUpdate(buttonsUpdate, roomsUpdate, statsConfigUpdate)
       )
 
       remoteConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("remote"),
-          config.config.pollInterval,
+          config.config.polling.pollInterval,
           blocker,
           config.config.writeTimeout
         )
 
       remoteConfig <- ExtruderRemoteConfigSource[F, G](
         remoteConfigFileSource,
-        config.config.remote,
+        config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
       virtualSwitchConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("virtual-switch"),
-          config.config.pollInterval,
+          config.config.polling.pollInterval,
           blocker,
           config.config.writeTimeout
         )
 
       virtualSwitchConfig <- ExtruderVirtualSwitchConfigSource[F, G](
         virtualSwitchConfigFileSource,
-        config.config.virtualSwitch,
+        config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )
 
       multiSwitchConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("multi-switch"),
-          config.config.pollInterval,
+          config.config.polling.pollInterval,
           blocker,
           config.config.writeTimeout
         )
 
       multiSwitchConfig <- ExtruderMultiSwitchConfigSource[F, G](
         multiSwitchConfigFileSource,
-        config.config.multiSwitch,
+        config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )
 
-      activityStore <- Resource.liftF(FileActivityStore[F](config.stores.activityStore, blocker))
-      macroStore <- Resource.liftF(FileMacroStore[F](config.stores.macroStore, blocker))
-      commandStore <- Resource.liftF(
-        FileRemoteCommandStore[F, CommandPayload](config.stores.remoteCommandStore, blocker)
-      )
+      currentActivityConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("current-activity"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
 
-      switchStateFileStore <- FileSwitchStateStore.polling[F, G](
-        config.stores.switchStateStore,
-        config.stores.switchStatePolling,
-        blocker,
+      activityStore <- ExtruderCurrentActivityConfigSource[F, G](
+        currentActivityConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      ).map { cs =>
+        TracedActivityStore(
+          ActivityStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("current-activity").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
+
+      macroConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("macro"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      macroStore <- ExtruderMacroConfigSource[F, G](
+        macroConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      ).map { cs =>
+        TracedMacroStore(
+          MacroStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("macro").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
+
+      remoteCommandConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("remote-command"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      commandStore <- ExtruderRemoteCommandConfigSource[F, G](
+        remoteCommandConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      ).map { cs =>
+        TracedRemoteCommandStore(
+          RemoteCommandStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("remote-command").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
+
+      switchStateConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("switch-state"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      switchStateFileStore <- ExtruderSwitchStateConfigSource[F, G](
+        switchStateConfigFileSource,
+        config.config.polling,
         notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
-      )
+      ).map { cs =>
+        TracedSwitchStateStore(
+          SwitchStateStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("switch-state").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
 
       rm2RemoteControls <- Resource.liftF(RmRemoteControls[F](config.rm.map(_.config), commandStore, blocker))
 
@@ -355,7 +430,7 @@ object Module {
         combinedActivityConfig,
         buttonConfig,
         macroStore,
-        remoteConfig,
+        combinedRemoteConfig,
         combinedSwitchProvider
       )(
         m =>
@@ -370,21 +445,18 @@ object Module {
       )(statsConfigUpdate, statsSwitchUpdate)
 
       l <- Resource.liftF(Slf4jLogger.fromName[F]("stats"))
-    } yield {
-      val validation =
-        new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, instrumentation.switch)
-
-      val configService =
-        new ConfigService(
+      configService <- Resource.liftF(
+        ConfigService(
           combinedActivityConfig,
           buttonConfig,
           combinedRemoteConfig,
           macroStore,
           activityStore,
           switches,
-          validation
+          new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, instrumentation.switch)
         )
-
+      )
+    } yield {
       val router =
         Router(
           "/control/remote" -> new RemoteApi[F](instrumentation.remote).routes,

@@ -39,9 +39,11 @@
 
     <link rel="stylesheet" href="icons.css">
     <link rel="stylesheet" href="material.blue_grey-indigo.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css">
 
     <link rel="stylesheet" href="index.css">
     <script defer src="material.min.js"></script>
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
 
   </head>
   <body>
@@ -49,24 +51,34 @@
       You need to enable JavaScript to run this app.
     </noscript>
 
-      <div class="mdl-layout--fixed-header">
-        <header class="mdl-layout__header">
-          <div class="mdl-layout__header-row">
-            <div id="rooms-menu"></div>
-            <div id="toggle-all"></div>
+        <header class="mdc-top-app-bar mdc-top-app-bar--short">
+          <div class="mdc-top-app-bar__row">
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
+              <div id="rooms-menu"></div>
+              <div id="toggle-all"></div>
+            </section>
             <!-- Add spacer, to align navigation to the right -->
-            <div class="mdl-layout-spacer"></div>
-            <div id="main-buttons"></div>
-            <!-- Navigation. We hide it in small screens. -->
+            <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-end" role="toolbar">
+              <div id="main-buttons"></div>
+            </section>
           </div>
         </header>
+        
 
+
+        <div class="demo-content mdc-top-app-bar--fixed-adjust">
+            <section class="page__main-section">
+
+        
       <!-- <main class="mdl-layout__content mdl-color--grey-100"> -->
           <div id="dialog"></div>
+          <div id="dialog2"></div>
 
-        <div id="activities" class="mdl-grid center-items"></div>
-        <div id="remotes"></div>
-        <div id="add-remote"></div>
+          <div id="activities" class="mdc-grid center-items"></div>
+          <div id="remotes"></div>
+          <div id="add-remote"></div>
+          </section>
+        </div>  
       <!-- </main> -->
   </body>
 </html>

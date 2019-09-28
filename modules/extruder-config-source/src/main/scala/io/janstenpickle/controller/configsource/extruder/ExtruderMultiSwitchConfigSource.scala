@@ -1,8 +1,10 @@
 package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.instances.string._
 import com.typesafe.config.{Config => TConfig}
 import eu.timepit.refined.types.string.NonEmptyString
+import eu.timepit.refined.cats._
 import extruder.cats.effect.EffectValidation
 import extruder.circe.CirceSettings
 import extruder.typesafe.instances._
@@ -12,16 +14,13 @@ import extruder.refined._
 import extruder.typesafe.IntermediateTypes.Config
 import io.circe.{Json, Decoder => CirceDecoder}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.configsource.WritableConfigSource
+import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.PollingConfig
 import io.janstenpickle.controller.extruder.ConfigFileSource
-import io.janstenpickle.controller.model.{MultiSwitches, SwitchAction}
-import io.janstenpickle.controller.poller.Empty
+import io.janstenpickle.controller.model.{MultiSwitch, SwitchAction}
 import natchez.Trace
 
 object ExtruderMultiSwitchConfigSource {
-  implicit val empty: Empty[MultiSwitches] = Empty(MultiSwitches(List.empty, List.empty))
-
   implicit val switchActionParser: Parser[SwitchAction] = Parser(SwitchAction.fromString(_))
 
   implicit val switchActionCirceDecoder: CirceDecoder[SwitchAction] =
@@ -30,24 +29,17 @@ object ExtruderMultiSwitchConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    onUpdate: MultiSwitches => F[Unit]
+    onUpdate: ConfigResult[NonEmptyString, MultiSwitch] => F[Unit]
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, WritableConfigSource[F, MultiSwitches, NonEmptyString]] = {
+  ): Resource[F, WritableConfigSource[F, NonEmptyString, MultiSwitch]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, (Settings, CirceSettings), MultiSwitches, (TConfig, Json)] =
-      Decoder[EV, (Settings, CirceSettings), MultiSwitches, (TConfig, Json)]
-    val encoder: Encoder[F, Settings, MultiSwitches, Config] = Encoder[F, Settings, MultiSwitches, Config]
+    val decoder: Decoder[EV, Settings, ConfigResult[NonEmptyString, MultiSwitch], TConfig] =
+      Decoder[EV, Settings, ConfigResult[NonEmptyString, MultiSwitch], TConfig]
+    val encoder: Encoder[F, Settings, ConfigResult[NonEmptyString, MultiSwitch], Config] =
+      Encoder[F, Settings, ConfigResult[NonEmptyString, MultiSwitch], Config]
 
     ExtruderConfigSource
-      .polling[F, G, MultiSwitches, NonEmptyString](
-        "multiSwitches",
-        pollingConfig,
-        config,
-        onUpdate,
-        (key, switches) => switches.copy(multiSwitches = switches.multiSwitches.filterNot(_.name == key)),
-        decoder,
-        encoder
-      )
+      .polling[F, G, NonEmptyString, MultiSwitch]("multiSwitches", pollingConfig, config, onUpdate, decoder, encoder)
   }
 }

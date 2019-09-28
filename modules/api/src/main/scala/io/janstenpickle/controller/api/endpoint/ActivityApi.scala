@@ -7,10 +7,10 @@ import cats.syntax.functor._
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.Activities
+import io.janstenpickle.controller.model.{Activity => ActivityModel}
 import org.http4s.{EntityDecoder, HttpRoutes}
 
-class ActivityApi[F[_]: Sync](activities: Activity[F], activitySource: ConfigSource[F, Activities])(
+class ActivityApi[F[_]: Sync](activities: Activity[F], activitySource: ConfigSource[F, String, ActivityModel])(
   implicit fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {
@@ -24,7 +24,7 @@ class ActivityApi[F[_]: Sync](activities: Activity[F], activitySource: ConfigSou
         req.decode[String](refineOrBadReq(_) { activity =>
           activitySource.getConfig
             .flatMap { acts =>
-              if (acts.activities.map(_.name).contains(activity)) activities.setActivity(r, activity)
+              if (acts.values.values.map(_.name).toSet.contains(activity)) activities.setActivity(r, activity)
               else
                 fr.raise[Unit](
                   ControlError.Missing(s"Activity '$activity' is not configured, please check your configuration")

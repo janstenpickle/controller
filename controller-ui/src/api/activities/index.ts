@@ -1,24 +1,45 @@
-import { ActivityButton } from '../../types/index';
+import { ActivityData, ContextButtons } from '../../types/index';
+import { TSMap } from 'typescript-map';
 
-const baseURL = `${location.protocol}//${location.hostname}:8090`;
+const baseURL = `${window.location.protocol}//${window.location.hostname}:8090`;
 
-export function fetchActivitiesAsync(): Promise<ActivityButton[]> {
+export async function fetchActivitiesAsync(): Promise<TSMap<string, ActivityData>> {
   const activitiesUrl = `${baseURL}/config/activities`;
 
   return fetch(activitiesUrl)
     .then((response) => (response.json()))
-    .then(mapToButtons);
+    .then(mapToActivities);
 };
 
-export function mapToButtons(data: any): ActivityButton[] {
-  return data.activities.map(mapToButton);
+export function mapToActivities(data: any): TSMap<string, ActivityData> {
+  const activities = new TSMap<string, ActivityData>()
+
+  for (let key in data.values) {
+    let val = data.values[key];
+    activities.set(key, mapToActivity(val))
+  }
+
+  return activities;
 };
 
-function mapToButton(button: any): ActivityButton {
+function mapToActivity(activity: any): ActivityData {
   return { 
-    ... button,
-    tag: 'activity'
+    name: activity.name,
+    label: activity.label,
+    room: activity.room,
+    isActive: activity.isActive || false,
+    order: activity.order,
+    contextButtons: (activity.contextButtons.map(mapToContext) || []),
+    editable: activity.editable,
    };
+};
+
+function mapToContext(button: any): ContextButtons {
+  switch(button.type) {
+    case 'Remote': return  { ...button, tag: 'remote' }
+    case 'Macro': return  { ...button, tag: 'macro' }
+    default: return button
+  }
 };
 
 export const activitiesAPI = {

@@ -18,6 +18,7 @@ val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.0.8"
 
 val commonSettings = Seq(
+  version in ThisBuild := "2.0.0-SNAPSHOT",
   organization := "io.janstenpickle",
   scalaVersion := "2.12.10",
   scalacOptions ++= Seq(
@@ -72,7 +73,6 @@ lazy val root = (project in file("."))
     remote,
     broadlink,
     store,
-    fileStore,
     remoteControl,
     extruderConfigSource,
     `macro`,
@@ -115,7 +115,7 @@ lazy val api = (project in file("modules/api"))
     arrow,
     hs100Switch,
     broadlink,
-    fileStore,
+    tracedStore,
     remoteControl,
     extruderConfigSource,
     `macro`,
@@ -141,7 +141,10 @@ lazy val model = (project in file("modules/model"))
 
 lazy val configSource = (project in file("modules/config-source"))
   .settings(commonSettings)
-  .settings(name := "controller-config-source")
+  .settings(
+    name := "controller-config-source",
+    libraryDependencies ++= Seq("eu.timepit" %% "refined-cats" % refinedVer)
+  )
   .dependsOn(model)
 
 lazy val tracedConfigSource = (project in file("modules/trace-config-source"))
@@ -169,7 +172,10 @@ lazy val extruder = (project in file("modules/extruder"))
 
 lazy val extruderConfigSource = (project in file("modules/extruder-config-source"))
   .settings(commonSettings)
-  .settings(name := "controller-extruder-config-source")
+  .settings(
+    name := "controller-extruder-config-source",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+  )
   .dependsOn(configSource, extruder, tracedConfigSource)
 
 lazy val remote = (project in file("modules/remote"))
@@ -253,22 +259,7 @@ lazy val tracedSwitch = (project in file("modules/trace-switch"))
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)
   .settings(name := "controller-store", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(model)
-
-lazy val fileStore = (project in file("modules/file-store"))
-  .settings(commonSettings)
-  .settings(
-    name := "controller-file-store",
-    libraryDependencies ++= Seq(
-      "commons-io"    % "commons-io"        % "2.6",
-      "io.circe"      %% "circe-parser"     % circeVer,
-      "io.extruder"   %% "extruder-circe"   % extruderVer,
-      "io.extruder"   %% "extruder-refined" % extruderVer,
-      "eu.timepit"    %% "refined"          % refinedVer,
-      "org.typelevel" %% "cats-effect"      % catsEffectVer
-    )
-  )
-  .dependsOn(tracedStore, poller)
+  .dependsOn(model, configSource)
 
 lazy val tracedStore = (project in file("modules/trace-store"))
   .settings(commonSettings)

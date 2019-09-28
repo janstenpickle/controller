@@ -6,13 +6,15 @@ import { connect } from 'react-redux';
 
 export function mapStateToProps(state: StoreState) {
   return {
-    rooms: state.rooms
+    rooms: state.rooms,
+    editMode: state.editMode
   };
 }
 
 const mapDispatchToProps = (dispatch: any) => ({
   setRoom: (room: string) => dispatch(actions.setRoom(room)),
-  fetchRooms: () => dispatch(actions.loadRoomsAction())
+  fetchRooms: () => dispatch(actions.loadRoomsAction()),
+  setEditMode: (editMode: boolean) => dispatch(actions.editMode(editMode))
 });
 
 export default connect(mapStateToProps, mapDispatchToProps)(Rooms);

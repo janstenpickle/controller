@@ -19,12 +19,6 @@ import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
-import io.janstenpickle.controller.store.file.{
-  FileActivityStore,
-  FileMacroStore,
-  FileRemoteCommandStore,
-  FileSwitchStateStore
-}
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
@@ -35,7 +29,6 @@ import scala.util.Try
 object Configuration {
   case class Config(
     rm: List[Rm] = List.empty,
-    stores: Stores,
     virtualSwitch: SwitchesForRemote.PollingConfig,
     hs100: HS100,
     sp: Sp,
@@ -50,23 +43,10 @@ object Configuration {
 
   case class Activity(dependentSwitches: Map[Room, SwitchKey] = Map.empty)
 
-  case class Stores(
-    activityStore: FileActivityStore.Config,
-    macroStore: FileMacroStore.Config,
-    remoteCommandStore: FileRemoteCommandStore.Config,
-    switchStateStore: FileSwitchStateStore.Config,
-    switchStatePolling: FileSwitchStateStore.PollingConfig
-  )
-
   case class ConfigData(
     dir: Path,
-    pollInterval: FiniteDuration = 10.seconds,
     writeTimeout: FiniteDuration = 1.seconds,
-    activity: ExtruderConfigSource.PollingConfig,
-    button: ExtruderConfigSource.PollingConfig,
-    remote: ExtruderConfigSource.PollingConfig,
-    virtualSwitch: ExtruderConfigSource.PollingConfig,
-    multiSwitch: ExtruderConfigSource.PollingConfig
+    polling: ExtruderConfigSource.PollingConfig
   )
 
   case class HS100(configs: List[HS100SmartPlug.Config] = List.empty, polling: HS100SmartPlug.PollingConfig)

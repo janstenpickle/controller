@@ -95,7 +95,7 @@ class ErrorInterpreter[F[_]: Apply](
   override def remoteMissing[A](remote: NonEmptyString): F[A] =
     raise(ControlError.Missing(s"Remote '$remote' not found"))
 
-  override def buttonMissing[A](button: NonEmptyString): F[A] =
+  override def buttonMissing[A](button: String): F[A] =
     raise(ControlError.Missing(s"Button '$button' not found"))
 
   override def activityMissing[A](activity: NonEmptyString): F[A] =
@@ -107,6 +107,12 @@ class ErrorInterpreter[F[_]: Apply](
         s"Cannot delete activity '$activity' because it is use in the following remotes ${remotes.mkString(",")}"
       )
     )
+
+  override def remoteAlreadyExists[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Remote '$remote' already exists"))
+
+  override def activityAlreadyExists[A](room: NonEmptyString, name: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Activity '$name' in room '$room' already exists"))
 }
 
 object ErrorInterpreter {

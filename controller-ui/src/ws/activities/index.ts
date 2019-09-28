@@ -1,9 +1,10 @@
-import { mapToButtons } from '../../api/activities';
+import { mapToActivities } from '../../api/activities';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ActivityButton } from '../../types';
+import { ActivityData } from '../../types';
+import { TSMap } from 'typescript-map';
 
-const baseURL = `ws://${location.hostname}:8090`;
+const baseURL = `ws://${window.location.hostname}:8090`;
 const socket: ReconnectingWebSocket = new ReconnectingWebSocket(`${baseURL}/config/activities/ws`);
 
-export const activitiesWs = (dispatch: ((_: ActivityButton[]) => void)) => socket.onmessage = (message: MessageEvent) =>
-    dispatch(mapToButtons(JSON.parse(message.data)))
+export const activitiesWs = (dispatch: ((_: TSMap<string, ActivityData>) => void)) => socket.onmessage = (message: MessageEvent) =>
+    dispatch(mapToActivities(JSON.parse(message.data)))
