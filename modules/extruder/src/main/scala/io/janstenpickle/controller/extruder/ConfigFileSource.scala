@@ -45,11 +45,9 @@ object ConfigFileSource {
     Semaphore[F](1).map { semaphore =>
       new ConfigFileSource[F] {
         private def evalMutex[A](fa: F[A]): F[A] =
-          blocker.blockOn(for {
-            _ <- Concurrent.timeout(semaphore.acquire, timeout)
-            result <- fa
-            _ <- semaphore.release
-          } yield result)
+          blocker.blockOn(
+            Resource.make(Concurrent.timeout(semaphore.acquire, timeout))(_ => semaphore.release).use(_ => fa)
+          )
 
         def getFile(extension: String): Path = Paths.get(s"${configFile.toString}.$extension")
 

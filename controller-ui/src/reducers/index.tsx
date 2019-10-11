@@ -30,7 +30,7 @@ export const initialState: StoreState = {
   currentActivity: new TSMap<string, string>(),
   currentRoom: localStorage.getItem('room') || '',
   showAll: !(document.documentElement.clientWidth < 900),
-  editMode: true,
+  editMode: false,
   rooms: []
 }
 

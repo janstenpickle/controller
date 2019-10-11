@@ -1,5 +1,4 @@
-import sbt.Keys.libraryDependencies
-import sbt.url
+import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
 val catsVer = "2.0.0-RC2"
 val catsEffectVer = "2.0.0-RC2"
@@ -18,7 +17,6 @@ val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.0.8"
 
 val commonSettings = Seq(
-  version in ThisBuild := "2.0.0-SNAPSHOT",
   organization := "io.janstenpickle",
   scalaVersion := "2.12.10",
   scalacOptions ++= Seq(
@@ -59,9 +57,13 @@ val commonSettings = Seq(
   scalafmtTestOnCompile := true,
   parallelExecution in ThisBuild := true,
   logBuffered in Test := false,
+  resolvers += Resolver.jcenterRepo,
   libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalaTestVer % Test),
   packExcludeJars := Seq("slf4j-jdk14.*\\.jar"),
-  resolvers += Resolver.jcenterRepo
+  assemblyExcludedJars in assembly := {
+    val cp = (fullClasspath in assembly).value
+    cp.filter { _.data.getName.contains("slf4j-jdk14") }
+  }
 )
 
 lazy val root = (project in file("."))
@@ -91,9 +93,13 @@ lazy val api = (project in file("modules/api"))
   .settings(commonSettings)
   .settings(
     name := "controller-api",
-    dockerUsername := Some("janstenpickle"),
+    packageName in Docker := "controller",
+    dockerRepository := Some("janstenpickle"),
+    dockerUpdateLatest := true,
     dockerBaseImage := "openjdk:11",
     dockerExposedPorts += 8090,
+    daemonUserUid in Docker := Some("9000"),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "refined-cats"              % refinedVer,
       "io.extruder"       %% "extruder-cats-effect"      % extruderVer,
@@ -109,7 +115,14 @@ lazy val api = (project in file("modules/api"))
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
       "org.typelevel"     %% "cats-mtl-core"             % "0.5.0",
       "org.tpolecat"      %% "natchez-jaeger"            % natchezVer
-    )
+    ),
+    mappings in Universal := {
+      val universalMappings = (mappings in Universal).value
+
+      universalMappings.filter {
+        case (_, name) => !name.contains("slf4j-jdk14")
+      }
+    }
   )
   .dependsOn(
     arrow,
@@ -376,7 +389,7 @@ lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   )
   .dependsOn(ssdpClientSubmodule)
 
-lazy val ssdpClientSubmodule = (project in file("submodules/sonos-controller/lib/ssdp-client"))
+lazy val ssdpClientSubmodule = (project in file("submodules/ssdp-client"))
   .settings(commonSettings)
   .settings(organization := "com.vmichalak", name := "ssdp-client")
 

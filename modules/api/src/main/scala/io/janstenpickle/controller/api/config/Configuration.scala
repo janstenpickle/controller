@@ -61,7 +61,7 @@ object Configuration {
     blocker
       .delay {
         val tsConfig = ConfigFactory.load()
-        config.fold(tsConfig)(ConfigFactory.parseFile(_).withFallback(tsConfig))
+        config.fold(tsConfig)(f => ConfigFactory.load(ConfigFactory.parseFile(f)).withFallback(tsConfig))
       }
       .flatMap(decodeF[F, Config](_))
 }
