@@ -210,6 +210,7 @@ object Module {
         .make(Sync[F].delay(Executors.newCachedThreadPool()))(es => Sync[F].delay(es.shutdown()))
         .map(e => Blocker.liftExecutorService(e))
       registry <- makeRegistry
+      _ <- Resource.liftF(PrometheusExportService.addDefaults[F](registry))
       activitiesUpdate <- Resource.liftF(Topic[F, Boolean](false))
       buttonsUpdate <- Resource.liftF(Topic[F, Boolean](false))
       remotesUpdate <- Resource.liftF(Topic[F, Boolean](false))
