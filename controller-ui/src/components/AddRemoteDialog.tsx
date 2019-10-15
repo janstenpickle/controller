@@ -6,6 +6,8 @@ import MaterialIcon from "@material/react-material-icon";
 import Checkbox from "@material/react-checkbox";
 import Select, { Option } from "@material/react-select";
 import { TSMap } from "typescript-map";
+import Form from "./Form";
+import Alert from "./Alert";
 
 export interface Props {
   activities: string[];
@@ -16,24 +18,13 @@ export interface Props {
   fetchActivities(): void;
 }
 
-const customStyles = {
-  content: {
-    top: "50%",
-    left: "50%",
-    right: "auto",
-    bottom: "auto",
-    marginRight: "-50%",
-    transform: "translate(-50%, -50%)",
-    padding: "5px",
-    background: "#f2f2f2"
-  }
-};
-
 interface DialogState {
   name?: string;
   activities: TSMap<string, boolean>;
   appearAfter: [string?, number?];
   isOpen: boolean;
+  alertOpen: boolean;
+  alertMessage?: string;
 }
 
 export default class AddRemoteDialog extends React.Component<
@@ -43,7 +34,9 @@ export default class AddRemoteDialog extends React.Component<
   private defaultState: DialogState = {
     activities: new TSMap<string, boolean>(),
     appearAfter: [undefined, undefined],
-    isOpen: false
+    isOpen: false,
+    alertOpen: false,
+    alertMessage: undefined
   };
 
   state = this.defaultState;
@@ -58,6 +51,12 @@ export default class AddRemoteDialog extends React.Component<
   };
 
   private handleSubmit = () => {
+    const alert = (message: string) =>
+      this.setState({
+        alertOpen: true,
+        alertMessage: message
+      });
+
     if (this.state.name) {
       const name = this.state.name || "";
       const remoteName = this.convertToKebabCase(name);
@@ -93,11 +92,11 @@ export default class AddRemoteDialog extends React.Component<
         if (res.ok) {
           this.props.addRemote(newRemote);
         } else {
-          alert("Failed to create remote");
+          res.text().then(text => alert(`Failed to create remote: ${text}`));
         }
       });
     } else {
-      alert("Please enter a name");
+      alert("Please enter a remote name");
     }
   };
 
@@ -140,9 +139,9 @@ export default class AddRemoteDialog extends React.Component<
           return <React.Fragment key={name}></React.Fragment>;
         }
       }
-    )
+    );
 
-    opts.push(<Option key={''} value={''}></Option>)
+    opts.push(<Option key={""} value={""}></Option>);
 
     return (
       <Select
@@ -163,53 +162,39 @@ export default class AddRemoteDialog extends React.Component<
   };
 
   public render() {
+    const elements = new TSMap<string, JSX.Element | JSX.Element[]>()
+      .set(
+        "Remote Name",
+        <TextField
+          label="Remote Name"
+          onTrailingIconSelect={() => this.setState({ name: "" })}
+          trailingIcon={<MaterialIcon role="button" icon="delete" />}
+        >
+          <Input
+            value={this.state.name}
+            onChange={(e: React.FormEvent<HTMLInputElement>) =>
+              this.setState({ name: e.currentTarget.value })
+            }
+          />
+        </TextField>
+      )
+      .set("Appear After", this.remotes())
+      .set("Activities", this.activities());
+
     return (
       <div>
-        <ReactModal
+        <Alert
+          isOpen={this.state.alertOpen}
+          message={this.state.alertMessage}
+          onClose={() => this.setState({ alertOpen: false })}
+        ></Alert>
+        <Form
+          name="Add Remote"
           isOpen={this.state.isOpen}
-          shouldCloseOnEsc={true}
-          onRequestClose={() => this.setState({ isOpen: false })}
-          style={customStyles}
-          contentLabel="Add Remote"
-        >
-          <div className="center-align mdc-typography mdc-typography--overline">
-            Add Remote
-          </div>
-
-          <TextField
-            label="Remote Name"
-            onTrailingIconSelect={() => this.setState({ name: "" })}
-            trailingIcon={<MaterialIcon role="button" icon="delete" />}
-          >
-            <Input
-              value={this.state.name}
-              onChange={(e: React.FormEvent<HTMLInputElement>) =>
-                this.setState({ name: e.currentTarget.value })
-              }
-            />
-          </TextField>
-          <br />
-          {this.remotes()}
-          <br />
-
-          {this.activities()}
-
-          <br />
-
-          <button
-            onClick={() => this.setState({ isOpen: false })}
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--outlined mdc-elevation--z2"
-          >
-            Cancel
-          </button>
-
-          <button
-            onClick={this.handleSubmit}
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--raised"
-          >
-            Submit
-          </button>
-        </ReactModal>
+          onSubmit={this.handleSubmit}
+          onCancel={() => this.setState({ isOpen: false })}
+          elements={elements}
+        ></Form>
 
         <div>
           <div className="center-align" hidden={!this.props.editMode}>

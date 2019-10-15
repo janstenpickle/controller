@@ -47,12 +47,26 @@
   padding: 4px;
 }
 
+.controller-width-class {
+  width: 200px;
+}
+
 .button-add {
   position: fixed;
   font-size: medium;
   padding: 4px;
   bottom: 0;
+  right: 0;
   vertical-align: middle;
+}
+
+.button-delete {
+  position: fixed;
+  font-size: medium;
+  padding: 4px;
+  bottom: 0;
+  vertical-align: middle;
+  color: red;
 }
 
 div#add-remote {

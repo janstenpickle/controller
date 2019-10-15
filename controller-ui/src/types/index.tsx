@@ -1,15 +1,15 @@
 import { TSMap } from "typescript-map";
 
 export interface StoreState {
-    currentRoom: string;
-    rooms: string[];
-    buttons: RemoteButtons[];
-    activities: TSMap<string, ActivityData>;
-    remotes: TSMap<string, RemoteData>;
-    currentActivity: TSMap<string, string>;
-    focusedRemote: string;
-    showAll: boolean;
-    editMode: boolean;
+  currentRoom: string;
+  rooms: string[];
+  buttons: RemoteButtons[];
+  activities: TSMap<string, ActivityData>;
+  remotes: TSMap<string, RemoteData>;
+  currentActivity: TSMap<string, string>;
+  focusedRemote: string;
+  showAll: boolean;
+  editMode: boolean;
 }
 
 export interface Switch {
@@ -44,25 +44,35 @@ export interface ActivityData {
   editable: boolean;
 }
 
-export type ContextButtons = ContextButtonMappingRemote | ContextButtonMappingMacro
+export type ContextButtons =
+  | ContextButtonMappingRemote
+  | ContextButtonMappingMacro;
 
 export interface ContextButtonMapping {
-  name: string
+  name: string;
 }
 
 export interface ContextButtonMappingRemote extends ContextButtonMapping {
-  tag: "remote"
-  remote: string
-  device: string
-  command: string
+  tag: "remote";
+  remote: string;
+  device: string;
+  command: string;
 }
 
 export interface ContextButtonMappingMacro extends ContextButtonMapping {
-  tag: "macro"
-  macro: string
+  tag: "macro";
+  macro: string;
 }
 
-export type RemoteButtons = RemoteButtonIcon | RemoteButtonLabel | SwitchButtonIcon | SwitchButtonLabel | MacroButtonIcon | MacroButtonLabel | ContextButtonIcon | ContextButtonLabel
+export type RemoteButtons =
+  | RemoteButtonIcon
+  | RemoteButtonLabel
+  | SwitchButtonIcon
+  | SwitchButtonLabel
+  | MacroButtonIcon
+  | MacroButtonLabel
+  | ContextButtonIcon
+  | ContextButtonLabel;
 
 export interface ControlButton {
   name: string;
@@ -70,72 +80,116 @@ export interface ControlButton {
   colored?: boolean;
   color?: string;
   room?: string;
+  type?: string;
 }
 
 export interface ActivityButton extends ControlButton {
-  tag: "activity"
+  tag: "activity";
   name: string;
   label: string;
   isActive?: boolean;
 }
 
 export interface RemoteButton extends ControlButton {
-  tag: "remote"
+  tag: "remote";
   remote: string;
   device: string;
 }
 
 export interface RemoteButtonIcon extends RemoteButton {
-  renderTag: "icon"
+  renderTag: "icon";
   icon: string;
 }
 
 export interface RemoteButtonLabel extends RemoteButton {
-  renderTag: "label"
+  renderTag: "label";
   label: string;
 }
 
 export interface SwitchButton extends ControlButton {
-  tag: "switch"
+  tag: "switch";
   device: string;
   isOn: boolean;
 }
 
 export interface SwitchButtonIcon extends SwitchButton {
-  renderTag: "icon"
+  renderTag: "icon";
   icon: string;
 }
 
 export interface SwitchButtonLabel extends SwitchButton {
-  renderTag: "label"
+  renderTag: "label";
   label: string;
 }
 
 export interface MacroButton extends ControlButton {
-  tag: "macro"
+  tag: "macro";
   isOn?: boolean;
 }
 
 export interface MacroButtonIcon extends MacroButton {
-  renderTag: "icon"
+  renderTag: "icon";
   icon: string;
 }
 
 export interface MacroButtonLabel extends MacroButton {
-  renderTag: "label"
+  renderTag: "label";
   label: string;
 }
 
 export interface ContextButton extends ControlButton {
-  tag: "context"
+  tag: "context";
 }
 
 export interface ContextButtonIcon extends ContextButton {
-  renderTag: "icon"
+  renderTag: "icon";
   icon: string;
 }
 
 export interface ContextButtonLabel extends ContextButton {
-  renderTag: "label"
-  label: string
+  renderTag: "label";
+  label: string;
+}
+
+export type MacroCommand =
+  | MacroSleep
+  | MacroToggleSwitch
+  | MacroSwitchOn
+  | MacroSwitchOff
+  | MacroRemote
+  | MacroMacro;
+
+export interface MacroSleep {
+  type: "Sleep";
+  millis: number;
+}
+
+export interface MacroToggleSwitch {
+  type: "ToggleSwitch";
+  device: string;
+  name: string;
+}
+
+export interface MacroSwitchOn {
+  type: "SwitchOn";
+  device: string;
+  name: string;
+}
+
+export interface MacroSwitchOff {
+  type: "SwitchOff";
+  device: string;
+  name: string;
+}
+
+export interface MacroRemote {
+  type: "Remote";
+  remote: string;
+  device: string;
+  command: string;
+}
+
+export interface MacroMacro {
+  type: "Macro";
+  name: string;
 }

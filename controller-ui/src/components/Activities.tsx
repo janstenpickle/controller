@@ -7,6 +7,7 @@ import { macrosAPI } from "../api/macros";
 import { remoteCommandsAPI } from "../api/remotecontrol";
 import { ActivityData, ContextButtons, RemoteCommand } from "../types/index";
 import { Cascader } from "antd";
+import Form from "./Form";
 
 interface Props {
   activities: TSMap<string, ActivityData>;
@@ -16,19 +17,6 @@ interface Props {
   fetchActivities(): void;
   editMode: boolean;
 }
-
-const customStyles = {
-  content: {
-    top: "50%",
-    left: "50%",
-    right: "auto",
-    bottom: "auto",
-    marginRight: "-50%",
-    transform: "translate(-50%, -50%)",
-    padding: "5px",
-    background: "#f2f2f2"
-  }
-};
 
 export function renderButton(
   key: string,
@@ -227,6 +215,7 @@ export default class Activities extends React.Component<Props, DialogState> {
 
       return (
         <Cascader
+          className={"controller-width-class"}
           options={opts}
           onChange={onChange}
           placeholder={placeholder}
@@ -251,79 +240,45 @@ export default class Activities extends React.Component<Props, DialogState> {
 
         return (
           <React.Fragment key={button.name}>
-            <TextField
-              label={button.tag}
-              onTrailingIconSelect={() =>
-                this.setState({
-                  contextButtons: this.state.contextButtons.filter(
-                    (b: ContextButtons) =>
-                      !(b.name === button.name && b.tag === button.tag)
-                  )
-                })
-              }
-              trailingIcon={<MaterialIcon role="button" icon="delete" />}
-            >
-              <Input value={button.name} />
-            </TextField>
-
             {cascader(command())}
-
             <br />
           </React.Fragment>
         );
       });
     };
 
+    const elements = new TSMap<string, JSX.Element | JSX.Element[]>()
+      .set(
+        "Activity Name",
+        <TextField
+          label="Activity Name"
+          outlined={true}
+          dense={true}
+          onTrailingIconSelect={() => this.setState({ label: "" })}
+          trailingIcon={<MaterialIcon role="button" icon="delete" />}
+        >
+          <Input
+            value={this.state.label}
+            onChange={(e: React.FormEvent<HTMLInputElement>) =>
+              this.setState({ label: e.currentTarget.value })
+            }
+          />
+        </TextField>
+      )
+      .set("Context Buttons", currentContextButtons())
+      .set("Action", cascader(""));
+
     return (
       <div className="center-align mdl-cell--12-col">
         {renderedButtons}
         {addButton()}
-        <ReactModal
+        <Form
+          name={this.state.modalLabel}
           isOpen={this.state.isOpen}
-          shouldCloseOnEsc={true}
-          onRequestClose={() => this.setState(this.defaultState)}
-          style={customStyles}
-          contentLabel={this.state.modalLabel}
-        >
-          <div className="center-align mdc-typography mdc-typography--overline">
-            {this.state.modalLabel}
-          </div>
-
-          <TextField
-            label="Activity Name"
-            onTrailingIconSelect={() => this.setState({ label: "" })}
-            trailingIcon={<MaterialIcon role="button" icon="delete" />}
-          >
-            <Input
-              value={this.state.label}
-              onChange={(e: React.FormEvent<HTMLInputElement>) =>
-                this.setState({ label: e.currentTarget.value })
-              }
-            />
-          </TextField>
-          <br />
-
-          {currentContextButtons()}
-
-          <br />
-
-          {cascader("")}
-
-          <br />
-          <button
-            onClick={() => this.setState(this.defaultState)}
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--outlined mdc-elevation--z2"
-          >
-            Cancel
-          </button>
-
-          <button
-            onClick={this.state.submit}
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--raised"
-          >
-            Submit
-          </button>
-        </ReactModal>
+          onCancel={() => this.setState(this.defaultState)}
+          onSubmit={this.state.submit}
+          elements={elements}
+        ></Form>
       </div>
     );
   }

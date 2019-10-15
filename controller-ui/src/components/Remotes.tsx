@@ -1,6 +1,5 @@
 import * as React from "react";
 import MaterialIcon from "@material/react-material-icon";
-import ReactModal from "react-modal";
 import TextField, { Input } from "@material/react-text-field";
 import { Layout, Layouts, Responsive, WidthProvider } from "react-grid-layout";
 import {
@@ -14,8 +13,10 @@ import { TSMap } from "typescript-map";
 import { macrosAPI } from "../api/macros";
 import { remoteCommandsAPI } from "../api/remotecontrol";
 import { switchesApi } from "../api/switch";
-import { Cascader } from "antd";
-import Select, { Option } from "@material/react-select";
+import AddButtonDialog from "./AddButtonDialog";
+import EditButtonDialog from "./EditButtonDialog";
+import Alert from "./Alert";
+import Confirmation from "./Confirmation";
 
 const ResponsiveReactGridLayout = WidthProvider(Responsive);
 
@@ -30,22 +31,6 @@ export interface Props {
   updateRemote(remote: RemoteData): void;
   editMode: boolean;
 }
-
-const customStyles = {
-  content: {
-    top: "50%",
-    left: "50%",
-    right: "auto",
-    bottom: "auto",
-    marginRight: "-50%",
-    transform: "translate(-50%, -50%)",
-    padding: "5px",
-    background: "#f2f2f2",
-  },
-  overlay: {
-    zIndex: 1
-  }
-};
 
 export interface Coords {
   x: number;
@@ -78,6 +63,9 @@ interface RemotesState {
   macros: string[];
   remoteCommands: RemoteCommand[];
   switches: Switch[];
+  alertOpen: boolean;
+  alertMessage?: string;
+  confirmOpen: boolean;
 }
 
 export default class Remotes extends React.Component<Props, RemotesState> {
@@ -93,7 +81,9 @@ export default class Remotes extends React.Component<Props, RemotesState> {
     macros: [],
     switches: [],
     buttonIndex: -1,
-    button: undefined
+    button: undefined,
+    alertOpen: false,
+    confirmOpen: false
   };
 
   state = this.defaultState;
@@ -111,6 +101,9 @@ export default class Remotes extends React.Component<Props, RemotesState> {
                 .then(remoteCommands => [macros, remoteCommands, switches])
             )
         );
+
+    const alert = (message: string) =>
+      this.setState({ alertMessage: message, alertOpen: true });
 
     const filteredRemotes = this.props.remotes.filter(
       (data: RemoteData) =>
@@ -181,7 +174,9 @@ export default class Remotes extends React.Component<Props, RemotesState> {
               finishEdit();
               this.props.updateRemote(updatedRemote);
             } else {
-              alert("Failed to update remote");
+              res
+                .text()
+                .then(text => alert(`Failed to update remote: ${text}`));
             }
           });
         }
@@ -205,18 +200,24 @@ export default class Remotes extends React.Component<Props, RemotesState> {
             <div className="center-align">{buttons}</div>
             <div>
               <i
+                className="icon material-icons button-delete"
+                onClick={() =>
+                  this.setState({
+                    confirmOpen: true
+                  })
+                }
+                hidden={!(this.props.editMode && data.editable)}
+              >
+                clear
+              </i>
+              <i
                 id="add-remote-button"
                 className="icon material-icons button-add"
                 onClick={() =>
-                  loadData().then(loaded =>
-                    this.setState({
-                      buttonAddMode: true,
-                      buttonRemote: data,
-                      macros: loaded[0],
-                      remoteCommands: loaded[1],
-                      switches: loaded[2]
-                    })
-                  )
+                  this.setState({
+                    buttonAddMode: true,
+                    buttonRemote: data
+                  })
                 }
                 hidden={!(this.props.editMode && data.editable)}
               >
@@ -373,358 +374,46 @@ export default class Remotes extends React.Component<Props, RemotesState> {
       layouts: Layouts
     ) => console.log(layouts);
 
-    const cascader = (placeholder: string) => {
-      const remotes = new TSMap<string, TSMap<string, Set<string>>>();
-
-      this.state.remoteCommands.forEach((rc: RemoteCommand) => {
-        const remote =
-          remotes.get(rc.remote) || new TSMap<string, Set<string>>();
-        const commands = remote.get(rc.device) || new Set<string>();
-
-        commands.add(rc.name);
-        remote.set(rc.device, commands);
-        remotes.set(rc.remote, remote);
-      });
-
-      const switches = new TSMap<string, Set<string>>();
-
-      this.state.switches.forEach(s => {
-        const device = switches.get(s.device) || new Set<string>();
-
-        device.add(s.name);
-        switches.set(s.device, device);
-      });
-
-      const opts = [
-        {
-          value: "macro",
-          label: "Macro",
-          children: this.state.macros.map((m: string) => ({
-            value: m,
-            label: m
-          }))
-        },
-        {
-          value: "switch",
-          label: "Switch",
-          children: switches.map((sws, device) => ({
-            value: device,
-            label: device,
-            children: Array.from(sws.values()).map(s => ({
-              value: s,
-              label: s
-            }))
-          }))
-        },
-        {
-          value: "remote",
-          label: "Remote",
-          children: remotes.map((devices, remote) => ({
-            value: remote,
-            label: remote,
-            children: devices.map((commands, device) => ({
-              value: device,
-              label: device,
-              children: Array.from(commands.values()).map(command => ({
-                value: command,
-                label: command
-              }))
-            }))
-          }))
-        }
-      ];
-
-      return (
-        <Cascader
-          options={opts}
-          onChange={buttonActionChange}
-          placeholder={placeholder}
-        />
-      );
-    };
-
-    const buttonActionChange = (data: string[]) => {
+    const editButton = () => {
+      const remote = this.state.buttonRemote;
       const button = this.state.button;
 
-      if (data[0] === "remote" && button) {
-        switch (button.renderTag) {
-          case "icon":
-            return this.setState({
-              button: {
-                ...button,
-                tag: "remote",
-                renderTag: "icon",
-                remote: data[1],
-                device: data[2],
-                name: data[3]
-              }
-            });
-          case "label":
-            return this.setState({
-              button: {
-                ...button,
-                tag: "remote",
-                renderTag: "label",
-                remote: data[1],
-                device: data[2],
-                name: data[3]
-              }
-            });
-        }
-      } else if (data[0] === "switch" && button) {
-        switch (button.renderTag) {
-          case "icon":
-            return this.setState({
-              button: {
-                ...button,
-                tag: "switch",
-                renderTag: "icon",
-                device: data[1],
-                name: data[2],
-                isOn: false
-              }
-            });
-          case "label":
-            return this.setState({
-              button: {
-                ...button,
-                tag: "switch",
-                renderTag: "label",
-                device: data[1],
-                name: data[2],
-                isOn: false
-              }
-            });
-        }
-      } else if (data[0] === "macro" && button) {
-        switch (button.renderTag) {
-          case "icon":
-            return this.setState({
-              button: {
-                ...button,
-                tag: "macro",
-                renderTag: "icon",
-                name: data[1],
-                isOn: false
-              }
-            });
-          case "label":
-            return this.setState({
-              button: {
-                ...button,
-                tag: "macro",
-                renderTag: "label",
-                name: data[1],
-                isOn: false
-              }
-            });
-        }
-      } else {
-      }
-    };
-
-    const editLabelOrIcon = () => {
-      const button = this.state.button;
-
-      if (button) {
-        switch (button.renderTag) {
-          case "label":
-            return (
-              <TextField label="Button Label">
-                <Input
-                  value={button.label}
-                  onChange={(e: React.FormEvent<HTMLInputElement>) => {
-                    button.label = e.currentTarget.value;
-                    this.setState({ button: button });
-                  }}
-                />
-              </TextField>
-            );
-          case "icon":
-            return (
-              <TextField label="Button Icon">
-                <Input
-                  value={button.icon}
-                  onChange={(e: React.FormEvent<HTMLInputElement>) => {
-                    button.icon = e.currentTarget.value;
-                    this.setState({ button: button });
-                  }}
-                />
-              </TextField>
-            );
-          default:
-            return <React.Fragment></React.Fragment>;
-        }
+      if (remote && button) {
+        return (
+          <EditButtonDialog
+            isOpen={this.state.buttonEditMode}
+            onRequestClose={() => this.setState(this.defaultState)}
+            remote={remote}
+            button={button}
+            onSuccess={(remote: RemoteData) => {
+              this.setState(this.defaultState);
+              this.props.updateRemote(remote);
+            }}
+          ></EditButtonDialog>
+        );
       } else {
         return <React.Fragment></React.Fragment>;
       }
     };
 
-    const buttonSubmit = () => {
-      const remote = this.state.buttonRemote;
-      const button = this.state.button;
-      if (remote && button) {
-        const buttons = remote.buttons.filter(
-          (_, i) => !(i === this.state.buttonIndex)
-        );
-        buttons.push(button);
-        remote.buttons = buttons;
-
-        fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/config/remote/${remote.name}`,
-          { method: "PUT", body: JSON.stringify(remote) }
-        ).then(res => {
-          if (res.ok) {
-            this.setState(this.defaultState);
-            this.props.updateRemote(remote);
-          } else {
-            alert("Failed to update remote");
-          }
-        });
-      } else {
-        this.setState(this.defaultState);
-      }
-    };
-
-    const editButton = () => {
-      return (
-        <React.Fragment>
-          <div className="center-align mdc-typography mdc-typography--overline">
-            Edit Button
-          </div>
-
-          {editLabelOrIcon()}
-
-          <br />
-          {cascader("")}
-          <br />
-
-          <button
-            onClick={() => this.setState(this.defaultState)}
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--outlined mdc-elevation--z2"
-          >
-            Cancel
-          </button>
-
-          <button
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--raised"
-            onClick={buttonSubmit}
-          >
-            Submit
-          </button>
-        </React.Fragment>
-      );
-    };
-
     const addButton = () => {
       const remote = this.state.buttonRemote;
 
-      const appearAfter = () => {
-        if (remote) {
-          const button = remote.buttons[this.state.buttonIndex]
-          if (button) {
-            return button.name
-          } else {
-            return undefined
-          }
-        } else {
-          return undefined
-        }
+      if (remote) {
+        return (
+          <AddButtonDialog
+            isOpen={this.state.buttonAddMode}
+            onRequestClose={() => this.setState(this.defaultState)}
+            remote={remote}
+            onSuccess={(remote: RemoteData) => {
+              this.setState(this.defaultState);
+              this.props.updateRemote(remote);
+            }}
+          ></AddButtonDialog>
+        );
+      } else {
+        return <React.Fragment></React.Fragment>;
       }
-
-      const currentValue = () => {
-        const button = this.state.button;
-        if (button) {
-          return button.renderTag.valueOf();
-        } else {
-          return "";
-        }
-      };
-
-      const others = () => {
-        if (remote) {
-          const options = remote.buttons.map((button, i) => (
-            <Option value={i}>{button.name}</Option>
-          ));
-          options.push(<Option disabled={true}></Option>);
-          return options;
-        } else {
-          return [<React.Fragment></React.Fragment>];
-        }
-      };
-
-      return (
-        <React.Fragment>
-          <div className="center-align mdc-typography mdc-typography--overline">
-            Add Button
-          </div>
-
-          <Select
-            label="Button Type"
-            value={currentValue()}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-              if (e.currentTarget.value === "icon") {
-                this.setState({
-                  button: {
-                    tag: "macro",
-                    renderTag: "icon",
-                    name: "",
-                    icon: ""
-                  }
-                });
-              } else if (e.currentTarget.value === "label") {
-                this.setState({
-                  button: {
-                    tag: "macro",
-                    renderTag: "label",
-                    name: "",
-                    label: ""
-                  }
-                });
-              }
-            }}
-          >
-            <Option disabled={true}></Option>
-            <Option value={"icon"}>Icon</Option>
-            <Option value={"label"}>Label</Option>
-          </Select>
-
-          <br />
-          {editLabelOrIcon()}
-
-          <br />
-
-          <Select
-            label="Add after"
-            value={appearAfter()}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-              this.setState({
-                buttonIndex: Number(e.currentTarget.value)
-              })
-            }}
-          >
-            {others()}
-          </Select>
-
-          <br />
-          {cascader("")}
-          <br />
-
-          <button
-            onClick={() => this.setState(this.defaultState)}
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--outlined mdc-elevation--z2"
-          >
-            Cancel
-          </button>
-
-          <button
-            className="mdc-ripple-upgraded mdc-button mdc-button--dense mdc-button--raised"
-            onClick={buttonSubmit}
-          >
-            Submit
-          </button>
-        </React.Fragment>
-      );
     };
 
     const modalContent = () => {
@@ -739,6 +428,17 @@ export default class Remotes extends React.Component<Props, RemotesState> {
 
     return (
       <React.Fragment>
+        <Alert
+          isOpen={this.state.alertOpen}
+          message={this.state.alertMessage}
+          onClose={() => this.setState({ alertOpen: false })}
+        ></Alert>
+        <Confirmation
+          isOpen={this.state.confirmOpen}
+          message="Are you sure you want to delete this remote?"
+          onCancel={() => this.setState({ confirmOpen: false })}
+          onOk={() => this.setState({ confirmOpen: false })}
+        ></Confirmation>
         <ResponsiveReactGridLayout
           className="layout"
           rowHeight={280}
@@ -751,14 +451,7 @@ export default class Remotes extends React.Component<Props, RemotesState> {
           {divs}
         </ResponsiveReactGridLayout>
 
-        <ReactModal
-          isOpen={this.state.buttonAddMode || this.state.buttonEditMode}
-          shouldCloseOnEsc={true}
-          onRequestClose={() => this.setState(this.defaultState)}
-          style={customStyles}
-        >
-          {modalContent()}
-        </ReactModal>
+        {modalContent()}
       </React.Fragment>
     );
   }
