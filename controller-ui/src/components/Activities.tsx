@@ -142,7 +142,7 @@ export default class Activities extends React.Component<Props, DialogState> {
             buttonAction
           );
         } else {
-          return <div></div>;
+          return <React.Fragment></React.Fragment>;
         }
       });
 
@@ -159,7 +159,7 @@ export default class Activities extends React.Component<Props, DialogState> {
           </div>
         );
       } else {
-        return <div></div>;
+        return <React.Fragment></React.Fragment>;
       }
     };
 

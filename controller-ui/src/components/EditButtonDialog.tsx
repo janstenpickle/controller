@@ -1,27 +1,21 @@
 import * as React from "react";
 import ActionSelector from "./ActionSelector";
 import Form from "./Form";
-import {
-  buttonActionChange,
-  buttonSubmit,
-  editLabelOrIcon,
-  updateRemote
-} from "../common/ButtonOps";
-import { RemoteButtons, RemoteData } from "../types/index";
+import { buttonActionChange, editLabelOrIcon } from "../common/ButtonOps";
+import { RemoteButtons } from "../types/index";
 import { TSMap } from "typescript-map";
 import Confirmation from "./Confirmation";
 
 interface Props {
   isOpen: boolean;
   onRequestClose: () => void;
-  remote: RemoteData;
   button: RemoteButtons;
-  onSuccess: (remote: RemoteData) => void;
+  onSuccess: (button: RemoteButtons) => void;
+  onDelete: () => void;
 }
 
 interface DialogState {
-  button: RemoteButtons;
-  buttonIndex: number;
+  button?: RemoteButtons;
   confirmOpen: boolean;
 }
 
@@ -30,8 +24,6 @@ export default class EditButtonDialog extends React.Component<
   DialogState
 > {
   state: DialogState = {
-    button: this.props.button,
-    buttonIndex: this.props.remote.buttons.indexOf(this.props.button),
     confirmOpen: false
   };
 
@@ -43,30 +35,18 @@ export default class EditButtonDialog extends React.Component<
     const cascader = (
       <ActionSelector
         placeholder=""
-        onChange={buttonAction(this.state.button)}
+        onChange={buttonAction(this.props.button)}
       ></ActionSelector>
     );
 
     const submitButton = () => {
-      buttonSubmit(
-        this.props.remote,
-        this.state.button,
-        this.state.buttonIndex,
-        this.props.onSuccess,
-        true
-      );
-    };
-
-    const deleteButton = () => {
-      const buttons = this.props.remote.buttons.filter(
-        b => b.name !== this.props.button.name
-      );
-      const remote: RemoteData = { ...this.props.remote, buttons: buttons };
-      updateRemote(remote, this.props.onSuccess);
+      if (this.state.button) {
+        this.props.onSuccess(this.state.button);
+      }
     };
 
     const labelOrIcon = () => {
-      switch (this.state.button.renderTag) {
+      switch (this.props.button.renderTag) {
         case "label":
           return "Label";
         case "icon":
@@ -79,7 +59,7 @@ export default class EditButtonDialog extends React.Component<
         labelOrIcon(),
         editLabelOrIcon(
           (button: RemoteButtons) => this.setState({ button }),
-          this.state.button
+          this.props.button
         )
       )
       .set("Command", cascader);
@@ -89,7 +69,7 @@ export default class EditButtonDialog extends React.Component<
         <Confirmation
           isOpen={this.state.confirmOpen}
           message="Are you sure you want to delete this button?"
-          onOk={deleteButton}
+          onOk={this.props.onDelete}
           onCancel={() => this.setState({ confirmOpen: false })}
         ></Confirmation>
         <Form

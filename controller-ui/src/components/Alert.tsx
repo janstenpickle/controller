@@ -17,7 +17,7 @@ export default class Alert extends React.Component<Props, {}> {
       <Dialog onClose={_ => this.props.onClose()} open={this.props.isOpen}>
         <DialogContent>{this.props.message}</DialogContent>
         <DialogFooter>
-          <DialogButton action="" isDefault>
+          <DialogButton action="ok" isDefault>
             OK
           </DialogButton>
         </DialogFooter>

@@ -41,6 +41,7 @@ object SonosActivityConfigSource {
                         .Remote(config.previousMappingName, config.remoteName, name, Commands.Previous)
                     ),
                     None,
+                    None,
                     name
                   )
               }, List.empty)

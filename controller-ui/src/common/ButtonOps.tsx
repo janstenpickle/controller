@@ -36,10 +36,13 @@ export const buttonSubmit = (
 
   remote.buttons = buttons;
 
-  updateRemote(remote, onSuccess)
+  updateRemote(remote, onSuccess);
 };
 
-export const updateRemote = (remote: RemoteData, onSuccess: (remote: RemoteData) => void) => {
+export const updateRemote = (
+  remote: RemoteData,
+  onSuccess: (remote: RemoteData) => void
+) => {
   fetch(
     `${window.location.protocol}//${window.location.hostname}:8090/config/remote/${remote.name}`,
     { method: "PUT", body: JSON.stringify(remote) }
@@ -50,7 +53,7 @@ export const updateRemote = (remote: RemoteData, onSuccess: (remote: RemoteData)
       alert("Failed to update remote");
     }
   });
-}
+};
 
 export const buttonActionChange: (
   data: string[],
@@ -142,7 +145,12 @@ export const editLabelOrIcon = (
     switch (button.renderTag) {
       case "label":
         return (
-          <TextField label="Button Label" className={"controller-width-class"}>
+          <TextField
+            outlined={true}
+            dense={true}
+            label="Button Label"
+            className={"controller-width-class"}
+          >
             <Input
               value={button.label}
               onChange={(e: React.FormEvent<HTMLInputElement>) => {

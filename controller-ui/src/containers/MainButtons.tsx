@@ -3,11 +3,11 @@ import { StoreState } from '../types/index';
 import * as actions from '../actions/';
 import { connect } from 'react-redux';
 
-
 export function mapStateToProps(state: StoreState) {
   return {
     buttons: state.buttons,
-    currentRoom: state.currentRoom
+    currentRoom: state.currentRoom,
+    editMode: state.editMode
   };
 }
 

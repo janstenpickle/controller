@@ -181,13 +181,21 @@ class ConfigService[F[_]: Parallel] private (
     }
   }
 
+  def updateCommonButton(buttonName: NonEmptyString, b: Button): F[ConfigResult[String, Button]] =
+    trace.span("updateCommonButton") {
+      validation
+        .validateButton(b)
+        .flatMap(NonEmptyList.fromList(_) match {
+          case None => button.upsert(s"${b.room.getOrElse("all")}-${b.name}", b)
+          case Some(errs) => errors.configValidationFailed[ConfigResult[String, Button]](errs)
+        })
+    }
+
   def addCommonButton(b: Button): F[ConfigResult[String, Button]] = trace.span("addCommonButton") {
-    validation
-      .validateButton(b)
-      .flatMap(NonEmptyList.fromList(_) match {
-        case None => button.upsert(s"${b.room.getOrElse("all")}-${b.name}", b)
-        case Some(errs) => errors.configValidationFailed[ConfigResult[String, Button]](errs)
-      })
+    button.getValue(s"${b.room.getOrElse("all")}-${b.name}").flatMap {
+      case Some(_) => errors.buttonAlreadyExists(b.name)
+      case None => updateCommonButton(b.name, b)
+    }
   }
 
   def deleteCommonButton(b: String): F[ConfigResult[String, Button]] =

@@ -18,6 +18,10 @@ interface Props {
 }
 
 export default class Form extends React.Component<Props, {}> {
+  public componentDidMount() {
+    ReactModal.setAppElement(document.getElementById("dialog") as HTMLElement);
+  }
+
   public render() {
     const customStyles = this.props.customStyles || {
       content: {

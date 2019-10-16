@@ -15,6 +15,7 @@ case class Activity(
   label: NonEmptyString,
   contextButtons: List[ContextButtonMapping] = List.empty,
   isActive: Option[Boolean],
+  action: Option[Command] = None,
   room: NonEmptyString = DefaultRoom,
   order: Option[Int] = None,
   editable: Boolean = false

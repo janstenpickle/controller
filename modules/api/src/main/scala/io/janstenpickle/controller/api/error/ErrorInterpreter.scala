@@ -113,6 +113,9 @@ class ErrorInterpreter[F[_]: Apply](
 
   override def activityAlreadyExists[A](room: NonEmptyString, name: NonEmptyString): F[A] =
     raise(ControlError.InvalidInput(s"Activity '$name' in room '$room' already exists"))
+
+  override def buttonAlreadyExists[A](button: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Button '$button' already exists"))
 }
 
 object ErrorInterpreter {

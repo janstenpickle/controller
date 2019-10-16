@@ -110,7 +110,11 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
           err => ConfigResult[NonEmptyString, Remote](Map.empty, List(err.message))
         )
       )
-    case req @ PUT -> Root / "button" => Ok(req.as[Button].flatMap(service.addCommonButton))
+    case req @ PUT -> Root / "button" / b =>
+      refineOrBadReq(b) { button =>
+        Ok(req.as[Button].flatMap(service.updateCommonButton(button, _)))
+      }
+    case req @ POST -> Root / "button" => Ok(req.as[Button].flatMap(service.addCommonButton))
     case DELETE -> Root / "button" / b =>
       refineOrBadReq(b) { button =>
         Ok(service.deleteCommonButton(button.value))

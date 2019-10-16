@@ -13,10 +13,11 @@ import { TSMap } from "typescript-map";
 import { macrosAPI } from "../api/macros";
 import { remoteCommandsAPI } from "../api/remotecontrol";
 import { switchesApi } from "../api/switch";
-import AddButtonDialog from "./AddButtonDialog";
+// import AddButtonDialog from "./AddButtonDialog";
 import EditButtonDialog from "./EditButtonDialog";
 import Alert from "./Alert";
 import Confirmation from "./Confirmation";
+import { buttonSubmit, updateRemote } from "../common/ButtonOps";
 
 const ResponsiveReactGridLayout = WidthProvider(Responsive);
 
@@ -379,16 +380,31 @@ export default class Remotes extends React.Component<Props, RemotesState> {
       const button = this.state.button;
 
       if (remote && button) {
+        const deleteButton = () => {
+          const buttons = remote.buttons.filter(b => b.name !== button.name);
+          const r: RemoteData = { ...remote, buttons: buttons };
+          updateRemote(r, r => {
+            this.setState(this.defaultState);
+            this.props.updateRemote(r);
+          });
+        };
+
         return (
           <EditButtonDialog
             isOpen={this.state.buttonEditMode}
             onRequestClose={() => this.setState(this.defaultState)}
-            remote={remote}
             button={button}
-            onSuccess={(remote: RemoteData) => {
+            onSuccess={(b: RemoteButtons) => {
               this.setState(this.defaultState);
-              this.props.updateRemote(remote);
+              buttonSubmit(
+                remote,
+                b,
+                remote.buttons.indexOf(button),
+                this.props.updateRemote,
+                true
+              );
             }}
+            onDelete={deleteButton}
           ></EditButtonDialog>
         );
       } else {
@@ -397,23 +413,30 @@ export default class Remotes extends React.Component<Props, RemotesState> {
     };
 
     const addButton = () => {
-      const remote = this.state.buttonRemote;
+      // const remote = this.state.buttonRemote;
 
-      if (remote) {
-        return (
-          <AddButtonDialog
-            isOpen={this.state.buttonAddMode}
-            onRequestClose={() => this.setState(this.defaultState)}
-            remote={remote}
-            onSuccess={(remote: RemoteData) => {
-              this.setState(this.defaultState);
-              this.props.updateRemote(remote);
-            }}
-          ></AddButtonDialog>
-        );
-      } else {
-        return <React.Fragment></React.Fragment>;
-      }
+      // if (remote) {
+      //   return (
+      //     <AddButtonDialog
+      //       isOpen={this.state.buttonAddMode}
+      //       onRequestClose={() => this.setState(this.defaultState)}
+      //       buttons={remote.buttons.map(button => button.name)}
+      //       onSuccess={(button: RemoteButtons, index: number) => {
+      //         this.setState(this.defaultState);
+      //         buttonSubmit(
+      //           remote,
+      //           button,
+      //           index,
+      //           this.props.updateRemote,
+      //           false
+      //         );
+      //       }}
+      //     ></AddButtonDialog>
+      //   );
+      // } else {
+      //   return <React.Fragment></React.Fragment>;
+      // }
+      return <React.Fragment></React.Fragment>
     };
 
     const modalContent = () => {

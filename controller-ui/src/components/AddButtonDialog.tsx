@@ -1,26 +1,23 @@
 import * as React from "react";
 import Select, { Option } from "@material/react-select";
 import ActionSelector from "./ActionSelector";
-import {
-  buttonActionChange,
-  buttonSubmit,
-  editLabelOrIcon
-} from "../common/ButtonOps";
-import { RemoteButtons, RemoteData } from "../types/index";
+import { buttonActionChange, editLabelOrIcon } from "../common/ButtonOps";
+import { RemoteButtons } from "../types/index";
 import { TSMap } from "typescript-map";
 import Form from "./Form";
 import Checkbox from "@material/react-checkbox";
 
 interface Props {
   isOpen: boolean;
+  buttons: string[];
   onRequestClose: () => void;
-  remote: RemoteData;
-  onSuccess: (remote: RemoteData) => void;
+  onSuccess: (button: RemoteButtons, index: number) => void;
 }
 
 interface DialogState {
   button?: RemoteButtons;
   buttonIndex: number;
+  addAfter: string;
 }
 
 export default class AddButtonDialog extends React.Component<
@@ -28,25 +25,11 @@ export default class AddButtonDialog extends React.Component<
   DialogState
 > {
   state: DialogState = {
-    buttonIndex: 0
+    buttonIndex: 0,
+    addAfter: ""
   };
 
   public render() {
-    const remote = this.props.remote;
-
-    const appearAfter = () => {
-      if (remote) {
-        const button = remote.buttons[this.state.buttonIndex];
-        if (button) {
-          return button.name;
-        } else {
-          return undefined;
-        }
-      } else {
-        return undefined;
-      }
-    };
-
     const currentValue = () => {
       const button = this.state.button;
       if (button) {
@@ -57,9 +40,9 @@ export default class AddButtonDialog extends React.Component<
     };
 
     const others = () => {
-      const options = remote.buttons.map((button, i) => (
-        <Option value={i + 1} key={button.name}>
-          {button.name}
+      const options = this.props.buttons.map((button, i) => (
+        <Option value={i + 1} key={button}>
+          {button}
         </Option>
       ));
       options.push(<Option value={0} key={""}></Option>);
@@ -124,18 +107,14 @@ export default class AddButtonDialog extends React.Component<
     const submitButton = () => {
       const button = this.state.button;
       if (button) {
-        buttonSubmit(
-          this.props.remote,
-          button,
-          this.state.buttonIndex,
-          this.props.onSuccess
-        );
+        this.props.onSuccess(button, this.state.buttonIndex);
       }
     };
 
     const buttonType = (
       <Select
         label="Button Type"
+        outlined={true}
         value={currentValue()}
         selectClassName={"controller-width-class"}
         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -201,11 +180,13 @@ export default class AddButtonDialog extends React.Component<
           "Add After",
           <Select
             label="Add after"
-            value={appearAfter()}
+            outlined={true}
+            value={this.state.addAfter}
             selectClassName={"controller-width-class"}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
               this.setState({
-                buttonIndex: Number(e.currentTarget.value)
+                buttonIndex: this.props.buttons.indexOf(e.currentTarget.value),
+                addAfter: e.currentTarget.value
               });
             }}
           >

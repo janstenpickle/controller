@@ -37,5 +37,6 @@ object Stats {
 
   case class StoreMacro(name: NonEmptyString, commands: Map[CommandType, Int]) extends Stats
   case class ExecuteMacro(name: NonEmptyString) extends Stats
+  case class ExecuteCommand(command: CommandType) extends Stats
   case class Macro(name: NonEmptyString, commands: Map[CommandType, Int]) extends Stats
 }

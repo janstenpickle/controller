@@ -81,6 +81,7 @@ export interface ControlButton {
   color?: string;
   room?: string;
   type?: string;
+  order?: number;
 }
 
 export interface ActivityButton extends ControlButton {

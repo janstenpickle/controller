@@ -3,7 +3,6 @@ package io.janstenpickle.controller.`macro`
 import cats.Monad
 import cats.data.NonEmptyList
 import cats.effect.Timer
-import cats.syntax.applicative._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -20,6 +19,7 @@ import scala.concurrent.duration._
 trait Macro[F[_]] {
   def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit]
   def executeMacro(name: NonEmptyString): F[Unit]
+  def executeCommand(command: Command): F[Unit]
   def maybeExecuteMacro(name: NonEmptyString): F[Unit]
   def listMacros: F[List[NonEmptyString]]
 }
@@ -42,17 +42,20 @@ object Macro {
         }
       }
 
+    def executeCommand(command: Command): F[Unit] = command match {
+      case Command.Remote(remote, device, n) => remotes.send(remote, device, n)
+      case Command.Sleep(millis) => timer.sleep(millis.milliseconds)
+      case Command.ToggleSwitch(device, switch) => switches.toggle(device, switch)
+      case Command.SwitchOn(device, switch) => switches.switchOn(device, switch)
+      case Command.SwitchOff(device, switch) => switches.switchOff(device, switch)
+      case Command.Macro(n) => executeMacro(n)
+    }
+
     private def execute(name: NonEmptyString)(commands: NonEmptyList[Command]): F[Unit] =
       span("execute", name, "commands" -> commands.size) {
         commands.traverse {
-          case Command.Remote(remote, device, n) => span("macroRemote", name) { remotes.send(remote, device, n) }
-          case Command.Sleep(millis) => timer.sleep(millis.milliseconds)
-          case Command.ToggleSwitch(device, switch) => switches.toggle(device, switch)
-          case Command.SwitchOn(device, switch) => switches.switchOn(device, switch)
-          case Command.SwitchOff(device, switch) => switches.switchOff(device, switch)
-          case Command.Macro(n) =>
-            if (n == name) ().pure
-            else executeMacro(n)
+          case Command.Macro(n) if n == name => F.unit
+          case command => executeCommand(command)
         }.void
       }
 

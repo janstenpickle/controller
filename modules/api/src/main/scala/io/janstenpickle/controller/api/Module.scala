@@ -438,6 +438,7 @@ object Module {
           Activity.dependsOnSwitch[F](
             config.activity.dependentSwitches,
             combinedSwitchProvider,
+            activityConfig,
             activityStore,
             m,
             notifyUpdate(activitiesUpdate)

@@ -9,6 +9,7 @@ trait ConfigServiceErrors[F[_]] {
   def remoteAlreadyExists[A](remote: NonEmptyString): F[A]
   def remoteMissing[A](remote: NonEmptyString): F[A]
   def buttonMissing[A](button: String): F[A]
+  def buttonAlreadyExists[A](button: NonEmptyString): F[A]
   def activityMissing[A](activity: NonEmptyString): F[A]
   def activityInUse[A](activity: NonEmptyString, remotes: List[NonEmptyString]): F[A]
   def activityAlreadyExists[A](room: NonEmptyString, name: NonEmptyString): F[A]
