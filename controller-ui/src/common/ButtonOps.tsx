@@ -2,6 +2,7 @@ import { RemoteData, RemoteButtons } from "../types/index";
 import * as React from "react";
 import TextField, { Input } from "@material/react-text-field";
 import IconPicker from "../components/IconPicker";
+import { baseURL } from './Api';
 
 export const buttonSubmit = (
   remote: RemoteData,
@@ -44,7 +45,7 @@ export const updateRemote = (
   onSuccess: (remote: RemoteData) => void
 ) => {
   fetch(
-    `${window.location.protocol}//${window.location.hostname}:8090/config/remote/${remote.name}`,
+    `${baseURL}/config/remote/${remote.name}`,
     { method: "PUT", body: JSON.stringify(remote) }
   ).then(res => {
     if (res.ok) {

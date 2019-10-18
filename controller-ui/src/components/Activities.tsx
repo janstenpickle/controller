@@ -8,6 +8,7 @@ import { remoteCommandsAPI } from "../api/remotecontrol";
 import { ActivityData, ContextButtons, RemoteCommand } from "../types/index";
 import { Cascader } from "antd";
 import Form from "./Form";
+import { baseURL } from "../common/Api";
 
 interface Props {
   activities: TSMap<string, ActivityData>;
@@ -98,7 +99,7 @@ export default class Activities extends React.Component<Props, DialogState> {
       if (this.props.editMode && activity.editable) {
         const submit = () => {
           fetch(
-            `${window.location.protocol}//${window.location.hostname}:8090/config/activity/${key}`,
+            `${baseURL}/config/activity/${key}`,
             {
               method: "PUT",
               body: JSON.stringify({
@@ -124,7 +125,7 @@ export default class Activities extends React.Component<Props, DialogState> {
       } else if (this.props.editMode && !activity.editable) {
       } else {
         fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/control/activity/${room}`,
+          `${baseURL}/control/activity/${room}`,
           { method: "POST", body: activity.name }
         ).then(_ => this.props.activate(room, activity.name));
       }

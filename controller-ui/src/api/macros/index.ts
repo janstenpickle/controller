@@ -1,5 +1,5 @@
 
-const baseURL = `${window.location.protocol}//${window.location.hostname}:8090`;
+import { baseURL } from '../../common/Api';
 
 export async function fetchMacrosAsync(): Promise<string[]> {
   const macrosUrl = `${baseURL}/control/macro`;

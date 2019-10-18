@@ -1,6 +1,5 @@
 import { Switch } from "../../types";
-
-const baseURL = `${window.location.protocol}//${window.location.hostname}:8090`;
+import { baseURL } from '../../common/Api';
 
 export async function fetchSwitchesAsync(): Promise<Switch[]> {
   const remoteControlUrl = `${baseURL}/control/switch`;

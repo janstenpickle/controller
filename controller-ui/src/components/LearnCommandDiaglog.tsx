@@ -9,6 +9,7 @@ import Spinner from "react-spinner-material";
 import { TSMap } from "typescript-map";
 import Form from "./Form";
 import Alert from "./Alert";
+import { baseURL } from "../common/Api";
 
 const customStyles = {
   content: {
@@ -78,7 +79,7 @@ export default class LearnRemoteCommandsDialog extends React.Component<
             this.setState({ learnFormOpen: false, learnInProgress: true });
 
             fetch(
-              `${window.location.protocol}//${window.location.hostname}:8090/control/remote/learn/${remoteName}/${deviceName}/${commandName}`,
+              `${baseURL}/control/remote/learn/${remoteName}/${deviceName}/${commandName}`,
               { method: "POST" }
             ).then(res => {
               res.text().then(body =>

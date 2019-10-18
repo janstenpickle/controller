@@ -25,6 +25,7 @@
     "@types/react-redux": "^7.1.4",
     "@types/react-scroll": "^1.5.1",
     "@types/styled-components": "^4.1.19",
+    "@types/webpack": "^4.39.3",
     "ajv": "^6.10.2",
     "antd": "^3.23.6",
     "aphrodite": "^2.4.0",

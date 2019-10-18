@@ -19,6 +19,7 @@ import { CascaderOptionType } from "antd/lib/cascader";
 import { Cascader } from "antd";
 import { MacroSwitchOn, MacroSwitchOff } from "../types/index";
 import Alert from './Alert';
+import { baseURL } from "../common/Api";
 
 interface Props {
   isOpen: boolean;
@@ -427,7 +428,7 @@ export default class MacroDialog extends React.Component<Props, State> {
     const submit = () => {
       if (this.state.name && this.state.commands.length > 0) {
         fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/control/macro/submit/${this.state.name}`,
+          `${baseURL}/control/macro/submit/${this.state.name}`,
           { method: "POST", body: JSON.stringify(this.state.commands) }
         ).then(res => {
           if (res.ok) {

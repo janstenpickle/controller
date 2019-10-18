@@ -1,6 +1,5 @@
 import { RemoteCommand } from "../../types";
-
-const baseURL = `${window.location.protocol}//${window.location.hostname}:8090`;
+import { baseURL } from '../../common/Api';
 
 export async function fetchRemoteCommandsAsync(): Promise<RemoteCommand[]> {
   const remoteControlUrl = `${baseURL}/control/remote`;

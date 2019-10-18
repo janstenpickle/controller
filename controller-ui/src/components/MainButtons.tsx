@@ -4,6 +4,7 @@ import { StyleSheet, css } from "aphrodite";
 import EditButtonDialog from "./EditButtonDialog";
 import AddButtonDialog from "./AddButtonDialog";
 import Alert from "./Alert";
+import { baseURL } from '../common/Api';
 
 interface Props {
   buttons: RemoteButtons[];
@@ -115,7 +116,7 @@ export function renderButton(
     switch (buttonData.tag) {
       case "remote":
         return fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/control/remote/send/${buttonData.remote}/${buttonData.device}/${buttonData.name}`,
+          `${baseURL}/control/remote/send/${buttonData.remote}/${buttonData.device}/${buttonData.name}`,
           { method: "POST" }
         );
       case "macro":
@@ -123,18 +124,18 @@ export function renderButton(
           plugState(!buttonData.isOn, buttonData.name);
         }
         return fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/control/macro/send/${buttonData.name}`,
+          `${baseURL}/control/macro/send/${buttonData.name}`,
           { method: "POST" }
         );
       case "switch":
         plugState(!buttonData.isOn, buttonData.name);
         return fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/control/switch/toggle/${buttonData.device}/${buttonData.name}`,
+          `${baseURL}/control/switch/toggle/${buttonData.device}/${buttonData.name}`,
           { method: "POST" }
         );
       case "context":
         return fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/control/context/${currentRoom}/${buttonData.name}`,
+          `${baseURL}/control/context/${currentRoom}/${buttonData.name}`,
           { method: "POST" }
         );
     }
@@ -207,7 +208,7 @@ export default class MainButtons extends React.Component<Props, State> {
       this.setState(this.defaultState);
       if (button) {
         fetch(
-          `${window.location.protocol}//${window.location.hostname}:8090/config/button/${button.name}-${this.props.currentRoom}`,
+          `${baseURL}/config/button/${button.name}-${this.props.currentRoom}`,
           { method: "DELETE" }
         ).then(res => {
           if (!res.ok) {
@@ -221,7 +222,7 @@ export default class MainButtons extends React.Component<Props, State> {
       this.setState(this.defaultState);
 
       fetch(
-        `${window.location.protocol}//${window.location.hostname}:8090/config/button/${button.name}-${this.props.currentRoom}`,
+        `${baseURL}/config/button/${button.name}-${this.props.currentRoom}`,
         { method: "PUT", body: JSON.stringify(button) }
       ).then(res => {
         if (!res.ok) {
@@ -240,7 +241,7 @@ export default class MainButtons extends React.Component<Props, State> {
       };
 
       fetch(
-        `${window.location.protocol}//${window.location.hostname}:8090/config/button`,
+        `${baseURL}/config/button`,
         { method: "POST", body: JSON.stringify(orderedButton) }
       ).then(res => {
         if (!res.ok) {

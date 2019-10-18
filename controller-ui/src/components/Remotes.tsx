@@ -18,6 +18,7 @@ import EditButtonDialog from "./EditButtonDialog";
 import Alert from "./Alert";
 import Confirmation from "./Confirmation";
 import { buttonSubmit, updateRemote } from "../common/ButtonOps";
+import { baseURL } from '../common/Api';
 
 const ResponsiveReactGridLayout = WidthProvider(Responsive);
 
@@ -168,7 +169,7 @@ export default class Remotes extends React.Component<Props, RemotesState> {
           finishEdit();
         } else {
           fetch(
-            `${window.location.protocol}//${window.location.hostname}:8090/config/remote/${data.name}`,
+            `${baseURL}/config/remote/${data.name}`,
             { method: "PUT", body: JSON.stringify(updatedRemote) }
           ).then(res => {
             if (res.ok) {

@@ -1,8 +1,7 @@
 import { mapToButton } from '../buttons/index';
 import { RemoteData } from '../../types/index';
 import { TSMap } from "typescript-map";
-
-const baseURL = `${window.location.protocol}//${window.location.hostname}:8090`;
+import { baseURL } from '../../common/Api';
 
 export async function fetchRemotesAsync(): Promise<TSMap<string, RemoteData>> {
   const membersURL = `${baseURL}/config/remotes`;

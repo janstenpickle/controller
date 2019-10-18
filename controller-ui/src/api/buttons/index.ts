@@ -1,6 +1,5 @@
 import { RemoteButtons } from "../../types/index";
-
-const baseURL = `${window.location.protocol}//${window.location.hostname}:8090`;
+import { baseURL } from '../../common/Api';
 
 export async function fetchButtonsAsync(): Promise<RemoteButtons[]> {
   const buttonsUrl = `${baseURL}/config/buttons`;

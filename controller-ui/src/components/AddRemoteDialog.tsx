@@ -8,6 +8,7 @@ import Select, { Option } from "@material/react-select";
 import { TSMap } from "typescript-map";
 import Form from "./Form";
 import Alert from "./Alert";
+import { baseURL } from "../common/Api";
 
 export interface Props {
   activities: string[];
@@ -83,7 +84,7 @@ export default class AddRemoteDialog extends React.Component<
       this.setState(this.defaultState);
 
       fetch(
-        `${window.location.protocol}//${window.location.hostname}:8090/config/remote`,
+        `${baseURL}/config/remote`,
         {
           method: "POST",
           body: JSON.stringify(newRemote)
