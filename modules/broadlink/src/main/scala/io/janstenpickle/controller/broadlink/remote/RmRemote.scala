@@ -15,6 +15,7 @@ import javax.xml.bind.DatatypeConverter
 import natchez.Trace
 
 import scala.concurrent.duration._
+import cats.syntax.applicativeError._
 
 object RmRemote {
   def apply[F[_]: ContextShift](
@@ -37,6 +38,7 @@ object RmRemote {
                 else
                   blocker
                     .blockOn(timer.sleep(1.second) *> F.delay(Option(device.checkData())))
+                    .recover { case _: ArrayIndexOutOfBoundsException => None }
                     .map(_.filter(_.length == 108).fold[Either[Int, Option[CommandPayload]]](Left(retries - 1)) {
                       data =>
                         Right(Some(CommandPayload(DatatypeConverter.printHexBinary(data))))

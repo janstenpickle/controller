@@ -1,33 +1,33 @@
 package io.janstenpickle.controller.configsource.extruder
 
 import cats.effect._
-
-import com.typesafe.config.Config
+import cats.instances.string._
+import com.typesafe.config.{Config => TConfig}
 import extruder.cats.effect.EffectValidation
-import extruder.circe.CirceSettings
+import extruder.core.{Decoder, Encoder, Settings}
 import extruder.typesafe.instances._
-import extruder.circe.instances._
-import extruder.core.{Decoder, Settings}
 import extruder.refined._
-import io.circe.Json
+import extruder.typesafe.IntermediateTypes.Config
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.PollingConfig
-import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
 import io.janstenpickle.controller.extruder.ConfigFileSource
-import io.janstenpickle.controller.model.Buttons
+import io.janstenpickle.controller.model.Button
 import natchez.Trace
 
 object ExtruderButtonConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    onUpdate: Buttons => F[Unit]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, ConfigSource[F, Buttons]] = {
+    onUpdate: ConfigResult[String, Button] => F[Unit]
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, WritableConfigSource[F, String, Button]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, (Settings, CirceSettings), Buttons, (Config, Json)] =
-      Decoder[EV, (Settings, CirceSettings), Buttons, (Config, Json)]
+    val decoder: Decoder[EV, Settings, ConfigResult[String, Button], TConfig] =
+      Decoder[EV, Settings, ConfigResult[String, Button], TConfig]
+    val encoder: Encoder[F, Settings, ConfigResult[String, Button], Config] =
+      Encoder[F, Settings, ConfigResult[String, Button], Config]
 
     ExtruderConfigSource
-      .polling[F, G, Buttons]("buttons", pollingConfig, config, onUpdate, decoder)
+      .polling[F, G, String, Button]("buttons", pollingConfig, config, onUpdate, decoder, encoder)
   }
 }

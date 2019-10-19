@@ -6,9 +6,10 @@ import { connect } from 'react-redux';
 
 export function mapStateToProps(state: StoreState) {
   return {
-    activities: state.activities,
+    activities: state.activities.clone(),
     currentActivity: state.currentActivity.get(state.currentRoom) || '',
-    currentRoom: state.currentRoom
+    currentRoom: state.currentRoom,
+    editMode: state.editMode,
   };
 }
 

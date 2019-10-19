@@ -3,6 +3,7 @@ package io.janstenpickle.controller.api.error
 import java.time.Instant
 
 import cats.Apply
+import cats.data.NonEmptyList
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -12,6 +13,8 @@ import io.circe
 import io.circe.CursorOp
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.`macro`.MacroErrors
+import io.janstenpickle.controller.api.service.ConfigServiceErrors
+import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
@@ -27,10 +30,12 @@ class ErrorInterpreter[F[_]: Apply](
     with RemoteControlErrors[F]
     with HS100Errors[F]
     with PollingSwitchErrors[F]
-    with ExtruderErrors[F] {
+    with ExtruderErrors[F]
+    with ConfigServiceErrors[F] {
 
   private def raise[A](error: ControlError): F[A] =
     error match {
+      case ControlError.InvalidInput(_) => fr.raise(error)
       case ControlError.Missing(_) => fr.raise(error)
       case ControlError.Internal(message) => logger.warn(message) *> fr.raise(error)
       case e @ ControlError.Combined(_, _) if e.isSevere => logger.warn(e.message) *> fr.raise(error)
@@ -78,9 +83,39 @@ class ErrorInterpreter[F[_]: Apply](
   override def fallback[A](fa: F[A])(thunk: => F[A]): F[A] =
     ah.handleWith(fa)(_ => thunk)
 
-  override def macroAlreadyExists[A](name: NonEmptyString): F[A] = ???
+  override def macroAlreadyExists[A](name: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Macro '$name' already exists"))
 
-  override def learningNotSupported[A](remote: NonEmptyString): F[A] = ???
+  override def learningNotSupported[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Remote '$remote' does not support learning mode"))
+
+  override def configValidationFailed[A](failures: NonEmptyList[ConfigValidation.ValidationFailure]): F[A] =
+    raise(ControlError.InvalidInput(s"Failed to validate configuration\n ${failures.toList.mkString("\n")}"))
+
+  override def remoteMissing[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Remote '$remote' not found"))
+
+  override def buttonMissing[A](button: String): F[A] =
+    raise(ControlError.Missing(s"Button '$button' not found"))
+
+  override def activityMissing[A](activity: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Activity '$activity' not found"))
+
+  override def activityInUse[A](activity: NonEmptyString, remotes: List[NonEmptyString]): F[A] =
+    raise(
+      ControlError.InvalidInput(
+        s"Cannot delete activity '$activity' because it is use in the following remotes ${remotes.mkString(",")}"
+      )
+    )
+
+  override def remoteAlreadyExists[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Remote '$remote' already exists"))
+
+  override def activityAlreadyExists[A](room: NonEmptyString, name: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Activity '$name' in room '$room' already exists"))
+
+  override def buttonAlreadyExists[A](button: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Button '$button' already exists"))
 }
 
 object ErrorInterpreter {

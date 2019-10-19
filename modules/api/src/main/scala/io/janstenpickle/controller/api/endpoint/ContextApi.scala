@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.api.endpoint
 
 import cats.Semigroupal
-import cats.data.{NonEmptyList, ValidatedNel}
+import cats.data.ValidatedNel
 import cats.effect.Sync
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.applicative._
@@ -18,19 +18,17 @@ import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model
-import io.janstenpickle.controller.model.{Activities, Command, ContextButtonMapping}
+import io.janstenpickle.controller.model.{Activity => ActivityModel, Command, ContextButtonMapping}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import org.http4s.{EntityDecoder, HttpRoutes, Response}
+import org.http4s.{HttpRoutes, Response}
 
 class ContextApi[F[_]: Sync](
   activities: Activity[F],
   macros: Macro[F],
   remotes: RemoteControls[F],
-  activitySource: ConfigSource[F, Activities]
+  activitySource: ConfigSource[F, String, ActivityModel]
 )(implicit fr: FunctorRaise[F, ControlError], ah: ApplicativeHandle[F, ControlError])
     extends Common[F] {
-  implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
-
   def refineOrBadReq(room: String, name: String)(
     f: (NonEmptyString, NonEmptyString) => F[Response[F]]
   ): F[Response[F]] =
@@ -49,10 +47,10 @@ class ContextApi[F[_]: Sync](
           case None => fr.raise(ControlError.Missing("Activity not currently set"))
           case Some(act) =>
             activitySource.getConfig
-              .map(_.activities.filter(_.room == r).groupBy(_.name).mapValues(_.headOption).get(act).flatten)
+              .map(_.values.values.filter(_.room == r).groupBy(_.name).mapValues(_.headOption).get(act).flatten)
               .flatMap {
                 case None =>
-                  fr.raise(ControlError.Missing(s"Current activity '$act' is present in configuration"))
+                  fr.raise(ControlError.Missing(s"Current activity '$act' is not present in configuration"))
                 case Some(a) => a.pure[F]
               }
         }

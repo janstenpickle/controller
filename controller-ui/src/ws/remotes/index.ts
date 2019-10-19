@@ -2,9 +2,9 @@ import { mapToRemotes } from '../../api/remotes';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { RemoteData } from '../../types';
 import { TSMap } from "typescript-map";
+import { baseWebsocketURL } from '../../common/Api';
 
-const baseURL = `ws://${location.hostname}:8090`;
-const socket: ReconnectingWebSocket = new ReconnectingWebSocket(`${baseURL}/config/remotes/ws`);
+const socket: ReconnectingWebSocket = new ReconnectingWebSocket(`${baseWebsocketURL}/config/remotes/ws`);
 
 export const remotesWs = (dispatch: ((_: TSMap<string, RemoteData>) => void)) => socket.onmessage = (message: MessageEvent) =>
-    dispatch(mapToRemotes(JSON.parse(message.data).remotes))
+    dispatch(mapToRemotes(JSON.parse(message.data)))

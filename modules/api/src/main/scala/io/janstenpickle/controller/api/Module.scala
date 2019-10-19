@@ -27,7 +27,8 @@ import io.janstenpickle.controller.api.config.Configuration
 import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
 import io.janstenpickle.controller.api.trace.implicits._
-import io.janstenpickle.controller.api.view.ConfigView
+import io.janstenpickle.controller.api.service.ConfigService
+import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
 import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
@@ -41,11 +42,18 @@ import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
-import io.janstenpickle.controller.store.file._
+import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
+import io.janstenpickle.controller.store.trace.{
+  TracedActivityStore,
+  TracedMacroStore,
+  TracedRemoteCommandStore,
+  TracedSwitchStateStore
+}
 import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
 import io.prometheus.client.CollectorRegistry
+import natchez.TraceValue.NumberValue
 import natchez._
 import natchez.jaeger.Jaeger
 import org.http4s.dsl.Http4sDsl
@@ -107,19 +115,18 @@ object Module {
     type G[A] = EitherT[F, ControlError, A]
 
     val lift = λ[F ~> G](EitherT.liftF(_))
+
     val lower =
       λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
 
-    implicit val cInvK: ContextualLiftLower[M, G, String] = invk.imapK[G](λ[F ~> G](EitherT.liftF(_)))(
-      λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
-    )
+    implicit val cInvK: ContextualLiftLower[M, G, String] = invk.imapK[G](lift)(lower)
 
     implicit val etTrace: Trace[G] = new Trace[G] {
       override def put(fields: (String, TraceValue)*): EitherT[F, ControlError, Unit] =
         lift(trace.put(fields: _*))
       override def kernel: EitherT[F, ControlError, Kernel] = lift(trace.kernel)
       override def span[A](name: String)(k: EitherT[F, ControlError, A]): EitherT[F, ControlError, A] =
-        lift(trace.span(name)(k.value.flatMap(_.fold[F[A]](F.raiseError, F.pure))))
+        EitherT(trace.span(name)(k.value))
     }
 
     implicit val bracket: Bracket[G, Throwable] = Sync[G]
@@ -147,24 +154,25 @@ object Module {
     val dsl = Http4sDsl[F]
     import dsl._
 
-    ah.attempt(result)
-      .flatMap({
-        case Left(err @ ControlError.Missing(message)) =>
-          trace.put("error" -> true, "reason" -> "missing", "message" -> message) *> logger
-            .warn(err)("Missing resource") *> NotFound(message).map(Some(_))
-        case Left(err @ ControlError.Internal(message)) =>
-          trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
-            .error(err)("Internal error") *> InternalServerError(message)
-            .map(Some(_))
-        case Left(err @ ControlError.Combined(_, _)) if err.isSevere =>
-          trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
-            .error(err)("Internal error") *> InternalServerError(err.message)
-            .map(Some(_))
-        case Left(err @ ControlError.Combined(_, _)) =>
-          trace.put("error" -> true, "reason" -> "missing", "message" -> err.message) *> logger
-            .warn(err)("Missing resource") *> NotFound(err.message).map(Some(_))
-        case Right(a) => trace.put("error" -> false).as(a)
-      })
+    ah.handleWith(result) {
+      case err @ ControlError.Missing(message) =>
+        trace.put("error" -> true, "reason" -> "missing", "message" -> message) *> logger
+          .warn(err)("Missing resource") *> NotFound(message).map(Some(_))
+      case err @ ControlError.Internal(message) =>
+        trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
+          .error(err)("Internal error") *> InternalServerError(message)
+          .map(Some(_))
+      case err @ ControlError.InvalidInput(message) =>
+        trace.put("error" -> true, "reason" -> "invalid input", "message" -> message) *> logger
+          .info(err)("Invalid input") *> BadRequest(message).map(Some(_))
+      case err @ ControlError.Combined(_, _) if err.isSevere =>
+        trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
+          .error(err)("Internal error") *> InternalServerError(err.message)
+          .map(Some(_))
+      case err @ ControlError.Combined(_, _) =>
+        trace.put("error" -> true, "reason" -> "missing", "message" -> err.message) *> logger
+          .warn(err)("Missing resource") *> NotFound(err.message).map(Some(_))
+    }
   }
 
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: Concurrent: ContextShift: Timer](
@@ -186,9 +194,6 @@ object Module {
         )
       )
 
-    implicit val commandPayloadSerde: CommandSerde[F, CommandPayload] =
-      CommandSerde[F, String].imap(CommandPayload)(_.hexValue)
-
     def notifyUpdate[A](topic: Topic[F, Boolean], topics: Topic[F, Boolean]*): A => F[Unit] =
       _ => (topic :: topics.toList).parTraverse(_.publish1(true)).void
 
@@ -205,6 +210,7 @@ object Module {
         .make(Sync[F].delay(Executors.newCachedThreadPool()))(es => Sync[F].delay(es.shutdown()))
         .map(e => Blocker.liftExecutorService(e))
       registry <- makeRegistry
+      _ <- Resource.liftF(PrometheusExportService.addDefaults[F](registry))
       activitiesUpdate <- Resource.liftF(Topic[F, Boolean](false))
       buttonsUpdate <- Resource.liftF(Topic[F, Boolean](false))
       remotesUpdate <- Resource.liftF(Topic[F, Boolean](false))
@@ -212,50 +218,159 @@ object Module {
       statsSwitchUpdate <- Resource.liftF(Topic[F, Boolean](false))
       statsConfigUpdate <- Resource.liftF(Topic[F, Boolean](false))
 
-      configFileSource <- ConfigFileSource.polling[F, G](config.config.file, config.config.pollInterval, blocker)
+      activityConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("activity"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
 
       activityConfig <- ExtruderActivityConfigSource[F, G](
-        configFileSource,
-        config.config.activity,
+        activityConfigFileSource,
+        config.config.polling,
         notifyUpdate(activitiesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
+      buttonConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("button"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       buttonConfig <- ExtruderButtonConfigSource[F, G](
-        configFileSource,
-        config.config.button,
+        buttonConfigFileSource,
+        config.config.polling,
         notifyUpdate(buttonsUpdate, roomsUpdate, statsConfigUpdate)
       )
 
+      remoteConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("remote"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       remoteConfig <- ExtruderRemoteConfigSource[F, G](
-        configFileSource,
-        config.config.remote,
+        remoteConfigFileSource,
+        config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsConfigUpdate)
       )
 
+      virtualSwitchConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("virtual-switch"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
       virtualSwitchConfig <- ExtruderVirtualSwitchConfigSource[F, G](
-        configFileSource,
-        config.config.virtualSwitch,
+        virtualSwitchConfigFileSource,
+        config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )
+
+      multiSwitchConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("multi-switch"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
 
       multiSwitchConfig <- ExtruderMultiSwitchConfigSource[F, G](
-        configFileSource,
-        config.config.multiSwitch,
+        multiSwitchConfigFileSource,
+        config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )
 
-      activityStore <- Resource.liftF(FileActivityStore[F](config.stores.activityStore, blocker))
-      macroStore <- Resource.liftF(FileMacroStore[F](config.stores.macroStore, blocker))
-      commandStore <- Resource.liftF(
-        FileRemoteCommandStore[F, CommandPayload](config.stores.remoteCommandStore, blocker)
-      )
+      currentActivityConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("current-activity"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
 
-      switchStateFileStore <- FileSwitchStateStore.polling[F, G](
-        config.stores.switchStateStore,
-        config.stores.switchStatePolling,
-        blocker,
+      activityStore <- ExtruderCurrentActivityConfigSource[F, G](
+        currentActivityConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      ).map { cs =>
+        TracedActivityStore(
+          ActivityStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("current-activity").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
+
+      macroConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("macro"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      macroStore <- ExtruderMacroConfigSource[F, G](
+        macroConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      ).map { cs =>
+        TracedMacroStore(
+          MacroStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("macro").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
+
+      remoteCommandConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("remote-command"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      commandStore <- ExtruderRemoteCommandConfigSource[F, G](
+        remoteCommandConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      ).map { cs =>
+        TracedRemoteCommandStore(
+          RemoteCommandStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("remote-command").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
+
+      switchStateConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("switch-state"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      switchStateFileStore <- ExtruderSwitchStateConfigSource[F, G](
+        switchStateConfigFileSource,
+        config.config.polling,
         notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
-      )
+      ).map { cs =>
+        TracedSwitchStateStore(
+          SwitchStateStore.fromConfigSource(cs),
+          "config",
+          "path" -> config.config.dir.resolve("switch-state").toString,
+          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        )
+      }
 
       rm2RemoteControls <- Resource.liftF(RmRemoteControls[F](config.rm.map(_.config), commandStore, blocker))
 
@@ -281,8 +396,8 @@ object Module {
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
-      combinedActivityConfig = ConfigSource.combined(activityConfig, sonosComponents.activityConfig)
-      combinedRemoteConfig = ConfigSource.combined(sonosComponents.remoteConfig, remoteConfig)
+      combinedActivityConfig = WritableConfigSource.combined(activityConfig, sonosComponents.activityConfig)
+      combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, sonosComponents.remoteConfig)
       remoteControls = RemoteControls
         .combined[F](rm2RemoteControls, RemoteControls[F](Map(config.sonos.remote -> sonosComponents.remote)))
 
@@ -316,13 +431,14 @@ object Module {
         combinedActivityConfig,
         buttonConfig,
         macroStore,
-        remoteConfig,
+        combinedRemoteConfig,
         combinedSwitchProvider
       )(
         m =>
           Activity.dependsOnSwitch[F](
             config.activity.dependentSwitches,
             combinedSwitchProvider,
+            activityConfig,
             activityStore,
             m,
             notifyUpdate(activitiesUpdate)
@@ -331,9 +447,18 @@ object Module {
       )(statsConfigUpdate, statsSwitchUpdate)
 
       l <- Resource.liftF(Slf4jLogger.fromName[F]("stats"))
+      configService <- Resource.liftF(
+        ConfigService(
+          combinedActivityConfig,
+          buttonConfig,
+          combinedRemoteConfig,
+          macroStore,
+          activityStore,
+          switches,
+          new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, instrumentation.switch)
+        )
+      )
     } yield {
-      val configView =
-        new ConfigView(combinedActivityConfig, buttonConfig, combinedRemoteConfig, macroStore, activityStore, switches)
       val router =
         Router(
           "/control/remote" -> new RemoteApi[F](instrumentation.remote).routes,
@@ -344,10 +469,10 @@ object Module {
             instrumentation.activity,
             instrumentation.`macro`,
             instrumentation.remote,
-            activityConfig
+            combinedActivityConfig
           ).routes,
           "/config" -> new ConfigApi[F, G](
-            configView,
+            configService,
             UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
           ).routes,
           "/" -> new ControllerUi[F](blocker).routes,

@@ -4,8 +4,9 @@ import cats.{Apply, FlatMap}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.model.RemoteCommand
 import io.janstenpickle.controller.remote.Remote
-import io.janstenpickle.controller.store.{RemoteCommand, RemoteCommandStore}
+import io.janstenpickle.controller.store.RemoteCommandStore
 import natchez.{Trace, TraceValue}
 
 trait RemoteControl[F[_]] {

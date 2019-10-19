@@ -1,5 +1,5 @@
 import * as constants from '../constants';
-import { ActivityButton, RemoteData, RemoteButtons } from '../types/index';
+import { RemoteData, RemoteButtons, ActivityData } from '../types/index';
 import { activitiesAPI } from '../api/activities';
 import { activitiesWs } from '../ws/activities';
 import { buttonsAPI } from '../api/buttons';
@@ -10,33 +10,43 @@ import { roomsAPI } from '../api/rooms';
 import { roomsWs } from '../ws/rooms';
 import { Dispatch } from 'redux';
 import { TSMap } from 'typescript-map';
+import { Action } from 'redux';
 
-export interface FocusRemote {
+export interface FocusRemote extends Action<constants.FOCUS_REMOTE> {
     type: constants.FOCUS_REMOTE;
     name: string;
 }
 
-export interface ToggleRemote {
+export interface ToggleRemote extends Action<constants.TOGGLE_REMOTE> {
     type: constants.TOGGLE_REMOTE;
     name: string;
     value: boolean;
 }
 
-export interface SetActivity {
+export interface SetActivity extends Action<constants.SET_ACTIVITY> {
     type: constants.SET_ACTIVITY;
     room: string;
     name: string;
 }
 
-export interface SetRoom {
+export interface SetRoom extends Action<constants.SET_ROOM> {
     type: constants.SET_ROOM;
     room: string;
 }
 
-export interface ShowAll {
+export interface ShowAll extends Action<constants.TOGGLE_SHOW_ALL> {
     type: constants.TOGGLE_SHOW_ALL;
 }
 
+export interface AddRemote extends Action<constants.ADD_REMOTE> {
+    type: constants.ADD_REMOTE;
+    remote: RemoteData
+}
+
+export interface EditMode extends Action<constants.EDIT_MODE> {
+  type: constants.EDIT_MODE;
+  enabled: boolean;
+}
 
 const createPoller = (interval: number, initialDelay: number) => {
   let timeoutId: number = 0;
@@ -79,14 +89,14 @@ export interface UpdatePlugState {
 }
 
 
-const loadActivitiesWsAction = (dispatch: Dispatch<ControllerAction>) => activitiesWs((buttons: ActivityButton[]) => {
-  dispatch(updateActivities(buttons))
+const loadActivitiesWsAction = (dispatch: Dispatch<ControllerAction>) => activitiesWs((activities: TSMap<string, ActivityData>) => {
+  dispatch(updateActivities(activities))
 });
 
 
 const loadActivitiesApiAction = (dispatch: Dispatch<ControllerAction>) => {
-  activitiesAPI.fetchActivitiesAsync().then((buttons: ActivityButton[]) => {
-    dispatch(updateActivities(buttons))
+  activitiesAPI.fetchActivitiesAsync().then((activities: TSMap<string, ActivityData>) => {
+    dispatch(updateActivities(activities))
   });
 };
 
@@ -97,7 +107,7 @@ export const loadActivitiesAction = () => (dispatch: Dispatch<ControllerAction>)
 
 export interface LoadedActivities {
   type: constants.LOADED_ACTIVITIES;
-  payload: ActivityButton[];
+  payload: TSMap<string, ActivityData>;
 }
 
 const loadRemotesWsAction = (dispatch: Dispatch<ControllerAction>) => remotesWs((remotes: TSMap<string, RemoteData>) => dispatch(updateRemotes(remotes)));
@@ -126,7 +136,7 @@ export interface LoadedRemotes {
   payload: TSMap<string, RemoteData>;
 }
 
-export type ControllerAction = FocusRemote | ToggleRemote | LoadedButtons | LoadedRemotes | LoadedActivities | LoadedRooms | SetActivity | SetRoom | ShowAll | UpdatePlugState;
+export type ControllerAction = FocusRemote | ToggleRemote | LoadedButtons | LoadedRemotes | LoadedActivities | LoadedRooms | SetActivity | SetRoom | ShowAll | UpdatePlugState | AddRemote | EditMode;
 
 export function setActivity(room: string, name: string): SetActivity {
   return {
@@ -171,10 +181,10 @@ export function updateButtons(buttons: RemoteButtons[]): LoadedButtons {
   };
 }
 
-export function updateActivities(buttons: ActivityButton[]): LoadedActivities {
+export function updateActivities(activities: TSMap<string, ActivityData>): LoadedActivities {
   return {
     type: constants.LOADED_ACTIVITIES,
-    payload: buttons
+    payload: activities
   };
 }
 
@@ -197,5 +207,19 @@ export function updatePlugState(state:boolean, plug?: string): UpdatePlugState {
     type: constants.UPDATE_PLUG_STATE,
     plug: plug,
     state: state
+  }
+}
+
+export function addRemote(remote: RemoteData): AddRemote {
+  return {
+    type: constants.ADD_REMOTE,
+    remote
+  }
+}
+
+export function editMode(enabled: boolean): EditMode {
+  return {
+    type: constants.EDIT_MODE,
+    enabled
   }
 }

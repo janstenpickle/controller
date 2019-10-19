@@ -11,7 +11,7 @@ import cats.{Eq, Monad}
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model._
+import io.janstenpickle.controller.model.{SwitchKey => ModelSwitchKey, _}
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.remotecontrol.RemoteControls
@@ -27,36 +27,39 @@ object SwitchesForRemote {
   private implicit def switchEq[F[_]]: Eq[Switch[F]] = Eq.by(s => (s.device, s.name))
 
   private def make[F[_]: Monad](
-    virtualSwitches: ConfigSource[F, VirtualSwitches],
+    virtualSwitches: ConfigSource[F, ModelSwitchKey, VirtualSwitch],
     remotes: RemoteControls[F],
     store: SwitchStateStore[F]
   ): F[Map[SwitchKey, Switch[F]]] =
-    virtualSwitches.getConfig.map(_.virtualSwitches.map { virtual =>
-      SwitchKey(NonEmptyString.unsafeFrom(s"${virtual.remote}-${virtual.device}"), virtual.command) ->
-        new Switch[F] {
-          override def name: NonEmptyString = virtual.command
-          override def device: NonEmptyString = virtual.device
+    virtualSwitches.getConfig.map(_.values.map {
+      case (_, virtual) =>
+        SwitchKey(NonEmptyString.unsafeFrom(s"${virtual.remote}-${virtual.device}"), virtual.command) ->
+          new Switch[F] {
+            override def name: NonEmptyString = virtual.command
+            override def device: NonEmptyString = virtual.device
 
-          override def getState: F[State] = store.getState(virtual.remote, device, name)
+            override def getState: F[State] = store.getState(virtual.remote, device, name)
 
-          override def switchOn: F[Unit] =
-            store.getState(virtual.remote, device, name).flatMap {
-              case State.On => ().pure
-              case State.Off => remotes.send(virtual.remote, device, name) *> store.setOn(virtual.remote, device, name)
+            override def switchOn: F[Unit] =
+              store.getState(virtual.remote, device, name).flatMap {
+                case State.On => ().pure
+                case State.Off =>
+                  remotes.send(virtual.remote, device, name) *> store.setOn(virtual.remote, device, name)
 
-            }
+              }
 
-          override def switchOff: F[Unit] =
-            store.getState(virtual.remote, device, name).flatMap {
-              case State.On => remotes.send(virtual.remote, device, name) *> store.setOff(virtual.remote, device, name)
-              case State.Off => ().pure
-            }
-        }
+            override def switchOff: F[Unit] =
+              store.getState(virtual.remote, device, name).flatMap {
+                case State.On =>
+                  remotes.send(virtual.remote, device, name) *> store.setOff(virtual.remote, device, name)
+                case State.Off => ().pure
+              }
+          }
     }.toMap)
 
   def polling[F[_]: Concurrent: Timer](
     pollingConfig: PollingConfig,
-    virtualSwitches: ConfigSource[F, VirtualSwitches],
+    virtualSwitches: ConfigSource[F, ModelSwitchKey, VirtualSwitch],
     remotes: RemoteControls[F],
     state: SwitchStateStore[F],
     onUpdate: Map[SwitchKey, Switch[F]] => F[Unit]

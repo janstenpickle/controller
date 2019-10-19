@@ -49,11 +49,3 @@ case class MultiSwitch(name: NonEmptyString, primary: SwitchRef, secondaries: No
 object MultiSwitch {
   implicit val eq: Eq[MultiSwitch] = semi.eq
 }
-
-case class MultiSwitches(multiSwitches: List[MultiSwitch] = List.empty, errors: List[String] = List.empty)
-
-object MultiSwitches {
-  implicit val eq: Eq[MultiSwitches] = semi.eq
-  implicit val monoid: Monoid[MultiSwitches] = semi.monoid
-  implicit val setErrors: SetErrors[MultiSwitches] = SetErrors((switches, errors) => switches.copy(errors = errors))
-}

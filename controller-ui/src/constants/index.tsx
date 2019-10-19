@@ -27,3 +27,9 @@ export type TOGGLE_SHOW_ALL = typeof TOGGLE_SHOW_ALL;
 
 export const UPDATE_PLUG_STATE = 'UPDATE_PLUG_STATE'
 export type UPDATE_PLUG_STATE = typeof UPDATE_PLUG_STATE
+
+export const ADD_REMOTE = 'ADD_REMOTE'
+export type ADD_REMOTE = typeof ADD_REMOTE
+
+export const EDIT_MODE = 'EDIT_MODE'
+export type EDIT_MODE = typeof EDIT_MODE

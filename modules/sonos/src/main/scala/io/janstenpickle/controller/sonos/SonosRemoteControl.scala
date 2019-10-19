@@ -7,8 +7,9 @@ import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.{Applicative, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.model
+import io.janstenpickle.controller.model.RemoteCommand
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
-import io.janstenpickle.controller.store.RemoteCommand
 import natchez.Trace
 
 object SonosRemoteControl {
@@ -52,18 +53,14 @@ object SonosRemoteControl {
             }
           }
 
-          private val basicCommands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
+          private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
             Map(
               (NonEmptyString("play"), _.play),
               (NonEmptyString("pause"), _.pause),
               (Commands.PlayPause, _.playPause),
               (Commands.VolUp, _.volumeUp),
               (Commands.VolDown, _.volumeDown),
-              (Commands.Mute, _.mute)
-            )
-
-          private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
-            basicCommands ++ Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]](
+              (Commands.Mute, _.mute),
               (Commands.Next, _.next),
               (Commands.Previous, _.previous)
             )
@@ -79,7 +76,7 @@ object SonosRemoteControl {
               case Some(device) =>
                 device.isController.flatMap { isController =>
                   trace.put("controller" -> isController) *> {
-                    (if (isController) commands else basicCommands).get(name) match {
+                    commands.get(name) match {
                       case None => errors.commandNotFound(remoteName, deviceName, name)
                       case Some(command) => command(device)
                     }
@@ -93,8 +90,8 @@ object SonosRemoteControl {
                 device.isController.flatMap { isController =>
                   trace
                     .put("controller" -> isController)
-                    .as((if (isController) commands else basicCommands).keys.toList.map { command =>
-                      RemoteCommand(remoteName, deviceName, command)
+                    .as(commands.keys.toList.map { command =>
+                      model.RemoteCommand(remoteName, deviceName, command)
                     })
                 }
             })

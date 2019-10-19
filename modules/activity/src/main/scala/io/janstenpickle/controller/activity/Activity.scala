@@ -2,10 +2,11 @@ package io.janstenpickle.controller.activity
 
 import cats.syntax.apply._
 import cats.syntax.flatMap._
-import cats.{Apply, MonadError, Parallel}
+import cats.{Apply, Monad, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
-import io.janstenpickle.controller.model.{Room, State}
+import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.model.{Room, State, Activity => ActivityModel}
 import io.janstenpickle.controller.store.ActivityStore
 import io.janstenpickle.controller.switch.SwitchProvider
 import io.janstenpickle.controller.switch.model.SwitchKey
@@ -24,12 +25,21 @@ object Activity {
     trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
   }
 
-  def apply[F[_]: Apply](activities: ActivityStore[F], macros: Macro[F], onUpdate: ((Room, NonEmptyString)) => F[Unit])(
-    implicit trace: Trace[F]
-  ): Activity[F] = new Activity[F] {
+  def apply[F[_]](
+    config: ConfigSource[F, String, ActivityModel],
+    activities: ActivityStore[F],
+    macros: Macro[F],
+    onUpdate: ((Room, NonEmptyString)) => F[Unit]
+  )(implicit F: Monad[F], trace: Trace[F]): Activity[F] = new Activity[F] {
     override def setActivity(room: Room, name: NonEmptyString): F[Unit] =
       span("setActivity", room, "activity" -> name.value) {
-        macros.maybeExecuteMacro(NonEmptyString.unsafeFrom(s"${room.value}-${name.value}")) *> activities
+        config
+          .getValue(name.value)
+          .flatMap(
+            _.flatMap(_.action).fold(
+              macros.maybeExecuteMacro(NonEmptyString.unsafeFrom(s"${room.value}-${name.value}"))
+            )(macros.executeCommand)
+          ) *> activities
           .storeActivity(room, name) *> onUpdate(room -> name)
       }
 
@@ -41,11 +51,12 @@ object Activity {
   def dependsOnSwitch[F[_]: Parallel](
     switches: Map[Room, SwitchKey],
     switchProvider: SwitchProvider[F],
+    config: ConfigSource[F, String, ActivityModel],
     activities: ActivityStore[F],
     macros: Macro[F],
     onUpdate: ((Room, NonEmptyString)) => F[Unit]
   )(implicit F: MonadError[F, Throwable], trace: Trace[F]): Activity[F] = {
-    val underlying = apply[F](activities, macros, onUpdate)
+    val underlying = apply[F](config, activities, macros, onUpdate)
 
     new Activity[F] {
       override def setActivity(room: Room, name: NonEmptyString): F[Unit] =

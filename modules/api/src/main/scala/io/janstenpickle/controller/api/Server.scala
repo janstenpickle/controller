@@ -38,10 +38,15 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](configFile: 
       prometheus <- Stream.eval(Prometheus(registry))
       instrumentedRoutes = Metrics(prometheus)(routes)
       exit <- Stream.eval(Ref[F].of(ExitCode.Success))
-      corsConfig = CORSConfig(anyOrigin = true, allowCredentials = false, maxAge = 1.day.toSeconds)
+      corsConfig = CORSConfig(
+        anyOrigin = true,
+        allowedOrigins = _ => true,
+        allowCredentials = true,
+        maxAge = 1.day.toSeconds
+      )
       exitCode <- BlazeServerBuilder[F]
         .bindHttp(config.port.value, config.host.value)
-        .withHttpApp(GZip(CORS(instrumentedRoutes.orNotFound, corsConfig)))
+        .withHttpApp(CORS(GZip(instrumentedRoutes.orNotFound), corsConfig))
         .serveWhile(signal, exit)
         .concurrently(stats)
     } yield exitCode

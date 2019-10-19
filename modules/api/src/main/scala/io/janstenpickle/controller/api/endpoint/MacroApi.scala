@@ -3,18 +3,14 @@ package io.janstenpickle.controller.api.endpoint
 import cats.data.NonEmptyList
 import cats.effect.Sync
 import cats.mtl.ApplicativeHandle
-import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.instances._
 import extruder.refined._
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.model.Command
-import org.http4s.{EntityDecoder, EntityEncoder, HttpRoutes}
+import org.http4s.HttpRoutes
 
 class MacroApi[F[_]: Sync](macros: Macro[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {
-  implicit val commandsDecoder: EntityDecoder[F, NonEmptyList[Command]] = extruderDecoder[NonEmptyList[Command]]
-  implicit val macrosEncoder: EntityEncoder[F, List[NonEmptyString]] = extruderEncoder[List[NonEmptyString]]
-
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / "send" / mac =>
       refineOrBadReq(mac)(m => Ok(macros.executeMacro(m)))

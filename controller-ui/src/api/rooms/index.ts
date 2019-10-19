@@ -1,7 +1,7 @@
 
-const baseURL = `${location.protocol}//${location.hostname}:8090`;
+import { baseURL } from '../../common/Api';
 
-export function fetchRoomsAsync(): Promise<string[]> {
+export async function fetchRoomsAsync(): Promise<string[]> {
   const roomsUrl = `${baseURL}/config/rooms`;
 
   return fetch(roomsUrl)

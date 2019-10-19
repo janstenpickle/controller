@@ -1,5 +1,4 @@
-import sbt.Keys.libraryDependencies
-import sbt.url
+import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
 val catsVer = "2.0.0-RC2"
 val catsEffectVer = "2.0.0-RC2"
@@ -19,7 +18,7 @@ val scalaTestVer = "3.0.8"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
-  scalaVersion := "2.12.9",
+  scalaVersion := "2.12.10",
   scalacOptions ++= Seq(
     "-unchecked",
     "-feature",
@@ -58,9 +57,13 @@ val commonSettings = Seq(
   scalafmtTestOnCompile := true,
   parallelExecution in ThisBuild := true,
   logBuffered in Test := false,
+  resolvers += Resolver.jcenterRepo,
   libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalaTestVer % Test),
   packExcludeJars := Seq("slf4j-jdk14.*\\.jar"),
-  resolvers += Resolver.jcenterRepo
+  assemblyExcludedJars in assembly := {
+    val cp = (fullClasspath in assembly).value
+    cp.filter { _.data.getName.contains("slf4j-jdk14") }
+  }
 )
 
 lazy val root = (project in file("."))
@@ -72,7 +75,6 @@ lazy val root = (project in file("."))
     remote,
     broadlink,
     store,
-    fileStore,
     remoteControl,
     extruderConfigSource,
     `macro`,
@@ -91,9 +93,13 @@ lazy val api = (project in file("modules/api"))
   .settings(commonSettings)
   .settings(
     name := "controller-api",
-    dockerUsername := Some("janstenpickle"),
+    packageName in Docker := "controller",
+    dockerRepository := Some("janstenpickle"),
+    dockerUpdateLatest := true,
     dockerBaseImage := "openjdk:11",
     dockerExposedPorts += 8090,
+    daemonUserUid in Docker := Some("9000"),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "refined-cats"              % refinedVer,
       "io.extruder"       %% "extruder-cats-effect"      % extruderVer,
@@ -109,13 +115,20 @@ lazy val api = (project in file("modules/api"))
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
       "org.typelevel"     %% "cats-mtl-core"             % "0.5.0",
       "org.tpolecat"      %% "natchez-jaeger"            % natchezVer
-    )
+    ),
+    mappings in Universal := {
+      val universalMappings = (mappings in Universal).value
+
+      universalMappings.filter {
+        case (_, name) => !name.contains("slf4j-jdk14")
+      }
+    }
   )
   .dependsOn(
     arrow,
     hs100Switch,
     broadlink,
-    fileStore,
+    tracedStore,
     remoteControl,
     extruderConfigSource,
     `macro`,
@@ -141,7 +154,10 @@ lazy val model = (project in file("modules/model"))
 
 lazy val configSource = (project in file("modules/config-source"))
   .settings(commonSettings)
-  .settings(name := "controller-config-source")
+  .settings(
+    name := "controller-config-source",
+    libraryDependencies ++= Seq("eu.timepit" %% "refined-cats" % refinedVer)
+  )
   .dependsOn(model)
 
 lazy val tracedConfigSource = (project in file("modules/trace-config-source"))
@@ -157,6 +173,7 @@ lazy val extruder = (project in file("modules/extruder"))
   .settings(
     name := "controller-extruder",
     libraryDependencies ++= Seq(
+      "commons-io"  % "commons-io"            % "2.6",
       "io.circe"    %% "circe-parser"         % circeVer,
       "io.extruder" %% "extruder-cats-effect" % extruderVer,
       "io.extruder" %% "extruder-circe"       % extruderVer,
@@ -168,7 +185,10 @@ lazy val extruder = (project in file("modules/extruder"))
 
 lazy val extruderConfigSource = (project in file("modules/extruder-config-source"))
   .settings(commonSettings)
-  .settings(name := "controller-extruder-config-source")
+  .settings(
+    name := "controller-extruder-config-source",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+  )
   .dependsOn(configSource, extruder, tracedConfigSource)
 
 lazy val remote = (project in file("modules/remote"))
@@ -252,22 +272,7 @@ lazy val tracedSwitch = (project in file("modules/trace-switch"))
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)
   .settings(name := "controller-store", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(model)
-
-lazy val fileStore = (project in file("modules/file-store"))
-  .settings(commonSettings)
-  .settings(
-    name := "controller-file-store",
-    libraryDependencies ++= Seq(
-      "commons-io"    % "commons-io"        % "2.6",
-      "io.circe"      %% "circe-parser"     % circeVer,
-      "io.extruder"   %% "extruder-circe"   % extruderVer,
-      "io.extruder"   %% "extruder-refined" % extruderVer,
-      "eu.timepit"    %% "refined"          % refinedVer,
-      "org.typelevel" %% "cats-effect"      % catsEffectVer
-    )
-  )
-  .dependsOn(tracedStore, poller)
+  .dependsOn(model, configSource)
 
 lazy val tracedStore = (project in file("modules/trace-store"))
   .settings(commonSettings)
@@ -384,7 +389,7 @@ lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   )
   .dependsOn(ssdpClientSubmodule)
 
-lazy val ssdpClientSubmodule = (project in file("submodules/sonos-controller/lib/ssdp-client"))
+lazy val ssdpClientSubmodule = (project in file("submodules/ssdp-client"))
   .settings(commonSettings)
   .settings(organization := "com.vmichalak", name := "ssdp-client")
 

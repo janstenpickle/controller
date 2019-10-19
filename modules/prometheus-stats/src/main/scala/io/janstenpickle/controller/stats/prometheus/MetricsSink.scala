@@ -133,6 +133,10 @@ object MetricsSink {
           .incByMany(name.value)(commands)
       case ExecuteMacro(name) =>
         getOrCreateCounter("execute_macro", "Records execution of a macro", "macro_name").inc(name.value)
+      case ExecuteCommand(commandType) =>
+        getOrCreateCounter("execute_command", "Records the execution of a command", "command_type").inc(
+          commandType.value
+        )
 
       // Remote stats
       case SendRemoteCommand(remote, device, name) =>

@@ -24,6 +24,9 @@ object MacroStats {
       underlying.maybeExecuteMacro(name) *> stats.recordExecuteMacro(name)
 
     override def listMacros: F[List[NonEmptyString]] = underlying.listMacros
+
+    override def executeCommand(command: Command): F[Unit] =
+      underlying.executeCommand(command) *> stats.recordExecuteCommand(command)
   }
 
   def apply[F[_]: Monad: Timer: Parallel: MacroErrors: MacroStatsRecorder: Trace](

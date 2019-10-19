@@ -12,11 +12,12 @@ import io.janstenpickle.controller.stats._
 trait MacroStatsRecorder[F[_]] {
   def recordStoreMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit]
   def recordExecuteMacro(name: NonEmptyString): F[Unit]
+  def recordExecuteCommand(command: Command): F[Unit]
 }
 
 object MacroStatsRecorder {
   def stream[F[_]: Concurrent](maxQueued: PosInt): Resource[F, (MacroStatsRecorder[F], fs2.Stream[F, Stats])] = {
-    def make(topic: Topic[F, Stats]) = new MacroStatsRecorder[F] {
+    def make(topic: Topic[F, Stats]): MacroStatsRecorder[F] = new MacroStatsRecorder[F] {
       override def recordStoreMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] =
         topic.publish1(
           Stats.StoreMacro(
@@ -29,6 +30,9 @@ object MacroStatsRecorder {
 
       override def recordExecuteMacro(name: NonEmptyString): F[Unit] =
         topic.publish1(Stats.ExecuteMacro(name))
+
+      override def recordExecuteCommand(command: Command): F[Unit] =
+        topic.publish1(Stats.ExecuteCommand(commandType(command)))
     }
 
     StatsTopic[F](maxQueued).map {

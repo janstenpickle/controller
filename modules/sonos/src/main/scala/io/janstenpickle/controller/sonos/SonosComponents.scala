@@ -5,8 +5,8 @@ import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
-import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.{Activities, Remotes}
+import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
+import io.janstenpickle.controller.model.{Activity, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
 import io.janstenpickle.controller.switch.SwitchProvider
@@ -16,8 +16,8 @@ import scala.concurrent.duration._
 
 case class SonosComponents[F[_]] private (
   remote: RemoteControl[F],
-  activityConfig: ConfigSource[F, Activities],
-  remoteConfig: ConfigSource[F, Remotes],
+  activityConfig: ConfigSource[F, String, Activity],
+  remoteConfig: ConfigSource[F, NonEmptyString, Remote],
   switches: SwitchProvider[F]
 )
 
@@ -51,7 +51,7 @@ object SonosComponents {
     liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, SonosComponents[F]] =
     for {
-      remotesCache <- CacheResource[F, Remotes](config.remotesCacheTimeout, classOf)
+      remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
 
       discovery <- SonosDiscovery
         .polling[F, G](config.polling, config.commandTimeout, onUpdate, blocker, onDeviceUpdate)

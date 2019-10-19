@@ -5,7 +5,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
 import fs2.concurrent.Topic
 import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.{Buttons, Room}
+import io.janstenpickle.controller.model.{Button, Room}
 import io.janstenpickle.controller.stats._
 
 import scala.concurrent.duration.FiniteDuration
@@ -15,7 +15,7 @@ object ButtonPoller {
 
   def apply[F[_]: Concurrent: Timer](
     pollInterval: FiniteDuration,
-    buttons: ConfigSource[F, Buttons],
+    buttons: ConfigSource[F, String, Button],
     update: Topic[F, Boolean]
   ): Stream[F, Stats] =
     Stream
@@ -27,7 +27,7 @@ object ButtonPoller {
       .map { buttons =>
         Stats.Buttons(
           buttons.errors.size,
-          buttons.buttons.groupBy(_.room.getOrElse(All)).mapValues(_.groupBy(buttonType).mapValues(_.size))
+          buttons.values.values.groupBy(_.room.getOrElse(All)).mapValues(_.groupBy(buttonType).mapValues(_.size))
         )
       }
 }
