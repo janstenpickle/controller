@@ -17,6 +17,7 @@ import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig
 import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
 import io.janstenpickle.controller.model.Room
+import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
@@ -36,7 +37,8 @@ object Configuration {
     config: ConfigData,
     server: Server,
     activity: Activity,
-    stats: StatsStream.Config
+    stats: StatsStream.Config,
+    githubRemoteCommands: GithubRemoteCommandConfigSource.Config
   )
 
   case class Rm(config: RmRemoteConfig, dependentSwitch: Option[SwitchKey])

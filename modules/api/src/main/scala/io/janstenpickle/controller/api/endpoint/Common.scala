@@ -22,7 +22,8 @@ abstract class Common[F[_]: Sync] extends Http4sDsl[F] {
           DecodeResult.failure[F, A](
             InvalidMessageBodyFailure(
               s"Could not decode JSON: $json",
-              Some(ValidationErrorsToThrowable.defaultValidationErrorsThrowable.convertErrors(failures))
+              None
+              //Some(ValidationErrorsToThrowable.defaultValidationErrorsThrowable.convertErrors(failures))
             )
         ),
         DecodeResult.success[F, A]

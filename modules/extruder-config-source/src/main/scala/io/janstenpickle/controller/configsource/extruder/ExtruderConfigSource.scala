@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.configsource.extruder
 
-import cats.Eq
+import cats.{Eq, Functor}
 import cats.effect._
 import cats.kernel.Monoid
 import cats.syntax.apply._
@@ -99,6 +99,8 @@ object ExtruderConfigSource {
       ) { (getData, update) =>
         TracedConfigSource.writable(
           new WritableConfigSource[F, K, V] {
+            override def functor: Functor[F] = F
+
             override def getConfig: F[ConfigResult[K, V]] = getData().map { cr =>
               ConfigResult(cr.values.mapValues(setEditable.set(_)(editable = true)), cr.errors)
             }

@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.configsource
 
 import cats.kernel.Semigroup
-import cats.{Monad, Parallel}
+import cats.{Functor, Monad, Parallel}
 
 trait WritableConfigSource[F[_], K, V] extends ConfigSource[F, K, V] {
   def setConfig(a: Map[K, V]): F[Unit]
@@ -24,5 +24,8 @@ object WritableConfigSource {
       override def deleteItem(key: K): F[ConfigResult[K, V]] = writable.deleteItem(key)
       override def upsert(key: K, value: V): F[ConfigResult[K, V]] = writable.upsert(key, value)
       override def getValue(key: K): F[Option[V]] = combined.getValue(key)
+      override def listKeys: F[Set[K]] = combined.listKeys
+
+      override def functor: Functor[F] = Functor[F]
     }
 }

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { RemoteCommand, Switch } from "../types/index";
+import { RemoteCommand, Switch, RemoteCommandSource } from "../types/index";
 import { Cascader } from "antd";
 import { macrosAPI } from "../api/macros";
 import { remoteCommandsAPI } from "../api/remotecontrol";
@@ -44,14 +44,31 @@ export default class ActionSelector extends React.Component<
   }
 
   public render() {
-    const remotes = new TSMap<string, TSMap<string, Set<string>>>();
+    const remotes = new TSMap<
+      string,
+      TSMap<string, TSMap<string, Set<string>>>
+    >();
+
+    const commandSourceName = (source?: RemoteCommandSource) => {
+      if (source) {
+        return `${source.name}|${source.type}`;
+      } else {
+        return "local";
+      }
+    };
 
     this.state.remoteCommands.forEach((rc: RemoteCommand) => {
-      const remote = remotes.get(rc.remote) || new TSMap<string, Set<string>>();
-      const commands = remote.get(rc.device) || new Set<string>();
+      const remote =
+        remotes.get(rc.remote) ||
+        new TSMap<RemoteCommandSource, TSMap<string, Set<string>>>();
+      const source =
+        remote.get(commandSourceName(rc.source)) ||
+        new TSMap<string, Set<string>>();
+      const commands = source.get(rc.device) || new Set<string>();
 
       commands.add(rc.name);
-      remote.set(rc.device, commands);
+      source.set(rc.device, commands);
+      remote.set(commandSourceName(rc.source), source);
       remotes.set(rc.remote, remote);
     });
 
@@ -88,17 +105,33 @@ export default class ActionSelector extends React.Component<
       {
         value: "remote",
         label: "Remote",
-        children: remotes.map((devices, remote) => ({
+        children: remotes.map((sources, remote) => ({
           value: remote,
           label: remote,
-          children: devices.map((commands, device) => ({
-            value: device,
-            label: device,
-            children: Array.from(commands.values()).map(command => ({
-              value: command,
-              label: command
-            }))
-          }))
+          children: sources.map((devices, source) => {
+            const sourceInfo = () => {
+              if (source === "local") {
+                return "local";
+              } else if (source) {
+                return source.split("|")[0];
+              } else {
+                return "local";
+              }
+            };
+
+            return {
+              value: source,
+              label: sourceInfo(),
+              children: devices.map((commands, device) => ({
+                value: device,
+                label: device,
+                children: Array.from(commands.values()).map(command => ({
+                  value: command,
+                  label: command
+                }))
+              }))
+            };
+          })
         }))
       }
     ];

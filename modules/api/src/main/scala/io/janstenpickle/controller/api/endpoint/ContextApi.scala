@@ -18,14 +18,16 @@ import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model
-import io.janstenpickle.controller.model.{Activity => ActivityModel, Command, ContextButtonMapping}
+import io.janstenpickle.controller.model.{Command, ContextButtonMapping, Activity => ActivityModel}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
+import io.janstenpickle.controller.switch.Switches
 import org.http4s.{HttpRoutes, Response}
 
 class ContextApi[F[_]: Sync](
   activities: Activity[F],
   macros: Macro[F],
   remotes: RemoteControls[F],
+  switches: Switches[F],
   activitySource: ConfigSource[F, String, ActivityModel]
 )(implicit fr: FunctorRaise[F, ControlError], ah: ApplicativeHandle[F, ControlError])
     extends Common[F] {
@@ -57,7 +59,9 @@ class ContextApi[F[_]: Sync](
 
         Ok(activity.flatMap(_.contextButtons.groupBy(_.name).mapValues(_.headOption).get(n).flatten match {
           case Some(ContextButtonMapping.Macro(_, macroName)) => macros.executeMacro(macroName)
-          case Some(ContextButtonMapping.Remote(_, remote, device, command)) => remotes.send(remote, device, command)
+          case Some(ContextButtonMapping.Remote(_, remote, commandSource, device, command)) =>
+            remotes.send(remote, commandSource, device, command)
+          case Some(ContextButtonMapping.ToggleSwitch(_, device, switch)) => switches.toggle(device, switch)
           case None =>
             fr.raise[Unit](ControlError.Missing(s"Could not find context button '$n' in current activity"))
         }))

@@ -1,17 +1,18 @@
 package io.janstenpickle.controller.remotecontrol
 
-import cats.{Apply, FlatMap}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
+import cats.syntax.functor._
+import cats.{Apply, FlatMap}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.RemoteCommand
+import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remote.Remote
 import io.janstenpickle.controller.store.RemoteCommandStore
 import natchez.{Trace, TraceValue}
 
 trait RemoteControl[F[_]] {
   def learn(device: NonEmptyString, name: NonEmptyString): F[Unit]
-  def sendCommand(device: NonEmptyString, name: NonEmptyString): F[Unit]
+  def sendCommand(source: Option[RemoteCommandSource], device: NonEmptyString, name: NonEmptyString): F[Unit]
   def listCommands: F[List[RemoteCommand]]
 }
 
@@ -27,9 +28,13 @@ object RemoteControl {
         traceInfo(device, name) *> remoteControl.learn(device, name)
       }
 
-      override def sendCommand(device: NonEmptyString, name: NonEmptyString): F[Unit] =
+      override def sendCommand(
+        source: Option[RemoteCommandSource],
+        device: NonEmptyString,
+        name: NonEmptyString
+      ): F[Unit] =
         trace.span("remoteControlSendCommand") {
-          traceInfo(device, name) *> remoteControl.sendCommand(device, name)
+          traceInfo(device, name) *> remoteControl.sendCommand(source: Option[RemoteCommandSource], device, name)
         }
 
       override def listCommands: F[List[RemoteCommand]] = trace.span("remoteControlListCommands") {
@@ -48,18 +53,25 @@ object RemoteControl {
           remote.learn.flatMap {
             case None =>
               trace.put("error" -> true, "reason" -> "learn failure") *> errors.learnFailure(remote.name, device, name)
-            case Some(payload) => store.storeCommand(remote.name, device, name, payload)
+            case Some(payload) => store.storeCommand(device, name, payload)
           }
 
-        override def sendCommand(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-          store.loadCommand(remote.name, device, name).flatMap {
+        override def sendCommand(
+          source: Option[RemoteCommandSource],
+          device: NonEmptyString,
+          name: NonEmptyString
+        ): F[Unit] =
+          store.loadCommand(source, device, name).flatMap {
             case None =>
               trace.put("error" -> true, "reason" -> "command not found") *> errors
                 .commandNotFound(remote.name, device, name)
             case Some(payload) => remote.sendCommand(payload)
           }
 
-        override def listCommands: F[List[RemoteCommand]] = store.listCommands
+        override def listCommands: F[List[RemoteCommand]] =
+          store.listCommands.map(_.map { k =>
+            RemoteCommand(remote.name, k.source, k.device, k.name)
+          })
       },
       "remote" -> remote.name.value
     )

@@ -2,7 +2,7 @@ import { RemoteData, RemoteButtons } from "../types/index";
 import * as React from "react";
 import TextField, { Input } from "@material/react-text-field";
 import IconPicker from "../components/IconPicker";
-import { baseURL } from './Api';
+import { baseURL } from "./Api";
 
 export const buttonSubmit = (
   remote: RemoteData,
@@ -44,10 +44,10 @@ export const updateRemote = (
   remote: RemoteData,
   onSuccess: (remote: RemoteData) => void
 ) => {
-  fetch(
-    `${baseURL}/config/remote/${remote.name}`,
-    { method: "PUT", body: JSON.stringify(remote) }
-  ).then(res => {
+  fetch(`${baseURL}/config/remote/${remote.name}`, {
+    method: "PUT",
+    body: JSON.stringify(remote)
+  }).then(res => {
     if (res.ok) {
       onSuccess(remote);
     } else {
@@ -62,26 +62,40 @@ export const buttonActionChange: (
 ) => RemoteButtons = (data: string[], button: RemoteButtons) => {
   if (data[0] === "remote") {
     switch (button.renderTag) {
-      case "icon":
+      case "icon": {
+        const source = data[2].split("|");
+
         return {
           ...button,
           tag: "remote",
           renderTag: "icon",
           remote: data[1],
-          device: data[2],
-          name: data[3],
+          commandSource: {
+            name: source[0],
+            type: source[1]
+          },
+          device: data[3],
+          name: data[4],
           type: "RemoteIcon"
         };
-      case "label":
+      }
+      case "label": {
+        const source = data[2].split("|");
+
         return {
           ...button,
           tag: "remote",
           renderTag: "label",
           remote: data[1],
-          device: data[2],
-          name: data[3],
+          commandSource: {
+            name: source[0],
+            type: source[1]
+          },
+          device: data[3],
+          name: data[4],
           type: "RemoteLabel"
         };
+      }
       default:
         return button;
     }

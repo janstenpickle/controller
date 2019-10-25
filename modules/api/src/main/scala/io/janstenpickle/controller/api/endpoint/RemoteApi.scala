@@ -12,6 +12,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.instances._
 import extruder.refined._
 import io.janstenpickle.controller.api.error.ControlError
+import io.janstenpickle.controller.model.RemoteCommandSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import natchez.{Trace, TraceValue}
 import org.http4s.{HttpRoutes, Response}
@@ -32,6 +33,22 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
       .leftMap(errs => BadRequest(errs.toList.mkString(",")))
       .merge
 
+  def refineOrBadReq(name: String, sourceName: String, sourceType: String, device: String, command: String)(
+    f: (NonEmptyString, RemoteCommandSource, NonEmptyString, NonEmptyString) => F[Response[F]]
+  ): F[Response[F]] =
+    Semigroupal
+      .map5[ValidatedNel[String, *], NonEmptyString, NonEmptyString, NonEmptyString, NonEmptyString, NonEmptyString, F[
+        Response[F]
+      ]](
+        refineV[NonEmpty](name).toValidatedNel,
+        refineV[NonEmpty](sourceName).toValidatedNel,
+        refineV[NonEmpty](sourceType).toValidatedNel,
+        refineV[NonEmpty](device).toValidatedNel,
+        refineV[NonEmpty](command).toValidatedNel
+      )((n, sn, st, d, c) => f(n, RemoteCommandSource(sn, st), d, c))
+      .leftMap(errs => BadRequest(errs.toList.mkString(",")))
+      .merge
+
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / "send" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
@@ -41,7 +58,20 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
             "device" -> TraceValue.stringToTraceValue(device),
             "command" -> TraceValue.stringToTraceValue(command)
           ) *>
-            Ok(remotes.send(n, d, c))
+            Ok(remotes.send(n, None, d, c))
+        }
+      }
+    case POST -> Root / "send" / name / sourceName / sourceType / device / command =>
+      refineOrBadReq(name, sourceName, sourceType, device, command) { (n, cs, d, c) =>
+        trace.span("remoteSendCommand") {
+          trace.put(
+            "name" -> TraceValue.stringToTraceValue(name),
+            "device" -> TraceValue.stringToTraceValue(device),
+            "command" -> TraceValue.stringToTraceValue(command),
+            "command_source" -> TraceValue.stringToTraceValue(sourceName),
+            "command_source_type" -> TraceValue.stringToTraceValue(sourceType)
+          ) *>
+            Ok(remotes.send(n, Some(cs), d, c))
         }
       }
     case POST -> Root / "learn" / name / device / command =>

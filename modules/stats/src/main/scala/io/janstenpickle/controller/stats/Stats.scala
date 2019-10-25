@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.stats
 
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.{Room, State}
+import io.janstenpickle.controller.model.{RemoteCommandSource, Room, State}
 import io.janstenpickle.controller.switch.model.SwitchKey
 
 sealed trait Stats
@@ -19,7 +19,12 @@ object Stats {
     contextButtons: Map[Room, Map[NonEmptyString, Int]]
   ) extends Stats
 
-  case class SendRemoteCommand(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString) extends Stats
+  case class SendRemoteCommand(
+    remote: NonEmptyString,
+    commandSource: Option[RemoteCommandSource],
+    device: NonEmptyString,
+    name: NonEmptyString
+  ) extends Stats
   case class LearnRemoteCommand(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString) extends Stats
   case class Remotes(
     errorCount: Int,

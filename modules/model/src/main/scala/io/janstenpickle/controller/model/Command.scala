@@ -14,6 +14,11 @@ object Command {
   case class ToggleSwitch(device: NonEmptyString, name: NonEmptyString) extends Command
   case class SwitchOn(device: NonEmptyString, name: NonEmptyString) extends Command
   case class SwitchOff(device: NonEmptyString, name: NonEmptyString) extends Command
-  case class Remote(remote: NonEmptyString, device: NonEmptyString, command: NonEmptyString) extends Command
+  case class Remote(
+    remote: NonEmptyString,
+    commandSource: Option[RemoteCommandSource],
+    device: NonEmptyString,
+    command: NonEmptyString
+  ) extends Command
   case class Macro(name: NonEmptyString) extends Command
 }

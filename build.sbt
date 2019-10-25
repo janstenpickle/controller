@@ -86,7 +86,8 @@ lazy val root = (project in file("."))
     sonosClientSubmodule,
     virtualSwitch,
     stats,
-    prometheusStats
+    prometheusStats,
+    gitRemoteStore
   )
 
 lazy val api = (project in file("modules/api"))
@@ -131,6 +132,7 @@ lazy val api = (project in file("modules/api"))
     tracedStore,
     remoteControl,
     extruderConfigSource,
+    gitRemoteStore,
     `macro`,
     activity,
     sonos,
@@ -354,6 +356,22 @@ lazy val cache = (project in file("modules/cache"))
       "org.typelevel"    %% "cats-effect"            % catsEffectVer
     )
   )
+
+lazy val gitRemoteStore = (project in file("modules/git-remote-command-store"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-git-remote-command-store",
+    libraryDependencies ++= Seq(
+      "commons-io"        % "commons-io"      % "2.6",
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "org.typelevel"     %% "cats-effect"    % catsEffectVer,
+      "org.typelevel"     %% "kittens"        % kittensVer,
+      "org.tpolecat"      %% "natchez-core"   % natchezVer,
+      "eu.timepit"        %% "refined-cats"   % refinedVer,
+      "com.47deg"         %% "github4s"       % "0.20.1"
+    )
+  )
+  .dependsOn(poller, store)
 
 lazy val sonos = (project in file("modules/sonos"))
   .settings(commonSettings)

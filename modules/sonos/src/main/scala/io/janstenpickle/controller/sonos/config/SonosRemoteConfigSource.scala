@@ -1,18 +1,18 @@
 package io.janstenpickle.controller.sonos.config
 
-import cats.Parallel
 import cats.effect.Async
 import cats.instances.list._
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
+import cats.{Functor, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
-import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
+import io.janstenpickle.controller.sonos.{CommandSource, Commands, SonosDiscovery}
 import natchez.Trace
 import scalacache.Cache
 import scalacache.CatsEffect.modes._
@@ -25,11 +25,40 @@ object SonosRemoteConfigSource {
     discovery: SonosDiscovery[F],
     cache: Cache[ConfigResult[NonEmptyString, Remote]]
   )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] = {
-    def simpleTemplate(device: NonEmptyString): List[Button] =
+    def simpleTemplate(device: NonEmptyString, isMuted: Boolean): List[Button] =
       List(
-        RemoteIcon(remoteName, device, Commands.Mute, NonEmptyString("volume_off"), Some(true), None, None, None),
-        RemoteIcon(remoteName, device, Commands.VolDown, NonEmptyString("volume_down"), None, None, None, None),
-        RemoteIcon(remoteName, device, Commands.VolUp, NonEmptyString("volume_up"), None, None, None, None)
+        SwitchIcon(
+          NonEmptyString.unsafeFrom(s"${device.value}_mute"),
+          remoteName,
+          NonEmptyString("volume_off"),
+          isMuted,
+          Some(true),
+          None,
+          None,
+          None
+        ),
+        RemoteIcon(
+          remoteName,
+          CommandSource,
+          device,
+          Commands.VolDown,
+          NonEmptyString("volume_down"),
+          None,
+          None,
+          None,
+          None
+        ),
+        RemoteIcon(
+          remoteName,
+          CommandSource,
+          device,
+          Commands.VolUp,
+          NonEmptyString("volume_up"),
+          None,
+          None,
+          None,
+          None
+        )
       )
 
     def groupTemplate(device: NonEmptyString, isController: Boolean, isGrouped: Boolean): List[Button] =
@@ -48,11 +77,22 @@ object SonosRemoteConfigSource {
           )
         )
 
-    def template(device: NonEmptyString, isPlaying: Boolean): List[Button] =
+    def template(device: NonEmptyString, isMuted: Boolean, isPlaying: Boolean): List[Button] =
       List(
-        RemoteIcon(remoteName, device, Commands.Previous, NonEmptyString("fast_rewind"), None, None, None, None),
         RemoteIcon(
           remoteName,
+          CommandSource,
+          device,
+          Commands.Previous,
+          NonEmptyString("fast_rewind"),
+          None,
+          None,
+          None,
+          None
+        ),
+        RemoteIcon(
+          remoteName,
+          CommandSource,
           device,
           Commands.PlayPause,
           if (isPlaying) NonEmptyString("pause") else NonEmptyString("play_arrow"),
@@ -61,8 +101,18 @@ object SonosRemoteConfigSource {
           None,
           None
         ),
-        RemoteIcon(remoteName, device, Commands.Next, NonEmptyString("fast_forward"), None, None, None, None)
-      ) ++ simpleTemplate(device).toList
+        RemoteIcon(
+          remoteName,
+          CommandSource,
+          device,
+          Commands.Next,
+          NonEmptyString("fast_forward"),
+          None,
+          None,
+          None,
+          None
+        )
+      ) ++ simpleTemplate(device, isMuted)
 
     TracedConfigSource(
       new ConfigSource[F, NonEmptyString, Remote] {
@@ -72,12 +122,16 @@ object SonosRemoteConfigSource {
               .flatMap(_.values.toList.parTraverse {
                 device =>
                   for {
+                    isMuted <- device.isMuted
                     isController <- device.isController
                     isGrouped <- device.isGrouped
                     buttons <- if (isController)
                       device.isPlaying
-                        .map(template(device.name, _) ++ groupTemplate(device.name, isController, isGrouped))
-                    else F.pure(simpleTemplate(device.name) ++ groupTemplate(device.name, isController, isGrouped))
+                        .map(template(device.name, isMuted, _) ++ groupTemplate(device.name, isController, isGrouped))
+                    else
+                      F.pure(
+                        simpleTemplate(device.name, isMuted) ++ groupTemplate(device.name, isController, isGrouped)
+                      )
                     nowPlaying <- device.nowPlaying
                     remoteName <- nowPlaying match {
                       case None => F.pure(device.label)
@@ -117,6 +171,8 @@ object SonosRemoteConfigSource {
           )
 
         override def getValue(key: NonEmptyString): F[Option[Remote]] = getConfig.map(_.values.get(key))
+
+        override def functor: Functor[F] = F
       },
       "remotes",
       "sonos"

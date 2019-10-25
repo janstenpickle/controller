@@ -39,6 +39,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
 import io.janstenpickle.controller.remotecontrol.RemoteControls
+import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
@@ -338,18 +339,25 @@ object Module {
           config.config.writeTimeout
         )
 
-      commandStore <- ExtruderRemoteCommandConfigSource[F, G](
+      remoteConfigSource <- ExtruderRemoteCommandConfigSource[F, G](
         remoteCommandConfigFileSource,
         config.config.polling,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
-      ).map { cs =>
-        TracedRemoteCommandStore(
-          RemoteCommandStore.fromConfigSource(cs),
-          "config",
-          "path" -> config.config.dir.resolve("remote-command").toString,
-          "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
-        )
-      }
+      )
+
+      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
+        config.githubRemoteCommands,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      )
+
+      commandStore = TracedRemoteCommandStore(
+        RemoteCommandStore.fromConfigSource(
+          WritableConfigSource.combined(remoteConfigSource, githubRemoteConfigSource)
+        ),
+        "config",
+        "path" -> config.config.dir.resolve("remote-command").toString,
+        "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+      )
 
       switchStateConfigFileSource <- ConfigFileSource
         .polling[F, G](
@@ -469,6 +477,7 @@ object Module {
             instrumentation.activity,
             instrumentation.`macro`,
             instrumentation.remote,
+            instrumentation.switch,
             combinedActivityConfig
           ).routes,
           "/config" -> new ConfigApi[F, G](

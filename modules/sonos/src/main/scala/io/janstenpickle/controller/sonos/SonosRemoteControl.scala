@@ -8,7 +8,7 @@ import cats.syntax.parallel._
 import cats.{Applicative, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model
-import io.janstenpickle.controller.model.RemoteCommand
+import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import natchez.Trace
 
@@ -43,6 +43,7 @@ object SonosRemoteControl {
             override def volumeUp: F[Unit] = span("VolumeUp") { doOnAll(_.volumeUp) }
             override def volumeDown: F[Unit] = span("VolumeDown") { doOnAll(_.volumeDown) }
             override def mute: F[Unit] = span("Mute") { doOnAll(_.mute) }
+            override def unMute: F[Unit] = span("UnMute") { doOnAll(_.unMute) }
             override def next: F[Unit] = span("Next") { doOnControllers(_.next) }
             override def previous: F[Unit] = span("Previous") { doOnControllers(_.previous) }
           }
@@ -60,7 +61,6 @@ object SonosRemoteControl {
               (Commands.PlayPause, _.playPause),
               (Commands.VolUp, _.volumeUp),
               (Commands.VolDown, _.volumeDown),
-              (Commands.Mute, _.mute),
               (Commands.Next, _.next),
               (Commands.Previous, _.previous)
             )
@@ -68,21 +68,27 @@ object SonosRemoteControl {
           override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
             trace.put("error" -> true, "reason" -> "learning not supported") *> errors.learningNotSupported(remoteName)
 
-          override def sendCommand(deviceName: NonEmptyString, name: NonEmptyString): F[Unit] =
-            devices.flatMap(_.get(deviceName) match {
-              case None =>
-                trace.put("error" -> true, "reason" -> "device not found") *> errors
-                  .commandNotFound(remoteName, deviceName, name)
-              case Some(device) =>
-                device.isController.flatMap { isController =>
-                  trace.put("controller" -> isController) *> {
-                    commands.get(name) match {
-                      case None => errors.commandNotFound(remoteName, deviceName, name)
-                      case Some(command) => command(device)
+          override def sendCommand(
+            source: Option[RemoteCommandSource],
+            deviceName: NonEmptyString,
+            name: NonEmptyString
+          ): F[Unit] =
+            if (source == CommandSource)
+              devices.flatMap(_.get(deviceName) match {
+                case None =>
+                  trace.put("error" -> true, "reason" -> "device not found") *> errors
+                    .commandNotFound(remoteName, deviceName, name)
+                case Some(device) =>
+                  device.isController.flatMap { isController =>
+                    trace.put("controller" -> isController) *> {
+                      commands.get(name) match {
+                        case None => errors.commandNotFound(remoteName, deviceName, name)
+                        case Some(command) => command(device)
+                      }
                     }
                   }
-                }
-            })
+              })
+            else errors.commandNotFound(remoteName, deviceName, name)
 
           override def listCommands: F[List[RemoteCommand]] =
             devices.flatMap(_.toList.parFlatTraverse {
@@ -91,7 +97,7 @@ object SonosRemoteControl {
                   trace
                     .put("controller" -> isController)
                     .as(commands.keys.toList.map { command =>
-                      model.RemoteCommand(remoteName, deviceName, command)
+                      model.RemoteCommand(remoteName, CommandSource, deviceName, command)
                     })
                 }
             })

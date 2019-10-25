@@ -17,8 +17,14 @@ export interface Switch {
   name: string;
 }
 
+export interface RemoteCommandSource {
+  name: string;
+  type: string;
+}
+
 export interface RemoteCommand {
   remote: string;
+  source?: RemoteCommandSource;
   device: string;
   name: string;
 }
@@ -55,6 +61,7 @@ export interface ContextButtonMapping {
 export interface ContextButtonMappingRemote extends ContextButtonMapping {
   tag: "remote";
   remote: string;
+  commandSource?: RemoteCommandSource;
   device: string;
   command: string;
 }
@@ -94,6 +101,7 @@ export interface ActivityButton extends ControlButton {
 export interface RemoteButton extends ControlButton {
   tag: "remote";
   remote: string;
+  commandSource?: RemoteCommandSource;
   device: string;
 }
 
@@ -186,6 +194,7 @@ export interface MacroSwitchOff {
 export interface MacroRemote {
   type: "Remote";
   remote: string;
+  commandSource?: RemoteCommandSource;
   device: string;
   command: string;
 }

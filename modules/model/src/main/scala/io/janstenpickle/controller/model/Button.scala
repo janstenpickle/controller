@@ -25,11 +25,13 @@ object Button {
 
   sealed trait Remote extends Button {
     def remote: NonEmptyString
+    def commandSource: Option[RemoteCommandSource]
     def device: NonEmptyString
   }
 
   case class RemoteIcon(
     remote: NonEmptyString,
+    commandSource: Option[RemoteCommandSource],
     device: NonEmptyString,
     name: NonEmptyString,
     icon: NonEmptyString,
@@ -42,6 +44,7 @@ object Button {
 
   case class RemoteLabel(
     remote: NonEmptyString,
+    commandSource: Option[RemoteCommandSource],
     device: NonEmptyString,
     name: NonEmptyString,
     label: NonEmptyString,
@@ -112,6 +115,7 @@ object Button {
   case class ContextIcon(
     name: NonEmptyString,
     icon: NonEmptyString,
+    isOn: Option[Boolean],
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],
@@ -122,6 +126,7 @@ object Button {
   case class ContextLabel(
     name: NonEmptyString,
     label: NonEmptyString,
+    isOn: Option[Boolean],
     newRow: Option[Boolean],
     colored: Option[Boolean],
     color: Option[NonEmptyString],

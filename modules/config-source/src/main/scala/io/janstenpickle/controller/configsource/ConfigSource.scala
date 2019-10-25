@@ -1,27 +1,35 @@
 package io.janstenpickle.controller.configsource
 
 import cats.kernel.Semigroup
-import cats.{Monad, Parallel}
+import cats.{Functor, Monad, Parallel}
+import cats.syntax.functor._
+import cats.syntax.flatMap._
 
-trait ConfigSource[F[_], K, V] { outer =>
+trait ConfigSource[F[_], K, V] {
+  implicit def functor: Functor[F]
+
   def getValue(key: K): F[Option[V]]
   def getConfig: F[ConfigResult[K, V]]
+  def listKeys: F[Set[K]] = getConfig.map(_.values.keySet)
 }
 
 object ConfigSource {
-  def combined[F[_]: Monad: Parallel, K, V](x: ConfigSource[F, K, V], y: ConfigSource[F, K, V])(
-    implicit semigroup: Semigroup[ConfigResult[K, V]]
-  ): ConfigSource[F, K, V] =
+  def combined[F[_]: Parallel, K, V](
+    x: ConfigSource[F, K, V],
+    y: ConfigSource[F, K, V]
+  )(implicit F: Monad[F], semigroup: Semigroup[ConfigResult[K, V]]): ConfigSource[F, K, V] =
     new ConfigSource[F, K, V] {
       override def getConfig: F[ConfigResult[K, V]] =
         Parallel.parMap2(x.getConfig, y.getConfig)(semigroup.combine)
 
       override def getValue(key: K): F[Option[V]] =
-        Parallel.parMap2(x.getValue(key), y.getValue(key)) {
-          case (Some(xx), Some(_)) => Some(xx)
-          case (None, Some(yy)) => Some(yy)
-          case (Some(xx), None) => Some(xx)
-          case (None, None) => None
+        x.getValue(key).flatMap {
+          case Some(v) => F.pure(Some(v))
+          case None => y.getValue(key)
         }
+
+      override def listKeys: F[Set[K]] = Parallel.parMap2(x.listKeys, y.listKeys) { _ ++ _ }
+
+      override def functor: Functor[F] = Functor[F]
     }
 }

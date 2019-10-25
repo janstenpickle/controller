@@ -1,12 +1,12 @@
 package io.janstenpickle.controller.sonos.config
 
-import cats.Applicative
+import cats.{Applicative, Functor}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.{Activity, ContextButtonMapping}
-import io.janstenpickle.controller.sonos.{Commands, SonosDiscovery}
+import io.janstenpickle.controller.sonos.{CommandSource, Commands, SonosDiscovery}
 import natchez.Trace
 
 object SonosActivityConfigSource {
@@ -34,11 +34,17 @@ object SonosActivityConfigSource {
                     label = config.label,
                     contextButtons = List(
                       ContextButtonMapping
-                        .Remote(config.playPauseMappingName, config.remoteName, name, Commands.PlayPause),
+                        .Remote(
+                          config.playPauseMappingName,
+                          config.remoteName,
+                          CommandSource,
+                          name,
+                          Commands.PlayPause
+                        ),
                       ContextButtonMapping
-                        .Remote(config.nextMappingName, config.remoteName, name, Commands.Next),
+                        .Remote(config.nextMappingName, config.remoteName, CommandSource, name, Commands.Next),
                       ContextButtonMapping
-                        .Remote(config.previousMappingName, config.remoteName, name, Commands.Previous)
+                        .Remote(config.previousMappingName, config.remoteName, CommandSource, name, Commands.Previous)
                     ),
                     None,
                     None,
@@ -48,6 +54,8 @@ object SonosActivityConfigSource {
           )
 
         override def getValue(key: String): F[Option[Activity]] = getConfig.map(_.values.get(key))
+
+        override def functor: Functor[F] = Functor[F]
       },
       "activities",
       "sonos"

@@ -4,7 +4,7 @@ import { StyleSheet, css } from "aphrodite";
 import EditButtonDialog from "./EditButtonDialog";
 import AddButtonDialog from "./AddButtonDialog";
 import Alert from "./Alert";
-import { baseURL } from '../common/Api';
+import { baseURL } from "../common/Api";
 
 interface Props {
   buttons: RemoteButtons[];
@@ -115,18 +115,24 @@ export function renderButton(
   const callRest = () => {
     switch (buttonData.tag) {
       case "remote":
-        return fetch(
-          `${baseURL}/control/remote/send/${buttonData.remote}/${buttonData.device}/${buttonData.name}`,
-          { method: "POST" }
-        );
+        if (buttonData.commandSource) {
+          return fetch(
+            `${baseURL}/control/remote/send/${buttonData.remote}/${buttonData.commandSource.name}/${buttonData.commandSource.type}/${buttonData.device}/${buttonData.name}`,
+            { method: "POST" }
+          );
+        } else {
+          return fetch(
+            `${baseURL}/control/remote/send/${buttonData.remote}/${buttonData.device}/${buttonData.name}`,
+            { method: "POST" }
+          );
+        }
       case "macro":
         if (buttonData.isOn !== undefined) {
           plugState(!buttonData.isOn, buttonData.name);
         }
-        return fetch(
-          `${baseURL}/control/macro/send/${buttonData.name}`,
-          { method: "POST" }
-        );
+        return fetch(`${baseURL}/control/macro/send/${buttonData.name}`, {
+          method: "POST"
+        });
       case "switch":
         plugState(!buttonData.isOn, buttonData.name);
         return fetch(
@@ -204,7 +210,7 @@ export default class MainButtons extends React.Component<Props, State> {
       this.setState({ alertMessage: message, alertOpen: true });
 
     const deleteButton = () => {
-      const button = this.state.button
+      const button = this.state.button;
       this.setState(this.defaultState);
       if (button) {
         fetch(
@@ -240,10 +246,10 @@ export default class MainButtons extends React.Component<Props, State> {
         room: this.props.currentRoom
       };
 
-      fetch(
-        `${baseURL}/config/button`,
-        { method: "POST", body: JSON.stringify(orderedButton) }
-      ).then(res => {
+      fetch(`${baseURL}/config/button`, {
+        method: "POST",
+        body: JSON.stringify(orderedButton)
+      }).then(res => {
         if (!res.ok) {
           res.text().then(text => alert(`Failed to create button: ${text}`));
         }

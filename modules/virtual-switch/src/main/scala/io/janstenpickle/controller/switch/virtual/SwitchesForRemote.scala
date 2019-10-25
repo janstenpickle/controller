@@ -44,14 +44,16 @@ object SwitchesForRemote {
               store.getState(virtual.remote, device, name).flatMap {
                 case State.On => ().pure
                 case State.Off =>
-                  remotes.send(virtual.remote, device, name) *> store.setOn(virtual.remote, device, name)
+                  remotes.send(virtual.remote, virtual.commandSource, device, name) *> store
+                    .setOn(virtual.remote, device, name)
 
               }
 
             override def switchOff: F[Unit] =
               store.getState(virtual.remote, device, name).flatMap {
                 case State.On =>
-                  remotes.send(virtual.remote, device, name) *> store.setOff(virtual.remote, device, name)
+                  remotes.send(virtual.remote, virtual.commandSource, device, name) *> store
+                    .setOff(virtual.remote, device, name)
                 case State.Off => ().pure
               }
           }

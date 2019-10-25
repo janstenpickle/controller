@@ -28,6 +28,7 @@ trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
   def isPlaying: F[Boolean]
   def nowPlaying: F[Option[NowPlaying]]
   def volume: F[Int]
+  def isMuted: F[Boolean]
   def group: F[Unit]
   def unGroup: F[Unit]
   def isGrouped: F[Boolean]
@@ -40,6 +41,7 @@ object SonosDevice {
     volume: Int,
     isGrouped: Boolean,
     isPlaying: Boolean,
+    isMuted: Boolean,
     nowPlaying: Option[NowPlaying],
     isController: Boolean,
     devicesInGroup: Set[String]
@@ -69,6 +71,10 @@ object SonosDevice {
       }
     }
 
+    def _isMuted: F[Boolean] = span("ReadIsMuted") {
+      blocker.delay(underlying.isMuted)
+    }
+
     def _nowPlaying: F[Option[NowPlaying]] = span("ReadNowPlaying") {
       blocker.delay(underlying.getCurrentTrackInfo).map { trackInfo =>
         def element(f: TrackMetadata => String): Option[String] = Option(f(trackInfo.getMetadata)).filterNot(_.isEmpty)
@@ -81,10 +87,11 @@ object SonosDevice {
     }
 
     def refreshState: F[DeviceState] = span("RefreshState") {
-      Parallel.parMap6(
+      Parallel.parMap7(
         trace.span("getVolume")(blocker.delay(underlying.getVolume)),
         trace.span("isJoined")(blocker.delay(underlying.isJoined)),
         _isPlaying,
+        _isMuted,
         _nowPlaying,
         trace.span("isCoordinator")(blocker.delay(underlying.isCoordinator)),
         trace.span("devicesInGroup")(blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
@@ -201,7 +208,15 @@ object SonosDevice {
           } yield ()
         }
 
-        override def mute: F[Unit] = span("Mute") { blocker.delay(underlying.switchMute()) }
+        override def mute: F[Unit] = span("Mute") {
+          blocker.delay(underlying.setMute(true)) *> state.update(_.copy(isMuted = true)) *> onUpdate()
+        }
+
+        override def unMute: F[Unit] = span("UnMute") {
+          blocker.delay(underlying.setMute(false)) *> state.update(_.copy(isMuted = false)) *> onUpdate()
+        }
+
+        override def isMuted: F[Boolean] = span("IsMuted") { state.get.map(_.isMuted) }
 
         override def next: F[Unit] = span("Next") {
           blocker.delay(underlying.next()) *> refreshNowPlaying *> onUpdate()

@@ -3,10 +3,13 @@ package io.janstenpickle.controller.api.endpoint
 import cats.data.ValidatedNel
 import cats.effect.{Concurrent, Timer}
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
+import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.apply._
 import cats.~>
+import eu.timepit.refined.collection.NonEmpty
+import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe._
 import extruder.refined._
@@ -149,5 +152,4 @@ object ConfigApi {
     }
 
   object OptionalDurationParamMatcher extends ValidatingOptionalQueryParamDecoderMatcher[FiniteDuration]("interval")
-
 }

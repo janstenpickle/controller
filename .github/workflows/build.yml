@@ -30,4 +30,5 @@ jobs:
     - name: docker login
       run: docker login -u janstenpickle -p '${{secrets.DOCKERHUB}}'
     - name: scala build
-      run: "sbt '; project api; docker:publish'"
+      run: |
+        sbt '; project api; docker:publish' -J-Xms3G -J-Xmx6G

@@ -30,13 +30,18 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
       trace.put("error" -> errors.nonEmpty, "error.count" -> errors.size).as(errors)
     }
 
-  private def validateContextButtons(
-    buttons: List[ContextButtonMapping]
-  )(remoteCommands: List[RemoteCommand], macros: List[NonEmptyString]): List[ValidationFailure] =
+  private def validateContextButtons(buttons: List[ContextButtonMapping])(
+    remoteCommands: List[RemoteCommand],
+    switches: List[SwitchKey],
+    macros: List[NonEmptyString]
+  ): List[ValidationFailure] =
     buttons.flatMap {
-      case ContextButtonMapping.Remote(_, remote, device, command) =>
-        val cmd = model.RemoteCommand(remote, device, command)
+      case ContextButtonMapping.Remote(_, remote, commandSource, device, command) =>
+        val cmd = model.RemoteCommand(remote, commandSource, device, command)
         conditionalFailure(!remoteCommands.contains(cmd))(ValidationFailure.RemoteCommandNotFound(cmd))
+      case ContextButtonMapping.ToggleSwitch(_, device, switch) =>
+        val key = SwitchKey(device, switch)
+        conditionalFailure(!switches.contains(key))(ValidationFailure.SwitchNotFound(key))
       case ContextButtonMapping.Macro(_, m) =>
         conditionalFailure(!macros.contains(m))(ValidationFailure.MacroNotFound(m))
     }
@@ -48,8 +53,8 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
       "activity.room" -> activity.room.value
     )(
       Parallel
-        .parMap2(remoteControls.listCommands, macros.listMacros) { (cmds, ms) =>
-          validateContextButtons(activity.contextButtons)(cmds, ms) ++ conditionalFailure(
+        .parMap3(remoteControls.listCommands, switches.list, macros.listMacros) { (cmds, sws, ms) =>
+          validateContextButtons(activity.contextButtons)(cmds, sws, ms) ++ conditionalFailure(
             !ms.contains(NonEmptyString.unsafeFrom(s"${activity.room.value}-${activity.name.value}"))
           )(ValidationFailure.MacroNotFound(activity.name))
         }
@@ -63,7 +68,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
   ): List[ValidationFailure] =
     buttons.flatMap {
       case button: Button.Remote =>
-        val cmd = model.RemoteCommand(button.remote, button.device, button.name)
+        val cmd = model.RemoteCommand(button.remote, button.commandSource, button.device, button.name)
         conditionalFailure(!remoteCommands.contains(cmd))(ValidationFailure.RemoteCommandNotFound(cmd))
       case button: Button.Switch =>
         val key = SwitchKey(button.device, button.name)

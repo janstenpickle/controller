@@ -139,14 +139,22 @@ object MetricsSink {
         )
 
       // Remote stats
-      case SendRemoteCommand(remote, device, name) =>
+      case SendRemoteCommand(remote, commandSource, device, name) =>
         getOrCreateCounter(
           "send_remote_command",
           "Records sending of a remote control command",
           "remote_name",
           "device_name",
-          "command"
-        ).inc(remote.value, device.value, name.value)
+          "command",
+          "command_source_name",
+          "command_source_type"
+        ).inc(
+          remote.value,
+          device.value,
+          name.value,
+          commandSource.fold("")(_.name.value),
+          commandSource.fold("")(_.`type`.value)
+        )
       case LearnRemoteCommand(remote, device, name) =>
         getOrCreateCounter(
           "learn_remote_command",

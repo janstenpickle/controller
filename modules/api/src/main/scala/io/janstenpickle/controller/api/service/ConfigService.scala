@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.api.service
 
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, OptionT}
 import cats.effect.Sync
 import cats.instances.list._
 import cats.syntax.flatMap._
@@ -12,7 +12,14 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
-import io.janstenpickle.controller.model.Button.{MacroIcon, MacroLabel, SwitchIcon, SwitchLabel}
+import io.janstenpickle.controller.model.Button.{
+  ContextIcon,
+  ContextLabel,
+  MacroIcon,
+  MacroLabel,
+  SwitchIcon,
+  SwitchLabel
+}
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
 import io.janstenpickle.controller.switch.Switches
@@ -66,6 +73,18 @@ class ConfigService[F[_]: Parallel] private (
           }
     }
 
+  private def contextSwitchStateIfPresent(name: NonEmptyString, room: Option[Room]): F[Option[Boolean]] =
+    (for {
+      r <- OptionT.fromOption[F](room)
+      a <- OptionT(activityStore.loadActivity(r))
+      act <- OptionT(activity.getValue(a.value))
+      button <- OptionT.fromOption[F](act.contextButtons.find(_.name == name))
+      state <- button match {
+        case ContextButtonMapping.ToggleSwitch(_, device, switch) => OptionT(macroSwitchState(device, switch))
+        case _ => OptionT.none[F, Boolean]
+      }
+    } yield state).value
+
   private def addSwitchState[G[_]: Traverse](buttons: G[Button]): F[G[Button]] = buttons.parTraverse {
     case button: SwitchIcon => doIfPresent(button.device, button.name, button, state => button.copy(isOn = state.isOn))
     case button: SwitchLabel => doIfPresent(button.device, button.name, button, state => button.copy(isOn = state.isOn))
@@ -73,6 +92,10 @@ class ConfigService[F[_]: Parallel] private (
       macroSwitchStateIfPresent(macroButton.name).map(isOn => macroButton.copy(isOn = isOn))
     case macroButton: MacroLabel =>
       macroSwitchStateIfPresent(macroButton.name).map(isOn => macroButton.copy(isOn = isOn))
+    case contextButton: ContextIcon =>
+      contextSwitchStateIfPresent(contextButton.name, contextButton.room).map(isOn => contextButton.copy(isOn = isOn))
+    case contextButton: ContextLabel =>
+      contextSwitchStateIfPresent(contextButton.name, contextButton.room).map(isOn => contextButton.copy(isOn = isOn))
     case button: Any => F.pure(button)
   }
 

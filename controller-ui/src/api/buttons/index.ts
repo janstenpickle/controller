@@ -16,7 +16,7 @@ export function mapToButtons(data: any): RemoteButtons[] {
     let val = data.values[key];
     buttons.push(mapToButton(val));
   }
-
+  
   return buttons;
 }
 

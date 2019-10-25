@@ -43,7 +43,7 @@ object Macro {
       }
 
     def executeCommand(command: Command): F[Unit] = command match {
-      case Command.Remote(remote, device, n) => remotes.send(remote, device, n)
+      case Command.Remote(remote, commandSource, device, n) => remotes.send(remote, commandSource, device, n)
       case Command.Sleep(millis) => timer.sleep(millis.milliseconds)
       case Command.ToggleSwitch(device, switch) => switches.toggle(device, switch)
       case Command.SwitchOn(device, switch) => switches.switchOn(device, switch)
