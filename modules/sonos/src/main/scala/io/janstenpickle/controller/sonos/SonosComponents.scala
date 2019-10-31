@@ -6,6 +6,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
+import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.model.{Activity, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
@@ -27,9 +28,8 @@ object SonosComponents {
     remoteName: Option[NonEmptyString],
     combinedDeviceName: Option[NonEmptyString],
     switchDeviceName: Option[NonEmptyString],
-    polling: SonosDiscovery.Polling,
+    polling: Discovery.Polling,
     commandTimeout: FiniteDuration = 5.seconds,
-    switchCacheTimeout: FiniteDuration = 500.millis,
     remotesCacheTimeout: FiniteDuration = 2.seconds,
     allRooms: Boolean = true
   ) {
@@ -40,19 +40,14 @@ object SonosComponents {
       activity.copy(remoteName = remote, combinedDeviceName = combinedDevice)
   }
 
-  def apply[F[_]: ContextShift: Timer: Parallel: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
     config: Config,
     onUpdate: () => F[Unit],
     blocker: Blocker,
     onDeviceUpdate: () => F[Unit]
-  )(
-    implicit F: Concurrent[F],
-    errors: RemoteControlErrors[F],
-    liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, SonosComponents[F]] =
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SonosComponents[F]] =
     for {
       remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
-
       discovery <- SonosDiscovery
         .polling[F, G](config.polling, config.commandTimeout, onUpdate, blocker, onDeviceUpdate)
     } yield {

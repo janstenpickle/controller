@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.api.config
 
 import java.io.File
+import java.net.InetAddress
 import java.nio.file.{Path, Paths}
 
 import cats.effect.{Blocker, ContextShift, Sync}
@@ -16,6 +17,7 @@ import extruder.refined._
 import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig
 import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.sonos.SonosComponents
@@ -34,6 +36,7 @@ object Configuration {
     hs100: HS100,
     sp: Sp,
     sonos: SonosComponents.Config,
+    kodi: KodiComponents.Config,
     config: ConfigData,
     server: Server,
     activity: Activity,
@@ -58,6 +61,7 @@ object Configuration {
 
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
   implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))
+  implicit val inetAddressParser: Parser[InetAddress] = Parser.fromTry(addr => Try(InetAddress.getByName(addr)))
 
   def load[F[_]: Sync: ContextShift: ExtruderErrors](blocker: Blocker, config: Option[File] = None): F[Config] =
     blocker
