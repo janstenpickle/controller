@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.api.trace
 
-import natchez.TraceValue
-import org.http4s.{Headers, Request, Response}
+import natchez.{Kernel, TraceValue}
+import org.http4s.{Header, Headers, Request, Response}
 
 object Http4sUtils {
   def headerMap(headers: Headers, `type`: String): List[(String, TraceValue)] = headers.toList.map { h =>
@@ -19,4 +19,14 @@ object Http4sUtils {
       resp.headers,
       "resp"
     )
+
+  def reqKernel[F[_]](req: Request[F]): Kernel =
+    Kernel(req.headers.toList.map { h =>
+      h.name.value -> h.value
+    }.toMap)
+
+  def kernelToHeaders(kernel: Kernel): List[Header] =
+    kernel.toHeaders.toList.map {
+      case (k, v) => Header(k, v)
+    }
 }

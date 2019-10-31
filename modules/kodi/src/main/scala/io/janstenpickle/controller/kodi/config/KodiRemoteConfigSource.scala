@@ -1,0 +1,131 @@
+package io.janstenpickle.controller.kodi.config
+
+import cats.effect.Async
+import cats.instances.list._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import cats.syntax.parallel._
+import cats.{Functor, Parallel}
+import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.config.trace.TracedConfigSource
+import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
+import io.janstenpickle.controller.kodi.KodiRemoteControl._
+import io.janstenpickle.controller.kodi.{Commands, KodiDiscovery}
+import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, SwitchIcon}
+import io.janstenpickle.controller.model.{Button, Remote}
+import natchez.Trace
+import scalacache.Cache
+import scalacache.CatsEffect.modes._
+
+object KodiRemoteConfigSource {
+  def apply[F[_]: Parallel: Trace](
+    remoteName: NonEmptyString,
+    activityName: NonEmptyString,
+    discovery: KodiDiscovery[F],
+    cache: Cache[ConfigResult[NonEmptyString, Remote]]
+  )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] = {
+
+    def remoteIcon(
+      device: NonEmptyString,
+      command: NonEmptyString,
+      icon: NonEmptyString,
+      newRow: Boolean = false,
+      colored: Boolean = false
+    ) = RemoteIcon(remoteName, CommandSource, device, command, icon, Some(newRow), Some(colored), None, None)
+
+    def remoteLabel(
+      device: NonEmptyString,
+      command: NonEmptyString,
+      label: NonEmptyString,
+      newRow: Boolean = false,
+      colored: Boolean = false
+    ) = RemoteLabel(remoteName, CommandSource, device, command, label, Some(newRow), Some(colored), None, None)
+
+    def switchIcon(name: NonEmptyString, icon: NonEmptyString, isOn: Boolean, newRow: Boolean = false): SwitchIcon =
+      SwitchIcon(name, remoteName, icon, isOn, Some(newRow), None, None, None)
+
+    def mainTemplate(device: NonEmptyString, isPlaying: Boolean): List[Button] =
+      List(
+        remoteIcon(device, Commands.Up, NonEmptyString("keyboard_arrow_up"), newRow = true),
+        remoteIcon(device, Commands.Left, NonEmptyString("keyboard_arrow_left")),
+        remoteIcon(device, Commands.Select, NonEmptyString("done"), colored = true),
+        remoteIcon(device, Commands.Right, NonEmptyString("keyboard_arrow_right")),
+        remoteIcon(device, Commands.Down, NonEmptyString("keyboard_arrow_down"), newRow = true),
+        remoteIcon(device, Commands.SeekBack, NonEmptyString("fast_rewind")),
+        remoteIcon(device, Commands.Back, NonEmptyString("undo")),
+        switchIcon(
+          NonEmptyString.unsafeFrom(s"${device.value}_playpause"),
+          if (isPlaying) NonEmptyString("pause") else NonEmptyString("play_arrow"),
+          isPlaying
+        ),
+        remoteIcon(device, Commands.SeekForward, NonEmptyString("fast_forward")),
+      )
+
+    def secondaryTemplate(device: NonEmptyString, isMuted: Boolean): List[Button] = List(
+      remoteLabel(device, Commands.ScanVideoLibrary, NonEmptyString("Scan"), colored = true),
+      remoteLabel(device, Commands.Subtitles, NonEmptyString("Subs"), colored = true),
+      remoteLabel(device, Commands.OSD, NonEmptyString("OSD"), colored = true),
+      switchIcon(
+        NonEmptyString.unsafeFrom(s"${device.value}_mute"),
+        if (isMuted) NonEmptyString("volume_up") else NonEmptyString("volume_off"),
+        isMuted,
+        newRow = true
+      ),
+      remoteIcon(device, Commands.VolDown, NonEmptyString("volume_down")),
+      remoteIcon(device, Commands.VolUp, NonEmptyString("volume_up"))
+    )
+
+    TracedConfigSource(
+      new ConfigSource[F, NonEmptyString, Remote] {
+        override def getConfig: F[ConfigResult[NonEmptyString, Remote]] =
+          cache.cachingForMemoizeF(s"${remoteName.value}_remotes")(None)(
+            discovery.devices
+              .flatMap(_.values.toList.parFlatTraverse {
+                device =>
+                  for {
+                    playing <- device.isPlaying
+                    muted <- device.isMuted
+                    metadata <- device.playerDetails
+                  } yield
+                    List(
+                      NonEmptyString.unsafeFrom(s"${device.name.value}-1") ->
+                        Remote(
+                          NonEmptyString.unsafeFrom(s"kodi-${remoteName.value.toLowerCase}-1"),
+                          remoteName,
+                          mainTemplate(device.name, playing),
+                          Set(activityName),
+                          List(device.room),
+                          None,
+                          metadata
+                        ),
+                      NonEmptyString.unsafeFrom(s"${device.name.value}-2") -> Remote(
+                        NonEmptyString.unsafeFrom(s"kodi-${remoteName.value.toLowerCase}-2"),
+                        remoteName,
+                        secondaryTemplate(device.name, muted),
+                        Set(activityName),
+                        List(device.room),
+                        None,
+                        metadata
+                      )
+                    )
+              })
+              .map(
+                remotes =>
+                  ConfigResult(
+                    remotes
+                      .sortBy(_._1.value)
+                      .toMap,
+                    List.empty
+                )
+              )
+          )
+
+        override def getValue(key: NonEmptyString): F[Option[Remote]] = getConfig.map(_.values.get(key))
+
+        override def functor: Functor[F] = F
+      },
+      "remotes",
+      "kodi"
+    )
+  }
+}

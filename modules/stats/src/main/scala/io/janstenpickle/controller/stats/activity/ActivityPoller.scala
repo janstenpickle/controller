@@ -8,6 +8,7 @@ import io.janstenpickle.controller.model.Activity
 import io.janstenpickle.controller.stats.Stats
 
 import scala.concurrent.duration.FiniteDuration
+import scala.collection.compat._
 
 object ActivityPoller {
   def apply[F[_]: Concurrent: Timer](
@@ -24,8 +25,12 @@ object ActivityPoller {
       .map { activities =>
         Stats.Activities(
           activities.errors.size,
-          activities.values.values.groupBy(_.room).mapValues(_.size),
-          activities.values.values.groupBy(_.room).mapValues(_.map(a => a.name -> a.contextButtons.size).toMap)
+          activities.values.values.groupBy(_.room).view.mapValues(_.size).toMap,
+          activities.values.values
+            .groupBy(_.room)
+            .view
+            .mapValues(_.map(a => a.name -> a.contextButtons.size).toMap)
+            .toMap
         )
       }
 }

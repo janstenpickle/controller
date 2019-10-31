@@ -8,7 +8,7 @@ import cats.instances.list._
 import cats.instances.string._
 import eu.timepit.refined.cats._
 
-case class ConfigResult[K, V](values: Map[K, V], errors: List[String] = List.empty)
+case class ConfigResult[K, V](values: Map[K, V] = Map.empty[K, V], errors: List[String] = List.empty)
 
 object ConfigResult {
   implicit def configResultMonoid[K, V]: Monoid[ConfigResult[K, V]] = new Monoid[ConfigResult[K, V]] {

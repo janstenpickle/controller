@@ -21,8 +21,8 @@ object TracedActivityStore {
       trace.put(fields("room" -> room.value, "activity" -> name.value): _*) *> store.storeActivity(room, name)
     }
     override def loadActivity(room: Room): F[Option[NonEmptyString]] = trace.span("loadActivity") {
-      trace.put(fields("room" -> room.value): _*) *> store.loadActivity(room).flatMap { activity =>
-        trace.put("activity.exists" -> activity.isDefined).as(activity)
+      trace.put(fields("room" -> room.value): _*) *> store.loadActivity(room).flatTap { activity =>
+        trace.put("activity.exists" -> activity.isDefined)
       }
     }
   }

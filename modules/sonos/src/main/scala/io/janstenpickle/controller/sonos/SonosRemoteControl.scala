@@ -49,8 +49,8 @@ object SonosRemoteControl {
           }
 
           def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] = trace.span("sonosListDevices") {
-            discovery.devices.map(_.updated(combinedDeviceName, combinedDevice)).flatMap { devices =>
-              trace.put("device.count" -> devices.size).as(devices)
+            discovery.devices.map(_.updated(combinedDeviceName, combinedDevice)).flatTap { devices =>
+              trace.put("device.count" -> devices.size)
             }
           }
 

@@ -6,8 +6,9 @@ import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.concurrent.Topic
 import io.janstenpickle.controller.model.Command
-import io.janstenpickle.controller.model.Command.{Macro, Remote, Sleep, SwitchOff, SwitchOn, ToggleSwitch}
 import io.janstenpickle.controller.stats._
+
+import scala.collection.compat._
 
 trait MacroStatsRecorder[F[_]] {
   def recordStoreMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit]
@@ -24,7 +25,9 @@ object MacroStatsRecorder {
             name,
             commands
               .groupBy(commandType)
+              .view
               .mapValues(_.size)
+              .toMap
           )
         )
 

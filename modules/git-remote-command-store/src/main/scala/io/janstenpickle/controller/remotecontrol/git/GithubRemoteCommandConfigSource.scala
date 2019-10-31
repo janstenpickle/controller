@@ -19,38 +19,34 @@ import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import eu.timepit.refined.{refineMV, refineV}
-import github4s.Github
-import github4s.Github._
-import github4s.GithubResponses.{GHIO, GHResponse}
-import github4s.free.domain.{Content, Pagination}
-import github4s.free.interpreters.{Capture, Interpreters}
-import github4s.jvm.Implicits._
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.circe.Decoder
+import io.circe.generic.auto._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.{CommandPayload, RemoteCommandKey}
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource._
 import natchez.Trace
-import scalaj.http.HttpResponse
+import org.http4s.circe._
+import org.http4s.client.Client
+import org.http4s.client.dsl.Http4sClientDsl
+import org.http4s.dsl.Http4sDsl
+import org.http4s.{Credentials, EntityDecoder, Uri}
+import org.http4s.headers.Authorization
+import org.http4s.util.CaseInsensitiveString
 
 import scala.concurrent.duration._
 
 class GithubRemoteCommandConfigSource[F[_]: Parallel](
-  github: Github,
   repos: NonEmptyList[Repo],
   listRemote: () => F[RepoListing],
   gv: (Repo, RemoteCommandKey) => F[Option[CommandPayload]]
 )(implicit F: Sync[F], trace: Trace[F])
     extends ConfigSource[F, RemoteCommandKey, CommandPayload] {
-  private implicit val capture: Capture[F] = new Capture[F] {
-    override def capture[A](a: => A): F[A] = F.delay(a)
-  }
 
-  override implicit def functor: Functor[F] = F
-
-  private implicit val interpreters: Interpreters[F, HttpResponse[String]] = new Interpreters[F, HttpResponse[String]]()
+  override def functor: Functor[F] = F
 
   override def getValue(key: RemoteCommandKey): F[Option[CommandPayload]] =
     repos.toList
@@ -72,17 +68,21 @@ class GithubRemoteCommandConfigSource[F[_]: Parallel](
     listRemote().map(
       _.map { case (repo, device, name, _) => RemoteCommandKey(commandSource(repo), device, name) }.toSet
     )
-
 }
 
 object GithubRemoteCommandConfigSource {
   final val DefaultRepo = Repo(refineMV("global"), refineMV("janstenpickle"), refineMV("broadlink-remote-commands"))
 
+  private final val reposUri = "https://api.github.com/repos"
+
+  private implicit def eitherDecoder[A: Decoder, B: Decoder]: Decoder[Either[A, B]] =
+    Decoder[A].map(Either.left[A, B](_)).or(Decoder[B].map(Either.right[A, B](_)))
+
   case class Config(
     repos: List[Repo] = List.empty,
     accessToken: Option[NonEmptyString] = None,
     localCacheDir: Path = Paths.get("/", "tmp", "controller", "cache", "remote-command"),
-    gitPollInterval: FiniteDuration = 5.minutes,
+    gitPollInterval: FiniteDuration = 1.hour,
     cachePollInterval: FiniteDuration = 30.seconds,
     pollErrorThreshold: PosInt = PosInt(3),
     autoUpdate: Boolean = true
@@ -92,42 +92,48 @@ object GithubRemoteCommandConfigSource {
 
   private final val hexSuffix = ".hex"
 
-  def apply[F[_]: Parallel, G[_]: Concurrent: Timer](config: Config, onUpdate: Any => F[Unit])(
+  case class Content(`type`: String, name: String, path: String, encoding: Option[String], content: Option[String])
+  case class Commit(commit: CommitInfo)
+  case class CommitInfo(committer: Committer)
+  case class Committer(date: Instant)
+
+  def apply[F[_]: Parallel, G[_]: Concurrent: Timer](client: Client[F], config: Config, onUpdate: Any => F[Unit])(
     implicit F: Sync[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, GithubRemoteCommandConfigSource[F]] = {
-    val github = Github(config.accessToken.map(_.value))
+    val dsl = new Http4sDsl[F] with Http4sClientDsl[F] {}
+    import dsl._
+
+    implicit val contentsDecoder: EntityDecoder[F, Either[Content, NonEmptyList[Content]]] =
+      jsonOf[F, Either[Content, NonEmptyList[Content]]]
+    implicit val commitDecoder: EntityDecoder[F, List[Commit]] = jsonOf[F, List[Commit]]
+
     lazy val repos = NonEmptyList(DefaultRepo, config.repos)
     lazy val reversedRepos = repos.reverse
 
-    implicit val capture: Capture[F] = new Capture[F] {
-      override def capture[A](a: => A): F[A] = F.delay(a)
-    }
-
-    implicit val interpreters: Interpreters[F, HttpResponse[String]] = new Interpreters[F, HttpResponse[String]]()
-
     implicit val epochOrder: Ordering[Long] = Ordering.Long.reverse
 
-    def exec[A](a: GHIO[GHResponse[A]]): F[Option[A]] =
-      trace.span("execGithubOp") {
-        a.exec[F, HttpResponse[String]]().flatMap {
-          case Left(th) =>
-            if (th.getMessage.contains("404")) trace.put("error" -> false).as(None)
-            else trace.put("error" -> true) *> F.raiseError(th)
-          case Right(r) => trace.put("error" -> false).as(Some(r.result))
-        }
-      }
+    def makeRequest(path: String) =
+      F.fromEither(Uri.fromString(s"$reposUri/$path"))
+        .flatMap(
+          GET(
+            _,
+            config.accessToken
+              .map(t => Authorization(Credentials.Token(CaseInsensitiveString("Bearer"), t.value)))
+              .toSeq: _*
+          )
+        )
 
     def keyPath(key: RemoteCommandKey) = s"${key.device.value}/${key.name.value}$hexSuffix"
 
     def loadRepoPath(repo: Repo, path: String): OptionT[F, NonEmptyList[Content]] =
-      OptionT(trace.span("loadRepoPath") {
-        repoTraceKeys(repo) *> trace.put("path" -> path) *> exec(
-          github.repos
-            .getContents(repo.owner.value, repo.repo.value, path, repo.ref.map(_.value))
+      OptionT(for {
+        req <- makeRequest(
+          s"${repo.owner.value}/${repo.repo.value}/contents/$path${repo.ref.fold("")(r => s"?ref=${r.value}")}"
         )
-      })
+        resp <- client.expectOption[Either[Content, NonEmptyList[Content]]](req)
+      } yield resp.map(_.leftMap(NonEmptyList.one).merge))
 
     def listRemote: F[List[(Repo, NonEmptyString, NonEmptyString, Content)]] =
       trace.span("listRemoteGithub") {
@@ -161,13 +167,20 @@ object GithubRemoteCommandConfigSource {
               base64Value <- file.content
               hexValue <- Either
                 .catchNonFatal(
-                  new String(Base64.getDecoder.decode(base64Value.replaceAll("\\s+", ""))).replaceAllLiterally("\n", "")
+                  new String(Base64.getDecoder.decode(base64Value.replaceAll("\\s+", "")))
+                    .replaceAllLiterally("\n", "")
                 )
                 .toOption
             } yield file -> CommandPayload(hexValue)
           case _ => None
         }.value
       }
+
+    def getCommit(repo: Repo, path: String): F[Option[List[Commit]]] =
+      for {
+        req <- makeRequest(s"${repo.owner.value}/${repo.repo.value}/commits?page=0&per_page=1&path=$path")
+        resp <- client.expectOption[List[Commit]](req)
+      } yield resp
 
     def cacheDownload(
       cache: LocalCache[F],
@@ -178,19 +191,9 @@ object GithubRemoteCommandConfigSource {
     ): F[Unit] = trace.span("cacheGithubDownload") {
       for {
         _ <- repoTraceKeys(repo)
-        commits <- exec(
-          github.repos
-            .listCommits(
-              repo.owner.value,
-              repo.repo.value,
-              path = Some(content.path),
-              pagination = Some(Pagination(0, 1))
-            )
-        )
-        dates <- commits.toList.flatten.parTraverse { commit =>
-          F.delay(Instant.parse(commit.date).toEpochMilli)
-        }
-        _ <- cache.store(repo, dates.sorted.headOption.getOrElse(0L), key, payload)
+        commits <- getCommit(repo, content.path)
+        date = commits.toList.flatMap(_.map(_.commit.committer.date.toEpochMilli)).sorted.headOption.getOrElse(0L)
+        _ <- cache.store(repo, date, key, payload)
       } yield ()
     }
 
@@ -288,7 +291,7 @@ object GithubRemoteCommandConfigSource {
 
       _ <- updatePoller(localCache, logger)
 
-    } yield new GithubRemoteCommandConfigSource[F](github, repos, repoListingPoller, getValue(localCache))
+    } yield new GithubRemoteCommandConfigSource[F](repos, repoListingPoller, getValue(localCache))
   }
 
 }

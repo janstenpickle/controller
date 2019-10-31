@@ -23,14 +23,14 @@ object TracedMacroStore {
     }
 
     override def loadMacro(name: NonEmptyString): F[Option[NonEmptyList[Command]]] = trace.span("loadMacro") {
-      trace.put(fields("name" -> name.value): _*) *> store.loadMacro(name).flatMap { commands =>
-        trace.put("macro.exists" -> commands.isDefined).as(commands)
+      trace.put(fields("name" -> name.value): _*) *> store.loadMacro(name).flatTap { commands =>
+        trace.put("macro.exists" -> commands.isDefined)
       }
     }
 
     override def listMacros: F[List[NonEmptyString]] = trace.span("listMacros") {
-      trace.put(fields(): _*) *> store.listMacros.flatMap { macros =>
-        trace.put("macros" -> macros.size).as(macros)
+      trace.put(fields(): _*) *> store.listMacros.flatTap { macros =>
+        trace.put("macros" -> macros.size)
       }
     }
   }

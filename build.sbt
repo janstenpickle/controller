@@ -1,17 +1,18 @@
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
-val catsVer = "2.0.0-RC2"
-val catsEffectVer = "2.0.0-RC2"
-val circeVer = "0.11.1"
-val extruderVer = "0.10.1"
-val fs2Ver = "1.0.5"
-val http4sVer = "0.20.10"
-val kittensVer = "1.2.1"
-val log4catsVer = "1.0.0-RC3"
-val natchezVer = "0.0.8"
+val catsVer = "2.0.0"
+val catsEffectVer = "2.0.0"
+val circeVer = "0.12.1"
+val collectionCompatVer = "2.1.2"
+val extruderVer = "0.11.0"
+val fs2Ver = "2.1.0"
+val http4sVer = "0.21.0-M5"
+val kittensVer = "2.0.0"
+val log4catsVer = "1.0.1"
+val natchezVer = "0.0.10"
 val prometheusVer = "0.6.0"
-val refinedVer = "0.9.9"
-val scalaCacheVer = "0.27.0"
+val refinedVer = "0.9.10"
+val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.0.8"
@@ -20,6 +21,7 @@ val commonSettings = Seq(
   organization := "io.janstenpickle",
   scalaVersion := "2.12.10",
   scalacOptions ++= Seq(
+    "-deprecation",
     "-unchecked",
     "-feature",
     "-deprecation:false",
@@ -27,13 +29,11 @@ val commonSettings = Seq(
     "-Xlint:-nullary-unit",
     "-Ywarn-numeric-widen",
     "-Ywarn-dead-code",
-    "-Yno-adapted-args",
     "-language:_",
-    "-target:jvm-1.8",
     "-encoding",
     "UTF-8"
   ),
-  addCompilerPlugin(("org.typelevel" %% "kind-projector" % "0.10.3").cross(CrossVersion.binary)),
+  addCompilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.patch)),
 //  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
   publishMavenStyle := true,
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
@@ -63,7 +63,8 @@ val commonSettings = Seq(
   assemblyExcludedJars in assembly := {
     val cp = (fullClasspath in assembly).value
     cp.filter { _.data.getName.contains("slf4j-jdk14") }
-  }
+  },
+  publishArtifact in packageDoc := false
 )
 
 lazy val root = (project in file("."))
@@ -82,6 +83,7 @@ lazy val root = (project in file("."))
     hs100Switch,
     poller,
     pollingSwitch,
+    kodi,
     switch,
     sonosClientSubmodule,
     virtualSwitch,
@@ -97,9 +99,10 @@ lazy val api = (project in file("modules/api"))
     packageName in Docker := "controller",
     dockerRepository := Some("janstenpickle"),
     dockerUpdateLatest := true,
-    dockerBaseImage := "openjdk:11",
+    dockerBaseImage := "openjdk:13",
     dockerExposedPorts += 8090,
     daemonUserUid in Docker := Some("9000"),
+    javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
     dockerPermissionStrategy := DockerPermissionStrategy.Run,
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "refined-cats"              % refinedVer,
@@ -109,12 +112,13 @@ lazy val api = (project in file("modules/api"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
+      "org.http4s"        %% "http4s-blaze-client"       % http4sVer,
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"             % "0.5.0",
+      "org.typelevel"     %% "cats-mtl-core"             % "0.7.0",
       "org.tpolecat"      %% "natchez-jaeger"            % natchezVer
     ),
     mappings in Universal := {
@@ -136,6 +140,7 @@ lazy val api = (project in file("modules/api"))
     `macro`,
     activity,
     sonos,
+    kodi,
     virtualSwitch,
     multiSwitch,
     stats,
@@ -189,7 +194,10 @@ lazy val extruderConfigSource = (project in file("modules/extruder-config-source
   .settings(commonSettings)
   .settings(
     name := "controller-extruder-config-source",
-    libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+    libraryDependencies ++= Seq(
+      "io.chrisdavenport"      %% "log4cats-slf4j"          % log4catsVer,
+      "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
+    )
   )
   .dependsOn(configSource, extruder, tracedConfigSource)
 
@@ -317,9 +325,11 @@ lazy val poller = (project in file("modules/poller"))
   .settings(
     name := "controller-poller",
     libraryDependencies ++= Seq(
-      "co.fs2"       %% "fs2-core"     % fs2Ver,
-      "eu.timepit"   %% "refined"      % refinedVer,
-      "org.tpolecat" %% "natchez-core" % natchezVer
+      "co.fs2"                 %% "fs2-core"                % fs2Ver,
+      "eu.timepit"             %% "refined"                 % refinedVer,
+      "org.tpolecat"           %% "natchez-core"            % natchezVer,
+      "org.typelevel"          %% "cats-effect"             % catsEffectVer,
+      "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
   .dependsOn(arrow)
@@ -328,7 +338,11 @@ lazy val stats = (project in file("modules/stats"))
   .settings(commonSettings)
   .settings(
     name := "controller-stats",
-    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "eu.timepit" %% "refined" % refinedVer)
+    libraryDependencies ++= Seq(
+      "co.fs2"                 %% "fs2-core"                % fs2Ver,
+      "eu.timepit"             %% "refined"                 % refinedVer,
+      "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
+    )
   )
   .dependsOn(remoteControl, activity, `macro`, switch, configSource)
 
@@ -367,8 +381,11 @@ lazy val gitRemoteStore = (project in file("modules/git-remote-command-store"))
       "org.typelevel"     %% "cats-effect"    % catsEffectVer,
       "org.typelevel"     %% "kittens"        % kittensVer,
       "org.tpolecat"      %% "natchez-core"   % natchezVer,
-      "eu.timepit"        %% "refined-cats"   % refinedVer,
-      "com.47deg"         %% "github4s"       % "0.20.1"
+      "org.http4s"        %% "http4s-dsl"     % http4sVer,
+      "org.http4s"        %% "http4s-client"  % http4sVer,
+      "org.http4s"        %% "http4s-circe"   % http4sVer,
+      "io.circe"          %% "circe-generic"  % circeVer,
+      "eu.timepit"        %% "refined-cats"   % refinedVer
     )
   )
   .dependsOn(poller, store)
@@ -388,8 +405,38 @@ lazy val sonos = (project in file("modules/sonos"))
     tracedSwitch,
     configSource,
     tracedConfigSource,
-    poller
+    dynamicDiscovery
   )
+
+lazy val kodi = (project in file("modules/kodi"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-kodi",
+    libraryDependencies ++= Seq(
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "org.http4s"        %% "http4s-dsl"     % http4sVer,
+      "org.http4s"        %% "http4s-client"  % http4sVer,
+      "org.http4s"        %% "http4s-circe"   % http4sVer,
+      "io.circe"          %% "circe-generic"  % circeVer,
+      "org.jmdns"         % "jmdns"           % "3.5.5"
+    )
+  )
+  .dependsOn(
+    remoteControl,
+    cache,
+    tracedRemote,
+    switch,
+    pollingSwitch,
+    tracedSwitch,
+    configSource,
+    tracedConfigSource,
+    dynamicDiscovery
+  )
+
+lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
+  .settings(commonSettings)
+  .settings(name := "controller-dynamic-discovery")
+  .dependsOn(poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

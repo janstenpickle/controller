@@ -6,6 +6,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
+import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.model.{Activity, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
@@ -27,11 +28,11 @@ object SonosComponents {
     remoteName: Option[NonEmptyString],
     combinedDeviceName: Option[NonEmptyString],
     switchDeviceName: Option[NonEmptyString],
-    polling: SonosDiscovery.Polling,
+    polling: Discovery.Polling,
     commandTimeout: FiniteDuration = 5.seconds,
-    switchCacheTimeout: FiniteDuration = 500.millis,
     remotesCacheTimeout: FiniteDuration = 2.seconds,
-    allRooms: Boolean = true
+    allRooms: Boolean = true,
+    enabled: Boolean = false
   ) {
     lazy val remote: NonEmptyString = remoteName.getOrElse(activity.remoteName)
     lazy val combinedDevice: NonEmptyString = combinedDeviceName.getOrElse(remote)
@@ -40,29 +41,33 @@ object SonosComponents {
       activity.copy(remoteName = remote, combinedDeviceName = combinedDevice)
   }
 
-  def apply[F[_]: ContextShift: Timer: Parallel: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
     config: Config,
     onUpdate: () => F[Unit],
     blocker: Blocker,
     onDeviceUpdate: () => F[Unit]
-  )(
-    implicit F: Concurrent[F],
-    errors: RemoteControlErrors[F],
-    liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, SonosComponents[F]] =
-    for {
-      remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SonosComponents[F]] =
+    if (config.enabled)
+      for {
+        remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
+        discovery <- SonosDiscovery
+          .polling[F, G](config.polling, config.commandTimeout, onUpdate, blocker, onDeviceUpdate)
+      } yield {
+        val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
+        val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
+        val remoteConfig =
+          SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery, remotesCache)
+        val switches = SonosSwitchProvider[F](config.switchDevice, discovery)
 
-      discovery <- SonosDiscovery
-        .polling[F, G](config.polling, config.commandTimeout, onUpdate, blocker, onDeviceUpdate)
-    } yield {
-      val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
-      val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
-      val remoteConfig =
-        SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery, remotesCache)
-      val switches = SonosSwitchProvider[F](config.switchDevice, discovery)
-
-      SonosComponents(remote, activityConfig, remoteConfig, switches)
-    }
+        SonosComponents(remote, activityConfig, remoteConfig, switches)
+      } else
+      Resource.pure[F, SonosComponents[F]](
+        SonosComponents(
+          RemoteControl.empty[F](config.remote),
+          ConfigSource.empty[F, String, Activity],
+          ConfigSource.empty[F, NonEmptyString, Remote],
+          SwitchProvider.empty[F]
+        )
+      )
 
 }

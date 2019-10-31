@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.configsource
 
 import cats.kernel.Semigroup
-import cats.{Functor, Monad, Parallel}
+import cats.{Applicative, Functor, Monad, Parallel}
 import cats.syntax.functor._
 import cats.syntax.flatMap._
 
@@ -14,6 +14,12 @@ trait ConfigSource[F[_], K, V] {
 }
 
 object ConfigSource {
+  def empty[F[_], K, V](implicit F: Applicative[F]): ConfigSource[F, K, V] = new ConfigSource[F, K, V] {
+    override def functor: Functor[F] = F
+    override def getValue(key: K): F[Option[V]] = F.pure(None)
+    override def getConfig: F[ConfigResult[K, V]] = F.pure(ConfigResult[K, V]())
+  }
+
   def combined[F[_]: Parallel, K, V](
     x: ConfigSource[F, K, V],
     y: ConfigSource[F, K, V]
