@@ -82,6 +82,7 @@ lazy val root = (project in file("."))
     hs100Switch,
     poller,
     pollingSwitch,
+    kodi,
     switch,
     sonosClientSubmodule,
     virtualSwitch,
@@ -100,6 +101,7 @@ lazy val api = (project in file("modules/api"))
     dockerBaseImage := "openjdk:11",
     dockerExposedPorts += 8090,
     daemonUserUid in Docker := Some("9000"),
+    javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
     dockerPermissionStrategy := DockerPermissionStrategy.Run,
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "refined-cats"              % refinedVer,
@@ -109,6 +111,7 @@ lazy val api = (project in file("modules/api"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
+      "org.http4s"        %% "http4s-blaze-client"       % http4sVer,
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
@@ -123,7 +126,13 @@ lazy val api = (project in file("modules/api"))
       universalMappings.filter {
         case (_, name) => !name.contains("slf4j-jdk14")
       }
-    }
+    },
+    ghreleaseRepoOrg := "janstenpickle",
+    ghreleaseRepoName := "controller",
+    ghreleaseNotes := { tagName =>
+      tagName.stripPrefix("v")
+    },
+    ghreleaseAssets := Seq(assembly.value)
   )
   .dependsOn(
     arrow,
@@ -136,6 +145,7 @@ lazy val api = (project in file("modules/api"))
     `macro`,
     activity,
     sonos,
+    kodi,
     virtualSwitch,
     multiSwitch,
     stats,
@@ -317,9 +327,10 @@ lazy val poller = (project in file("modules/poller"))
   .settings(
     name := "controller-poller",
     libraryDependencies ++= Seq(
-      "co.fs2"       %% "fs2-core"     % fs2Ver,
-      "eu.timepit"   %% "refined"      % refinedVer,
-      "org.tpolecat" %% "natchez-core" % natchezVer
+      "co.fs2"        %% "fs2-core"     % fs2Ver,
+      "eu.timepit"    %% "refined"      % refinedVer,
+      "org.tpolecat"  %% "natchez-core" % natchezVer,
+      "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
   .dependsOn(arrow)
@@ -388,8 +399,38 @@ lazy val sonos = (project in file("modules/sonos"))
     tracedSwitch,
     configSource,
     tracedConfigSource,
-    poller
+    dynamicDiscovery
   )
+
+lazy val kodi = (project in file("modules/kodi"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-kodi",
+    libraryDependencies ++= Seq(
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "org.http4s"        %% "http4s-dsl"     % http4sVer,
+      "org.http4s"        %% "http4s-client"  % http4sVer,
+      "org.http4s"        %% "http4s-circe"   % http4sVer,
+      "io.circe"          %% "circe-generic"  % circeVer,
+      "org.jmdns"         % "jmdns"           % "3.5.5"
+    )
+  )
+  .dependsOn(
+    remoteControl,
+    cache,
+    tracedRemote,
+    switch,
+    pollingSwitch,
+    tracedSwitch,
+    configSource,
+    tracedConfigSource,
+    dynamicDiscovery
+  )
+
+lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
+  .settings(commonSettings)
+  .settings(name := "controller-dynamic-discovery")
+  .dependsOn(poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)
