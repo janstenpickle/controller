@@ -1,5 +1,6 @@
 package io.janstenpickle.controller.api.config
 
+import java.net.InetAddress
 import java.nio.file.{Path, Paths}
 import java.util.concurrent.Executors
 
@@ -20,6 +21,7 @@ import scala.concurrent.duration._
 object ConfigPoller {
   implicit val pathEq: Eq[Path] = Eq.by(_.toString)
   implicit val macEq: Eq[Mac] = Eq.by(_.getMacString)
+  implicit val inetAddressEq: Eq[InetAddress] = Eq.by(_.getHostAddress)
   implicit val configEq: Eq[Configuration.Config] = cats.derived.semi.eq[Configuration.Config]
 
   def apply[F[_]: ContextShift: Timer: ExtruderErrors](

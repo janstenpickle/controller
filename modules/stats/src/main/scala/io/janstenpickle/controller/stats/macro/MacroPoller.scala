@@ -9,6 +9,7 @@ import io.janstenpickle.controller.stats.Stats
 import io.janstenpickle.controller.store.MacroStore
 
 import scala.concurrent.duration.FiniteDuration
+import scala.collection.compat._
 
 object MacroPoller {
   def apply[F[_]: Concurrent: Timer](
@@ -26,7 +27,7 @@ object MacroPoller {
       .flatMap(Stream.emits)
       .parEvalMapUnordered(parallelism.value) { m =>
         macros.loadMacro(m).map { commands =>
-          Stats.Macro(m, commands.toList.flatMap(_.toList).groupBy(commandType).mapValues(_.size))
+          Stats.Macro(m, commands.toList.flatMap(_.toList).groupBy(commandType).view.mapValues(_.size).toMap)
         }
       }
 }

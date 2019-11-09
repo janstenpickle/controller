@@ -9,6 +9,7 @@ import io.janstenpickle.controller.model.Remote
 import io.janstenpickle.controller.stats._
 
 import scala.concurrent.duration.FiniteDuration
+import scala.collection.compat._
 
 object RemotesPoller {
   private val All = NonEmptyString("all")
@@ -38,7 +39,11 @@ object RemotesPoller {
             rooms.map(_ -> activities.map(_ -> remote.name))
           }
           .groupBy(_._1)
-          .mapValues(_.flatMap(_._2.groupBy(_._1).mapValues(_.size)).groupBy(_._1).mapValues(_.map(_._2).sum))
+          .view
+          .mapValues(
+            _.flatMap(_._2.groupBy(_._1).mapValues(_.size)).groupBy(_._1).view.mapValues(_.map(_._2).sum).toMap
+          )
+          .toMap
 
         Stats.Remotes(
           remotes.errors.size,
@@ -49,7 +54,9 @@ object RemotesPoller {
               r =>
                 r.name -> r.buttons
                   .groupBy(buttonType)
+                  .view
                   .mapValues(_.size)
+                  .toMap
             )
             .toMap
         )

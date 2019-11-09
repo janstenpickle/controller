@@ -24,6 +24,7 @@ import io.janstenpickle.controller.poller.DataPoller.Data
 import natchez.Trace
 
 import scala.concurrent.duration._
+import scala.collection.compat._
 
 object ExtruderConfigSource {
   case class PollingConfig(pollInterval: FiniteDuration = 10.seconds)
@@ -102,7 +103,7 @@ object ExtruderConfigSource {
             override def functor: Functor[F] = F
 
             override def getConfig: F[ConfigResult[K, V]] = getData().map { cr =>
-              ConfigResult(cr.values.mapValues(setEditable.set(_)(editable = true)), cr.errors)
+              ConfigResult(cr.values.view.mapValues(setEditable.set(_)(editable = true)).toMap, cr.errors)
             }
             override def setConfig(a: Map[K, V]): F[Unit] = {
               val newConfig = ConfigResult(a, List.empty)

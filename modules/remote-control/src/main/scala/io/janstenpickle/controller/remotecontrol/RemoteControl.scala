@@ -3,7 +3,7 @@ package io.janstenpickle.controller.remotecontrol
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.{Apply, FlatMap}
+import cats.{Applicative, Apply, FlatMap}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remote.Remote
@@ -41,6 +41,21 @@ object RemoteControl {
         trace.put(extraFields: _*) *> remoteControl.listCommands
       }
     }
+
+  def empty[F[_]](
+    remote: NonEmptyString
+  )(implicit F: Applicative[F], errors: RemoteControlErrors[F]): RemoteControl[F] = new RemoteControl[F] {
+    override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] = errors.learningNotSupported(remote)
+
+    override def sendCommand(
+      source: Option[RemoteCommandSource],
+      device: NonEmptyString,
+      name: NonEmptyString
+    ): F[Unit] =
+      F.unit
+
+    override def listCommands: F[List[RemoteCommand]] = F.pure(List.empty)
+  }
 
   def apply[F[_]: FlatMap, T](
     remote: Remote[F, T],

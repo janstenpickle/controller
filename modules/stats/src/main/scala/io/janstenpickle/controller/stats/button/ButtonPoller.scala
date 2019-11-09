@@ -9,6 +9,7 @@ import io.janstenpickle.controller.model.{Button, Room}
 import io.janstenpickle.controller.stats._
 
 import scala.concurrent.duration.FiniteDuration
+import scala.collection.compat._
 
 object ButtonPoller {
   private val All: Room = NonEmptyString("all")
@@ -27,7 +28,11 @@ object ButtonPoller {
       .map { buttons =>
         Stats.Buttons(
           buttons.errors.size,
-          buttons.values.values.groupBy(_.room.getOrElse(All)).mapValues(_.groupBy(buttonType).mapValues(_.size))
+          buttons.values.values
+            .groupBy(_.room.getOrElse(All))
+            .view
+            .mapValues(_.groupBy(buttonType).view.mapValues(_.size).toMap)
+            .toMap
         )
       }
 }

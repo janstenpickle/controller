@@ -21,7 +21,7 @@ jobs:
     - name: Setup Scala
       uses: olafurpg/setup-scala@v5
       with:
-        java-version: openjdk@1.11
+        java-version: openjdk@1.13
     - name: npm install, build, and test
       run: |
         cd controller-ui

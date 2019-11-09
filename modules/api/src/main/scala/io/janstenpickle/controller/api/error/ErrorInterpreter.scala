@@ -6,6 +6,7 @@ import cats.Apply
 import cats.data.NonEmptyList
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.apply._
+import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.core.ExtruderErrors
 import io.chrisdavenport.log4cats.Logger
@@ -15,6 +16,7 @@ import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.`macro`.MacroErrors
 import io.janstenpickle.controller.api.service.ConfigServiceErrors
 import io.janstenpickle.controller.api.validation.ConfigValidation
+import io.janstenpickle.controller.kodi.KodiErrors
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
@@ -31,7 +33,8 @@ class ErrorInterpreter[F[_]: Apply](
     with HS100Errors[F]
     with PollingSwitchErrors[F]
     with ExtruderErrors[F]
-    with ConfigServiceErrors[F] {
+    with ConfigServiceErrors[F]
+    with KodiErrors[F] {
 
   private def raise[A](error: ControlError): F[A] =
     error match {
@@ -116,6 +119,21 @@ class ErrorInterpreter[F[_]: Apply](
 
   override def buttonAlreadyExists[A](button: NonEmptyString): F[A] =
     raise(ControlError.InvalidInput(s"Button '$button' already exists"))
+
+  private def kodiString(kodi: NonEmptyString, host: NonEmptyString, port: PortNumber): String =
+    s"Kodi '${kodi.value}' at '${host.value}:${port.value}'"
+
+  override def missingResult[A](kodi: NonEmptyString, host: NonEmptyString, port: PortNumber): F[A] =
+    raise(ControlError.Internal(s"${kodiString(kodi, host, port)} responded with an invalid object"))
+
+  override def rpcError[A](
+    kodi: NonEmptyString,
+    host: NonEmptyString,
+    port: PortNumber,
+    code: Int,
+    message: String
+  ): F[A] =
+    raise(ControlError.Internal(s"${kodiString(kodi, host, port)} responded with an error '$message', code '$code'"))
 }
 
 object ErrorInterpreter {

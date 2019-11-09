@@ -26,8 +26,8 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
     if (cond) List(error) else List.empty
 
   private def traceErrors(fields: (String, TraceValue)*)(fe: F[List[ValidationFailure]]): F[List[ValidationFailure]] =
-    trace.put(fields: _*) *> fe.flatMap { errors =>
-      trace.put("error" -> errors.nonEmpty, "error.count" -> errors.size).as(errors)
+    trace.put(fields: _*) *> fe.flatTap { errors =>
+      trace.put("error" -> errors.nonEmpty, "error.count" -> errors.size)
     }
 
   private def validateContextButtons(buttons: List[ContextButtonMapping])(

@@ -40,14 +40,14 @@ object TracedRemoteCommandStore {
         name: NonEmptyString
       ): F[Option[T]] =
         span("loadCommand", source, device, name) {
-          store.loadCommand(source, device, name).flatMap { command =>
-            trace.put("command.exists" -> command.isDefined).as(command)
+          store.loadCommand(source, device, name).flatTap { command =>
+            trace.put("command.exists" -> command.isDefined)
           }
         }
 
       override def listCommands: F[List[RemoteCommandKey]] = trace.span("listCommands") {
-        store.listCommands.flatMap { commands =>
-          trace.put("commands" -> commands.size).as(commands)
+        store.listCommands.flatTap { commands =>
+          trace.put("commands" -> commands.size)
         }
       }
     }

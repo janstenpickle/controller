@@ -3,7 +3,7 @@ package io.janstenpickle.controller.api
 import java.util.concurrent.Executors
 
 import cats.data.{EitherT, Kleisli, OptionT}
-import cats.effect.{Blocker, Bracket, Concurrent, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.instances.list._
 import cats.instances.parallel._
 import cats.mtl.ApplicativeHandle
@@ -12,7 +12,7 @@ import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
-import cats.{~>, Applicative, ApplicativeError, Parallel}
+import cats.{~>, Applicative, ApplicativeError, Functor, MonadError, Parallel}
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
@@ -36,6 +36,7 @@ import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
 import io.janstenpickle.controller.remotecontrol.RemoteControls
@@ -57,10 +58,14 @@ import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
 import natchez.jaeger.Jaeger
+import org.http4s.client.Client
+import org.http4s.client.blaze.BlazeClientBuilder
 import org.http4s.dsl.Http4sDsl
 import org.http4s.metrics.prometheus.PrometheusExportService
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
+
+import scala.concurrent.ExecutionContext
 
 object Module {
   def entryPoint[F[_]: Sync]: Resource[F, EntryPoint[F]] =
@@ -72,10 +77,21 @@ object Module {
       }
     }
 
-  def components[F[_]: Concurrent: ContextShift: Timer: Parallel](
+  def httpClient[F[_]: ConcurrentEffect]: Resource[F, Client[F]] =
+    Resource
+      .make(Sync[F].delay(Executors.newCachedThreadPool()))(es => Sync[F].delay(es.shutdown()))
+      .flatMap { es =>
+        BlazeClientBuilder(ExecutionContext.fromExecutorService(es)).resource
+      }
+
+  def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
   ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] =
-    entryPoint[F].flatMap(components(getConfig, _))
+    for {
+      ep <- entryPoint[F]
+      client <- httpClient[F]
+      cs <- components(getConfig, ep, client)
+    } yield cs
 
   def emptySpan[F[_]](implicit F: Applicative[F]): Span[F] = new Span[F] {
     override def put(fields: (String, TraceValue)*): F[Unit] = F.unit
@@ -85,7 +101,8 @@ object Module {
 
   def components[F[_]: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
-    ep: EntryPoint[F]
+    ep: EntryPoint[F],
+    client: Client[F]
   )(
     implicit F: Concurrent[F]
   ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] = {
@@ -100,14 +117,15 @@ object Module {
 
     val liftedConfig: () => G[Either[ValidationErrors, Configuration.Config]] = () => lift(getConfig())
 
-    eitherTComponents[G, F](liftedConfig).mapK(liftLower.lower).map {
+    eitherTComponents[G, F](liftedConfig, ep.lowerT(client)).mapK(liftLower.lower).map {
       case (config, routes, registry, stats) =>
         (config, ep.liftT(routes), registry, stats)
     }
   }
 
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: Concurrent: ContextShift: Timer](
-    getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
+    client: Client[F]
   )(
     implicit F: Concurrent[F],
     trace: Trace[F],
@@ -137,7 +155,7 @@ object Module {
     Resource
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
-        tracedComponents[G, M](liftedConfig).map {
+        tracedComponents[G, M](liftedConfig, eitherTClient(client)).map {
           case (config, routes, registry, stream) =>
             val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
               OptionT(handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
@@ -147,6 +165,17 @@ object Module {
         }
       }
       .mapK(lower)
+  }
+
+  def eitherTClient[F[_]](client: Client[F])(implicit F: Sync[F]): Client[EitherT[F, ControlError, *]] = {
+    type G[A] = EitherT[F, ControlError, A]
+    val lift = λ[F ~> G](EitherT.liftF(_))
+    val lower =
+      λ[G ~> F](ga => ga.value.flatMap(_.fold(F.raiseError, Applicative[F].pure)))
+
+    Client.fromHttpApp(Kleisli[G, Request[G], Response[G]] { req =>
+      lift(client.toHttpApp.run(req.mapK(lower)).map(_.mapK(lift)))
+    })
   }
 
   def handleControlError[F[_]: Sync](
@@ -177,7 +206,8 @@ object Module {
   }
 
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: Concurrent: ContextShift: Timer](
-    getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
+    getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
+    client: Client[F]
   )(
     implicit F: Concurrent[F],
     trace: Trace[F],
@@ -346,6 +376,7 @@ object Module {
       )
 
       githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
+        client,
         config.githubRemoteCommands,
         notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
       )
@@ -404,10 +435,25 @@ object Module {
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
-      combinedActivityConfig = WritableConfigSource.combined(activityConfig, sonosComponents.activityConfig)
-      combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, sonosComponents.remoteConfig)
+      kodiComponents <- KodiComponents[F, G](
+        client,
+        blocker,
+        config.kodi,
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+      )
+
+      combinedActivityConfig = WritableConfigSource
+        .combined(activityConfig, ConfigSource.combined(sonosComponents.activityConfig, kodiComponents.activityConfig))
+      combinedRemoteConfig = WritableConfigSource
+        .combined(remoteConfig, ConfigSource.combined(sonosComponents.remoteConfig, kodiComponents.remoteConfig))
       remoteControls = RemoteControls
-        .combined[F](rm2RemoteControls, RemoteControls[F](Map(config.sonos.remote -> sonosComponents.remote)))
+        .combined[F](
+          rm2RemoteControls,
+          RemoteControls[F](
+            Map(config.sonos.remote -> sonosComponents.remote, config.kodi.remote -> kodiComponents.remote)
+          )
+        )
 
       switchStateStore <- Resource.liftF(
         SwitchDependentStore.fromProvider[F](
@@ -426,7 +472,13 @@ object Module {
       )
 
       combinedSwitchProvider = SwitchProvider
-        .combined[F](hs100SwitchProvider, spSwitchProvider, sonosComponents.switches, virtualSwitches)
+        .combined[F](
+          hs100SwitchProvider,
+          spSwitchProvider,
+          sonosComponents.switches,
+          kodiComponents.switches,
+          virtualSwitches
+        )
 
       multiSwitchProvider = MultiSwitchProvider[F](multiSwitchConfig, Switches[F](combinedSwitchProvider))
 

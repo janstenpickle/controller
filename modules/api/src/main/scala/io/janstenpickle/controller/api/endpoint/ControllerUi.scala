@@ -26,7 +26,7 @@ class ControllerUi[F[_]: Sync: ContextShift](blocker: Blocker) extends Http4sDsl
   private def fetchResource(path: String): F[Response[F]] =
     Response(
       body = fs2.io
-        .readInputStream(Sync[F].delay(getClass.getClassLoader.getResourceAsStream(path)), 200, blocker.blockingContext)
+        .readInputStream(Sync[F].delay(getClass.getClassLoader.getResourceAsStream(path)), 200, blocker)
     ).pure[F]
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
