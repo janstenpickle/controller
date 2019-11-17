@@ -31,17 +31,16 @@ object RmRemote {
         new Remote[F, CommandPayload] {
           override val name: NonEmptyString = config.name
 
-          private def waitForPayload: F[Option[CommandPayload]] = F.tailRecM[Int, Option[CommandPayload]](10) {
+          private def waitForPayload: F[Option[CommandPayload]] = F.tailRecM[Int, Option[CommandPayload]](5) {
             retries =>
               trace.span("waitForPayload") {
                 if (retries == 0) F.pure(Right(None))
                 else
                   blocker
-                    .blockOn(timer.sleep(1.second) *> F.delay(Option(device.checkData())))
+                    .blockOn(timer.sleep(10.second) *> F.delay(Option(device.checkData())))
                     .recover { case _: ArrayIndexOutOfBoundsException => None }
-                    .map(_.filter(_.length == 108).fold[Either[Int, Option[CommandPayload]]](Left(retries - 1)) {
-                      data =>
-                        Right(Some(CommandPayload(DatatypeConverter.printHexBinary(data))))
+                    .map(_.fold[Either[Int, Option[CommandPayload]]](Left(retries - 1)) { data =>
+                      Right(Some(CommandPayload(DatatypeConverter.printHexBinary(data))))
                     })
               }
           }
