@@ -12,4 +12,5 @@ sealed trait SpSwitchConfig {
 object SpSwitchConfig {
   case class SP1(name: NonEmptyString, host: NonEmptyString, mac: Mac) extends SpSwitchConfig
   case class SP2(name: NonEmptyString, host: NonEmptyString, mac: Mac) extends SpSwitchConfig
+  case class SP3(name: NonEmptyString, host: NonEmptyString, mac: Mac) extends SpSwitchConfig
 }
