@@ -1,15 +1,15 @@
 package io.janstenpickle.controller.switch.virtual
 
+import cats.instances.list._
 import cats.syntax.flatMap._
-import cats.{Monad, MonadError, Parallel}
 import cats.syntax.functor._
+import cats.syntax.parallel._
+import cats.{Monad, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
-import cats.syntax.parallel._
-import cats.instances.list._
 
 object SwitchDependentStore {
   def apply[F[_]](state: SwitchStateStore[F], switches: Map[NonEmptyString, Switch[F]])(

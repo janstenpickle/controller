@@ -20,7 +20,7 @@ import io.janstenpickle.controller.kodi.KodiErrors
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
-import io.janstenpickle.controller.switch.hs100.HS100Errors
+import io.janstenpickle.controller.tplink.hs100.HS100Errors
 
 class ErrorInterpreter[F[_]: Apply](
   implicit

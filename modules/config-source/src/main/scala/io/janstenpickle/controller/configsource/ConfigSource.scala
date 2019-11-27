@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.configsource
 
-import cats.kernel.Semigroup
+import cats.kernel.{Monoid, Semigroup}
 import cats.{Applicative, Functor, Monad, Parallel}
 import cats.syntax.functor._
 import cats.syntax.flatMap._
@@ -13,7 +13,7 @@ trait ConfigSource[F[_], K, V] {
   def listKeys: F[Set[K]] = getConfig.map(_.values.keySet)
 }
 
-object ConfigSource {
+object ConfigSource { self =>
   def empty[F[_], K, V](implicit F: Applicative[F]): ConfigSource[F, K, V] = new ConfigSource[F, K, V] {
     override def functor: Functor[F] = F
     override def getValue(key: K): F[Option[V]] = F.pure(None)
@@ -37,5 +37,14 @@ object ConfigSource {
       override def listKeys: F[Set[K]] = Parallel.parMap2(x.listKeys, y.listKeys) { _ ++ _ }
 
       override def functor: Functor[F] = Functor[F]
+    }
+
+  implicit def configSourceMonoid[F[_]: Monad: Parallel, K, V](
+    implicit semigroup: Semigroup[ConfigResult[K, V]]
+  ): Monoid[ConfigSource[F, K, V]] =
+    new Monoid[ConfigSource[F, K, V]] {
+      override def empty: ConfigSource[F, K, V] = self.empty[F, K, V]
+      override def combine(x: ConfigSource[F, K, V], y: ConfigSource[F, K, V]): ConfigSource[F, K, V] =
+        self.combined(x, y)
     }
 }

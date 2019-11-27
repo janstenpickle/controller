@@ -73,6 +73,7 @@ lazy val root = (project in file("."))
   .aggregate(
     api,
     model,
+    components,
     remote,
     broadlink,
     store,
@@ -80,10 +81,11 @@ lazy val root = (project in file("."))
     extruderConfigSource,
     `macro`,
     activity,
-    hs100Switch,
+    tplink,
     poller,
     pollingSwitch,
     kodi,
+    sonos,
     switch,
     sonosClientSubmodule,
     virtualSwitch,
@@ -131,7 +133,7 @@ lazy val api = (project in file("modules/api"))
   )
   .dependsOn(
     arrow,
-    hs100Switch,
+    tplink,
     broadlink,
     tracedStore,
     remoteControl,
@@ -158,6 +160,11 @@ lazy val model = (project in file("modules/model"))
       "org.typelevel" %% "kittens"   % kittensVer
     )
   )
+
+lazy val components = (project in file("modules/components"))
+  .settings(commonSettings)
+  .settings(name := "controller-components")
+  .dependsOn(model, configSource, remoteControl, switch)
 
 lazy val configSource = (project in file("modules/config-source"))
   .settings(commonSettings)
@@ -229,7 +236,16 @@ lazy val broadlink = (project in file("modules/broadlink"))
       "org.typelevel"  %% "cats-effect" % catsEffectVer
     )
   )
-  .dependsOn(broadlinkApiSubmodule, remote, tracedRemote, switch, tracedSwitch, remoteControl, pollingSwitch)
+  .dependsOn(
+    broadlinkApiSubmodule,
+    components,
+    remote,
+    tracedRemote,
+    switch,
+    tracedSwitch,
+    remoteControl,
+    pollingSwitch
+  )
 
 lazy val switch = (project in file("modules/switch"))
   .settings(commonSettings)
@@ -248,10 +264,10 @@ lazy val pollingSwitch = (project in file("modules/polling-switch"))
   .settings(name := "controller-polling-switch")
   .dependsOn(switch, poller)
 
-lazy val hs100Switch = (project in file("modules/hs100-switch"))
+lazy val tplink = (project in file("modules/tplink"))
   .settings(commonSettings)
   .settings(
-    name := "controller-hs100-switch",
+    name := "controller-tplink",
     libraryDependencies ++= Seq(
       "io.circe"      %% "circe-core"   % circeVer,
       "io.circe"      %% "circe-parser" % circeVer,
@@ -259,7 +275,7 @@ lazy val hs100Switch = (project in file("modules/hs100-switch"))
       "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
-  .dependsOn(pollingSwitch, tracedSwitch)
+  .dependsOn(components, pollingSwitch, tracedSwitch)
 
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
@@ -397,6 +413,7 @@ lazy val sonos = (project in file("modules/sonos"))
     libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
   )
   .dependsOn(
+    components,
     sonosClientSubmodule,
     cache,
     remoteControl,
@@ -422,6 +439,7 @@ lazy val kodi = (project in file("modules/kodi"))
     )
   )
   .dependsOn(
+    components,
     remoteControl,
     cache,
     tracedRemote,

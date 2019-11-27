@@ -3,15 +3,19 @@ package io.janstenpickle.controller.kodi
 import java.net.InetAddress
 
 import cats.Parallel
+import cats.data.NonEmptyList
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
+import io.janstenpickle.controller.components
+import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
-import io.janstenpickle.controller.model.{Activity, Remote}
+import io.janstenpickle.controller.model.{Activity, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.switch.SwitchProvider
 import natchez.Trace
@@ -50,7 +54,7 @@ object KodiComponents {
     config: Config,
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, KodiComponents[F]] =
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
@@ -63,19 +67,13 @@ object KodiComponents {
             } else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)
 
       } yield
-        KodiComponents(
+        Components[F](
           KodiRemoteControl(discovery),
           KodiSwitchProvider(config.switchDevice, discovery),
+          KodiActivityConfigSource(config.activityConfig, discovery),
           KodiRemoteConfigSource(config.remote, config.activityConfig.name, discovery, remotesCache),
-          KodiActivityConfigSource(config.activityConfig, discovery)
+          ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]
         )
     else
-      Resource.pure[F, KodiComponents[F]](
-        KodiComponents[F](
-          RemoteControl.empty[F](KodiRemoteControl.RemoteName),
-          SwitchProvider.empty[F],
-          ConfigSource.empty[F, NonEmptyString, Remote],
-          ConfigSource.empty[F, String, Activity]
-        )
-      )
+      Resource.pure[F, Components[F]](Monoid[Components[F]].empty)
 }
