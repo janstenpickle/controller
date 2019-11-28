@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.switch.hs100
+package io.janstenpickle.controller.tplink.hs100
 
 import java.io.InputStream
 import java.nio.ByteBuffer

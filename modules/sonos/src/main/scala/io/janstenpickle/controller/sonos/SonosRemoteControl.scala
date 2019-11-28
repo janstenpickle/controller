@@ -14,7 +14,7 @@ import natchez.Trace
 
 object SonosRemoteControl {
   def apply[F[_]: Parallel](
-    remoteName: NonEmptyString,
+    remote: NonEmptyString,
     combinedDeviceName: NonEmptyString,
     discovery: SonosDiscovery[F]
   )(implicit F: MonadError[F, Throwable], errors: RemoteControlErrors[F], trace: Trace[F]): RemoteControl[F] =
@@ -101,8 +101,9 @@ object SonosRemoteControl {
                     })
                 }
             })
+
+          override def remoteName: NonEmptyString = remote
         },
-        "remote" -> remoteName.value,
         "manufacturer" -> "sonos"
       )
 }

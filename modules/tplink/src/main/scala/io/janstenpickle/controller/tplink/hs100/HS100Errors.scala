@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.switch.hs100
+package io.janstenpickle.controller.tplink.hs100
 
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.{CursorOp, Error}

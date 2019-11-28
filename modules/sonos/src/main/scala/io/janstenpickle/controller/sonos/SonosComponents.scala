@@ -1,26 +1,22 @@
 package io.janstenpickle.controller.sonos
 
 import cats.Parallel
+import cats.data.NonEmptyList
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
+import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.Discovery
-import io.janstenpickle.controller.model.{Activity, Remote}
+import io.janstenpickle.controller.model.{Activity, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
 import io.janstenpickle.controller.switch.SwitchProvider
 import natchez.Trace
 
 import scala.concurrent.duration._
-
-case class SonosComponents[F[_]] private (
-  remote: RemoteControl[F],
-  activityConfig: ConfigSource[F, String, Activity],
-  remoteConfig: ConfigSource[F, NonEmptyString, Remote],
-  switches: SwitchProvider[F]
-)
 
 object SonosComponents {
   case class Config(
@@ -46,7 +42,7 @@ object SonosComponents {
     onUpdate: () => F[Unit],
     blocker: Blocker,
     onDeviceUpdate: () => F[Unit]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SonosComponents[F]] =
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
@@ -59,15 +55,14 @@ object SonosComponents {
           SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery, remotesCache)
         val switches = SonosSwitchProvider[F](config.switchDevice, discovery)
 
-        SonosComponents(remote, activityConfig, remoteConfig, switches)
-      } else
-      Resource.pure[F, SonosComponents[F]](
-        SonosComponents(
-          RemoteControl.empty[F](config.remote),
-          ConfigSource.empty[F, String, Activity],
-          ConfigSource.empty[F, NonEmptyString, Remote],
-          SwitchProvider.empty[F]
+        Components[F](
+          remote,
+          switches,
+          activityConfig,
+          remoteConfig,
+          ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]
         )
-      )
+      } else
+      Resource.pure[F, Components[F]](Monoid[Components[F]].empty)
 
 }

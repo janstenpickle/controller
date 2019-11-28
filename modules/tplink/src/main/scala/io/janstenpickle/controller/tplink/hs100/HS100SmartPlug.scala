@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.switch.hs100
+package io.janstenpickle.controller.tplink.hs100
 
 import java.io.{InputStream, OutputStream}
 import java.net.Socket
@@ -7,7 +7,6 @@ import cats.effect._
 import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.~>
 import eu.timepit.refined._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.numeric.PosInt
@@ -16,9 +15,9 @@ import io.circe.{parser, Decoder, Json}
 import io.janstenpickle.control.switch.polling.{PollingSwitch, PollingSwitchErrors}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model.State
-import io.janstenpickle.controller.switch.hs100.Encryption._
 import io.janstenpickle.controller.switch.Switch
 import io.janstenpickle.controller.switch.trace.TracedSwitch
+import io.janstenpickle.controller.tplink.hs100.Encryption._
 import natchez.Trace
 
 import scala.concurrent.duration._

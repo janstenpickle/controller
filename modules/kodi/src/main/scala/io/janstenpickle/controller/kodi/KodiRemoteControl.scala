@@ -51,6 +51,8 @@ object KodiRemoteControl {
                 command <- commands.keys
               } yield RemoteCommand(RemoteName, CommandSource, instance, command)).toList
             }
+
+          override def remoteName: NonEmptyString = RemoteName
         },
         "type" -> "kodi"
       )

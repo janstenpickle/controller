@@ -12,7 +12,8 @@ import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
-import cats.{~>, Applicative, ApplicativeError, Functor, MonadError, Parallel}
+import cats.syntax.semigroup._
+import cats.{~>, Applicative, ApplicativeError, Parallel}
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
@@ -26,34 +27,31 @@ import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.config.Configuration
 import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
-import io.janstenpickle.controller.api.trace.implicits._
 import io.janstenpickle.controller.api.service.ConfigService
+import io.janstenpickle.controller.api.trace.implicits._
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.broadlink.remote.RmRemoteControls
-import io.janstenpickle.controller.broadlink.switch.SpSwitchProvider
+import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.kodi.KodiComponents
-import io.janstenpickle.controller.model.CommandPayload
 import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
-import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
-import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
 import io.janstenpickle.controller.store.trace.{
   TracedActivityStore,
   TracedMacroStore,
   TracedRemoteCommandStore,
   TracedSwitchStateStore
 }
-import io.janstenpickle.controller.switch.hs100.HS100SwitchProvider
+import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
+import io.janstenpickle.controller.tplink.TplinkComponents
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
@@ -411,21 +409,18 @@ object Module {
         )
       }
 
-      rm2RemoteControls <- Resource.liftF(RmRemoteControls[F](config.rm.map(_.config), commandStore, blocker))
-
-      hs100SwitchProvider <- HS100SwitchProvider[F, G](
-        config.hs100.configs,
-        config.hs100.polling,
-        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate),
-        blocker
-      )
-
-      spSwitchProvider <- SpSwitchProvider[F, G](
-        config.sp.configs,
-        config.sp.polling,
+      broadlinkComponents <- BroadlinkComponents[F, G](
+        config.broadlink,
+        commandStore,
         switchStateFileStore,
         blocker,
         notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
+      )
+
+      tplinkComponents <- TplinkComponents[F, G](
+        config.tplink,
+        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate),
+        blocker
       )
 
       sonosComponents <- SonosComponents[F, G](
@@ -443,42 +438,25 @@ object Module {
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
-      combinedActivityConfig = WritableConfigSource
-        .combined(activityConfig, ConfigSource.combined(sonosComponents.activityConfig, kodiComponents.activityConfig))
-      combinedRemoteConfig = WritableConfigSource
-        .combined(remoteConfig, ConfigSource.combined(sonosComponents.remoteConfig, kodiComponents.remoteConfig))
-      remoteControls = RemoteControls
-        .combined[F](
-          rm2RemoteControls,
-          RemoteControls[F](
-            Map(config.sonos.remote -> sonosComponents.remote, config.kodi.remote -> kodiComponents.remote)
-          )
-        )
+      components = broadlinkComponents |+| tplinkComponents |+| sonosComponents |+| kodiComponents
+
+      combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
+      combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)
 
       switchStateStore <- Resource.liftF(
-        SwitchDependentStore.fromProvider[F](
-          config.rm.flatMap(c => c.dependentSwitch.map(c.config.name -> _)).toMap,
-          switchStateFileStore,
-          SwitchProvider.combined(hs100SwitchProvider, spSwitchProvider)
-        )
+        SwitchDependentStore
+          .fromProvider[F](config.virtualSwitch.dependentSwitches, switchStateFileStore, components.switches)
       )
 
       virtualSwitches <- SwitchesForRemote.polling[F](
-        config.virtualSwitch,
+        config.virtualSwitch.polling,
         virtualSwitchConfig,
-        rm2RemoteControls,
+        components.remotes,
         switchStateStore,
         notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
       )
 
-      combinedSwitchProvider = SwitchProvider
-        .combined[F](
-          hs100SwitchProvider,
-          spSwitchProvider,
-          sonosComponents.switches,
-          kodiComponents.switches,
-          virtualSwitches
-        )
+      combinedSwitchProvider = components.switches |+| virtualSwitches
 
       multiSwitchProvider = MultiSwitchProvider[F](multiSwitchConfig, Switches[F](combinedSwitchProvider))
 
@@ -486,7 +464,7 @@ object Module {
 
       instrumentation <- StatsStream[F](
         config.stats,
-        remoteControls,
+        components.remotes,
         switches,
         combinedActivityConfig,
         buttonConfig,

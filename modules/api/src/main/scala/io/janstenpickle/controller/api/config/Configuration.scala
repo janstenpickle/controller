@@ -14,27 +14,25 @@ import eu.timepit.refined.types.string.NonEmptyString
 import extruder.core.{ExtruderErrors, Parser}
 import extruder.typesafe._
 import extruder.refined._
-import io.janstenpickle.controller.broadlink.remote.RmRemoteConfig
-import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
+import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
 import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
-import io.janstenpickle.controller.switch.hs100.HS100SmartPlug
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
+import io.janstenpickle.controller.tplink.TplinkComponents
 
 import scala.concurrent.duration._
 import scala.util.Try
 
 object Configuration {
   case class Config(
-    rm: List[Rm] = List.empty,
-    virtualSwitch: SwitchesForRemote.PollingConfig,
-    hs100: HS100,
-    sp: Sp,
+    broadlink: BroadlinkComponents.Config,
+    virtualSwitch: VirtualSwitch,
+    tplink: TplinkComponents.Config,
     sonos: SonosComponents.Config,
     kodi: KodiComponents.Config,
     config: ConfigData,
@@ -44,8 +42,6 @@ object Configuration {
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config
   )
 
-  case class Rm(config: RmRemoteConfig, dependentSwitch: Option[SwitchKey])
-
   case class Activity(dependentSwitches: Map[Room, SwitchKey] = Map.empty)
 
   case class ConfigData(
@@ -54,8 +50,7 @@ object Configuration {
     polling: ExtruderConfigSource.PollingConfig
   )
 
-  case class HS100(configs: List[HS100SmartPlug.Config] = List.empty, polling: HS100SmartPlug.PollingConfig)
-  case class Sp(configs: List[SpSwitchConfig] = List.empty, polling: SpSwitch.PollingConfig)
+  case class VirtualSwitch(dependentSwitches: Map[NonEmptyString, SwitchKey], polling: SwitchesForRemote.PollingConfig)
 
   case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8090))
 

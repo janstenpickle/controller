@@ -1,9 +1,8 @@
-package io.janstenpickle.controller.switch.hs100
+package io.janstenpickle.controller.tplink.hs100
 
 import cats.effect._
 import cats.instances.list._
 import cats.syntax.traverse._
-import cats.~>
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model.State
