@@ -15,7 +15,7 @@ object SonosSwitchProvider {
   ): SwitchProvider[F] =
     new SwitchProvider[F] {
       override def getSwitches: F[Map[SwitchKey, Switch[F]]] = trace.span("sonosGetSwitches") {
-        discovery.devices.map(_.flatMap {
+        discovery.devices.map(_.devices.flatMap {
           case (_, dev) =>
             Map((SwitchKey(deviceName, dev.name), TracedSwitch(new Switch[F] {
               override def name: NonEmptyString = dev.name

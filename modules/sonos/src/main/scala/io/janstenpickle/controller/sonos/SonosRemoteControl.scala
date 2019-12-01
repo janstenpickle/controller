@@ -25,10 +25,10 @@ object SonosRemoteControl {
             override def applicative: Applicative[F] = Applicative[F]
 
             private def doOnAll(command: SonosDevice[F] => F[Unit]): F[Unit] =
-              discovery.devices.flatMap(_.values.toList.parTraverse_(command))
+              discovery.devices.flatMap(_.devices.values.toList.parTraverse_(command))
 
             private def doOnControllers(command: SonosDevice[F] => F[Unit]): F[Unit] =
-              discovery.devices.flatMap(_.values.toList.parTraverse_ { device =>
+              discovery.devices.flatMap(_.devices.values.toList.parTraverse_ { device =>
                 device.isController.flatMap(if (_) command(device) else F.unit)
               })
 
@@ -49,7 +49,7 @@ object SonosRemoteControl {
           }
 
           def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] = trace.span("sonosListDevices") {
-            discovery.devices.map(_.updated(combinedDeviceName, combinedDevice)).flatTap { devices =>
+            discovery.devices.map(_.devices.updated(combinedDeviceName, combinedDevice)).flatTap { devices =>
               trace.put("device.count" -> devices.size)
             }
           }

@@ -13,7 +13,7 @@ object KodiSwitchProvider {
   def apply[F[_]: FlatMap: Trace](deviceName: NonEmptyString, discovery: KodiDiscovery[F]): SwitchProvider[F] =
     new SwitchProvider[F] {
       override def getSwitches: F[Map[SwitchKey, Switch[F]]] =
-        discovery.devices.map(_.flatMap {
+        discovery.devices.map(_.devices.flatMap {
           case (_, dev) =>
             Map(
               SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_playpause")) ->

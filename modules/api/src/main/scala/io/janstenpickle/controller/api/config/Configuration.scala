@@ -50,7 +50,10 @@ object Configuration {
     polling: ExtruderConfigSource.PollingConfig
   )
 
-  case class VirtualSwitch(dependentSwitches: Map[NonEmptyString, SwitchKey], polling: SwitchesForRemote.PollingConfig)
+  case class VirtualSwitch(
+    dependentSwitches: Map[NonEmptyString, SwitchKey] = Map.empty,
+    polling: SwitchesForRemote.PollingConfig
+  )
 
   case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8090))
 

@@ -38,7 +38,7 @@ object KodiRemoteControl {
             name: NonEmptyString
           ): F[Unit] =
             discovery.devices.flatMap { devices =>
-              (devices.get(device), commands.get(name)) match {
+              (devices.devices.get(device), commands.get(name)) match {
                 case (Some(client), Some(command)) => command(client)
                 case _ => errors.commandNotFound(RemoteName, device, name)
               }
@@ -47,7 +47,7 @@ object KodiRemoteControl {
           override lazy val listCommands: F[List[RemoteCommand]] =
             discovery.devices.map { devices =>
               (for {
-                instance <- devices.keys
+                instance <- devices.devices.keys
                 command <- commands.keys
               } yield RemoteCommand(RemoteName, CommandSource, instance, command)).toList
             }

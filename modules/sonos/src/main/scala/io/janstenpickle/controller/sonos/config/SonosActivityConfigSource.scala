@@ -27,7 +27,7 @@ object SonosActivityConfigSource {
         override def getConfig: F[ConfigResult[String, Activity]] =
           discovery.devices.map(
             devices =>
-              ConfigResult(devices.map {
+              ConfigResult(devices.devices.map {
                 case (name, _) =>
                   s"${name.value}-${config.name}" -> Activity(
                     name = config.name,
