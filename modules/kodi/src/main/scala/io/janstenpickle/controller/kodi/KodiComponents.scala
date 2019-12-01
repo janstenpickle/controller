@@ -15,20 +15,13 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
-import io.janstenpickle.controller.model.{Activity, Command, Remote}
+import io.janstenpickle.controller.model.{Activity, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote, Room}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.switch.SwitchProvider
 import natchez.Trace
 import org.http4s.client.Client
 
 import scala.concurrent.duration._
-
-case class KodiComponents[F[_]] private (
-  remote: RemoteControl[F],
-  switches: SwitchProvider[F],
-  remoteConfig: ConfigSource[F, NonEmptyString, Remote],
-  activityConfig: ConfigSource[F, String, Activity]
-)
 
 object KodiComponents {
   case class Config(
@@ -52,6 +45,7 @@ object KodiComponents {
     client: Client[F],
     blocker: Blocker,
     config: Config,
+    discoveryNameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
@@ -61,7 +55,15 @@ object KodiComponents {
         staticDiscovery <- KodiDiscovery.static[F, G](client, config.instances, config.polling, onDeviceUpdate)
         discovery <- if (config.dynamicDiscovery)
           KodiDiscovery
-            .dynamic[F, G](client, blocker, config.discoveryBindAddress, config.polling, onUpdate, onDeviceUpdate)
+            .dynamic[F, G](
+              client,
+              blocker,
+              config.discoveryBindAddress,
+              config.polling,
+              discoveryNameMapping,
+              onUpdate,
+              onDeviceUpdate
+            )
             .map { dynamic =>
               Discovery.combined(dynamic, staticDiscovery)
             } else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)

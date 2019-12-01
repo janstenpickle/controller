@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.tplink.hs100
+package io.janstenpickle.controller.tplink
 
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -32,7 +32,7 @@ object Encryption {
     buffer.array()
   }
 
-  def decrypt[F[_]](inputStream: InputStream)(implicit F: Sync[F]): F[String] =
+  def decrypt[F[_]](inputStream: InputStream, substringBeginIndex: Int = 5)(implicit F: Sync[F]): F[String] =
     F.delay {
       @tailrec
       def loop(buffer: ArrayBuffer[Byte]): ArrayBuffer[Byte] = {
@@ -57,7 +57,7 @@ object Encryption {
         ._2
         .toString()
 
-      "{" + response.substring(5)
+      "{" + response.substring(substringBeginIndex)
     }
 
 }

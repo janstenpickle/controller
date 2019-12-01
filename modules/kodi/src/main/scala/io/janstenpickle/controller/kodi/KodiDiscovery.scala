@@ -23,7 +23,9 @@ import natchez.Trace
 import cats.instances.int._
 import cats.instances.tuple._
 import cats.instances.long._
-import io.janstenpickle.controller.discovery.{DeviceState, Discovery}
+import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
 
 import scala.collection.JavaConverters._
 
@@ -53,7 +55,8 @@ object KodiDiscovery {
           }
           .map { devs =>
             new Discovery[F, NonEmptyString, KodiDevice[F]] {
-              override lazy val devices: F[Map[NonEmptyString, KodiDevice[F]]] = F.pure(devs.toMap)
+              override def devices: F[Discovered[NonEmptyString, KodiDevice[F]]] =
+                F.pure(Discovered(Set.empty, devs.toMap))
             }
           }
       )
@@ -74,6 +77,7 @@ object KodiDiscovery {
     blocker: Blocker,
     bindAddress: Option[InetAddress],
     config: Discovery.Polling,
+    nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(
@@ -102,7 +106,46 @@ object KodiDiscovery {
             }
         }
 
-    def discover: F[Map[KodiInstance, KodiDevice[F]]] =
+    def serviceToAddress(service: ServiceInfo): Option[(NonEmptyString, PortNumber)] =
+      for {
+        address <- service.getInet4Addresses.headOption
+        host <- NonEmptyString.from(address.getHostAddress).toOption
+        port <- PortNumber.from(service.getPort).toOption
+      } yield (host, port)
+
+    def serviceToInstance(service: ServiceInfo): Option[KodiInstance] =
+      for {
+        maybeRoomName <- service.getName.split("\\.", 2).toList match {
+          case name :: room :: Nil => Some((name, room))
+          case _ => None
+        }
+        name <- NonEmptyString.from(maybeRoomName._1).toOption
+        room <- NonEmptyString.from(maybeRoomName._2).toOption
+        (host, port) <- serviceToAddress(service)
+      } yield KodiInstance(name, room, host, port)
+
+    def serviceInstance(service: ServiceInfo): F[Either[DiscoveredDeviceKey, KodiInstance]] = {
+      val deviceId =
+        DiscoveredDeviceKey(s"${service.getName}_${service.getInet4Addresses.headOption.getOrElse("")}", deviceName)
+      nameMapping.getValue(deviceId).map { maybeName =>
+        (for {
+          (name, room) <- maybeName.flatMap(dv => dv.room.map(dv.name -> _))
+          (host, port) <- serviceToAddress(service)
+        } yield KodiInstance(name, room, host, port)).orElse(serviceToInstance(service)).toRight(deviceId)
+      }
+    }
+
+    def serviceInstanceDevice(service: ServiceInfo): F[Either[DiscoveredDeviceKey, (KodiInstance, KodiDevice[F])]] =
+      serviceInstance(service).flatMap {
+        case Left(unmappedKey) => F.pure(Left(unmappedKey))
+        case Right(instance) =>
+          for {
+            kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
+            device <- KodiDevice[F](kodiClient, instance.name, instance.room, onDeviceUpdate)
+          } yield Right((instance, device))
+      }
+
+    def discover: F[(Set[DiscoveredDeviceKey], Map[KodiInstance, KodiDevice[F]])] =
       blocker
         .blockOn[F, List[ServiceInfo]](jmDNS.use { js =>
           trace.span("bonjourListDevices") {
@@ -112,28 +155,12 @@ object KodiDiscovery {
           }
         })
         .flatMap { services =>
-          val instances = services.flatMap { service =>
-            for {
-              maybeRoomName <- service.getName.split("\\.", 2).toList match {
-                case name :: room :: Nil => Some((name, room))
-                case _ => None
-              }
-              name <- NonEmptyString.from(maybeRoomName._1).toOption
-              room <- NonEmptyString.from(maybeRoomName._2).toOption
-              address <- service.getInet4Addresses.headOption
-              host <- NonEmptyString.from(address.getHostAddress).toOption
-              port <- PortNumber.from(service.getPort).toOption
-            } yield KodiInstance(name, room, host, port)
-          }
-
-          instances
-            .traverse { instance =>
-              for {
-                kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
-                device <- KodiDevice[F](kodiClient, instance.name, instance.room, onDeviceUpdate)
-              } yield (instance, device)
-            }
-            .map(_.toMap)
+          services
+            .traverse(serviceInstanceDevice)
+            .map(_.foldLeft((Set.empty[DiscoveredDeviceKey], Map.empty[KodiInstance, KodiDevice[F]])) {
+              case ((unmapped, devices), Left(uk)) => (unmapped + uk, devices)
+              case ((unmapped, devices), Right(dev)) => (unmapped, devices + dev)
+            })
         }
 
     Discovery[F, G, KodiInstance, NonEmptyString, KodiDevice[F]](

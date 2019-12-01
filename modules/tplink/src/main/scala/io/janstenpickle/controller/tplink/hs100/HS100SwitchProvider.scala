@@ -11,21 +11,23 @@ import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
 import natchez.Trace
 
 object HS100SwitchProvider {
-  def apply[F[_]: Sync: ContextShift: HS100Errors: PollingSwitchErrors: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Concurrent: Timer: ContextShift: HS100Errors: PollingSwitchErrors: Trace, G[_]: Concurrent: Timer](
     config: List[HS100SmartPlug.Config],
     pollingConfig: HS100SmartPlug.PollingConfig,
     onUpdate: State => F[Unit],
     blocker: Blocker
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SwitchProvider[F]] = {
-    type Res[A] = Resource[F, A]
-    config
-      .traverse[Res, (SwitchKey, Switch[F])](
-        HS100SmartPlug
-          .polling(_, pollingConfig, onUpdate, blocker)
-          .map(s => SwitchKey(s.device, s.name) -> s)
-      )
-      .map { switches =>
-        SwitchProvider(switches.toMap)
-      }
-  }
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SwitchProvider[F]] = ???
+
+//  {
+//    type Res[A] = Resource[F, A]
+//    config
+//      .traverse[Res, (SwitchKey, Switch[F])](
+//        HS100SmartPlug
+//          .polling[F, G](_, pollingConfig, onUpdate, blocker)
+//          .map(s => SwitchKey(s.device, s.name) -> s)
+//      )
+//      .map { switches =>
+//        SwitchProvider(switches.toMap)
+//      }
+//  }
 }

@@ -91,9 +91,9 @@ object SonosDiscovery {
       Discovery[F, G, NonEmptyString, NonEmptyString, SonosDevice[F]](
         "sonos",
         config,
-        data => devicesRef.set(data._1.values.map(d => d.id -> d).toMap) *> onUpdate(),
+        data => devicesRef.set(data._2.values.map(d => d.id -> d).toMap) *> onUpdate(),
         onDeviceUpdate,
-        () => discover,
+        () => discover.map(Set.empty -> _),
         identity,
         _.refresh,
         device =>

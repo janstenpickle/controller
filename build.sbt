@@ -34,7 +34,8 @@ val commonSettings = Seq(
     "UTF-8"
   ),
   addCompilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.patch)),
-//  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
+  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
+  //  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
   publishMavenStyle := true,
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
   homepage := Some(url("https://github.com/janstenpickle/extruder")),
@@ -62,7 +63,9 @@ val commonSettings = Seq(
   packExcludeJars := Seq("slf4j-jdk14.*\\.jar"),
   assemblyExcludedJars in assembly := {
     val cp = (fullClasspath in assembly).value
-    cp.filter { _.data.getName.contains("slf4j-jdk14") }
+    cp.filter {
+      _.data.getName.contains("slf4j-jdk14")
+    }
   },
   publishArtifact in packageDoc := false
 )
@@ -275,7 +278,7 @@ lazy val tplink = (project in file("modules/tplink"))
       "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
-  .dependsOn(components, pollingSwitch, tracedSwitch)
+  .dependsOn(components, dynamicDiscovery, pollingSwitch, tracedSwitch)
 
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
@@ -453,7 +456,10 @@ lazy val kodi = (project in file("modules/kodi"))
 
 lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
   .settings(commonSettings)
-  .settings(name := "controller-dynamic-discovery")
+  .settings(
+    name := "controller-dynamic-discovery",
+    libraryDependencies ++= Seq("org.typelevel" %% "kittens" % kittensVer)
+  )
   .dependsOn(poller)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))

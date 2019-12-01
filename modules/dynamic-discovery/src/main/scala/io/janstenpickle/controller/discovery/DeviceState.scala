@@ -31,7 +31,7 @@ object DeviceState {
         .span("readDevices") {
           discovery.devices
         }
-        .flatMap(_.values.toList.parTraverse { device =>
+        .flatMap(_.devices.values.toList.parTraverse { device =>
           trace.span("readDevice") {
             for {
               _ <- trace.put(traceParams(device): _*)
