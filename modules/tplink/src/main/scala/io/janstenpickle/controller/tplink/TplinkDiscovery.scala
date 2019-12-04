@@ -20,15 +20,16 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
 import io.circe.parser._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.discovery.{DeviceState, Discovery}
+import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.tplink.Constants._
-import io.janstenpickle.controller.tplink.hs100.{HS100Errors, HS100SmartPlug}
+import io.janstenpickle.controller.tplink.device.{TplinkDeviceErrors, TplinkDevice}
 import natchez.Trace
 import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
 import cats.instances.string._
 import cats.instances.int._
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
+import io.janstenpickle.controller.tplink.device.TplinkDevice.SmartPlug
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
@@ -48,11 +49,11 @@ object TplinkDiscovery {
 
   case class TplinkInstance(name: NonEmptyString, host: NonEmptyString, port: PortNumber, `type`: DeviceType)
 
-  private def deviceKey[F[_]: Functor](device: HS100SmartPlug[F]): F[String] = device.getState.map { state =>
+  private def deviceKey[F[_]: Functor](device: TplinkDevice[F]): F[String] = device.getState.map { state =>
     s"${device.name}${state.isOn}"
   }
 
-  def static[F[_]: ContextShift: Timer: Parallel: Trace: HS100Errors, G[_]: Timer: Concurrent](
+  def static[F[_]: ContextShift: Timer: Parallel: Trace: TplinkDeviceErrors, G[_]: Timer: Concurrent](
     tplinks: List[TplinkInstance],
     commandTimeout: FiniteDuration,
     blocker: Blocker,
@@ -62,21 +63,24 @@ object TplinkDiscovery {
     Resource
       .liftF(
         tplinks
-          .parFlatTraverse[F, ((NonEmptyString, DeviceType), HS100SmartPlug[F])] {
+          .parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
             case TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
-              HS100SmartPlug[F](TplinkDevice[F](name, host, port, commandTimeout, blocker)).map { dev =>
+              TplinkDevice.plug[F](TplinkClient[F](name, host, port, commandTimeout, blocker)).map { dev =>
                 List(((name, DeviceType.SmartPlug), dev))
               }
-            case _ => F.pure(List.empty[((NonEmptyString, DeviceType), HS100SmartPlug[F])])
+            case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
           }
           .map { devs =>
-            new Discovery[F, (NonEmptyString, DeviceType), HS100SmartPlug[F]] {
-              override lazy val devices: F[Map[(NonEmptyString, DeviceType), HS100SmartPlug[F]]] = F.pure(devs.toMap)
+            new Discovery[F, (NonEmptyString, DeviceType), TplinkDevice[F]] {
+              override def devices: F[Discovered[(NonEmptyString, DeviceType), TplinkDevice[F]]] =
+                F.pure(Discovered(Set.empty, devs.toMap))
+
+              override def reinit: F[Unit] = F.unit
             }
           }
       )
       .flatMap { disc =>
-        DeviceState[F, G, (NonEmptyString, DeviceType), HS100SmartPlug[F]](
+        DeviceState[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
           name,
           config.stateUpdateInterval,
           config.errorCount,
@@ -87,7 +91,7 @@ object TplinkDiscovery {
         ).map(_ => disc)
       }
 
-  def dynamic[F[_]: Parallel: ContextShift: HS100Errors: Trace, G[_]: Timer: Concurrent](
+  def dynamic[F[_]: Parallel: ContextShift: TplinkDeviceErrors: Trace, G[_]: Timer: Concurrent](
     port: PortNumber,
     commandTimeout: FiniteDuration,
     discoveryTimeout: FiniteDuration,
@@ -140,55 +144,55 @@ object TplinkDiscovery {
         F.delay(s.close())
       }
 
-    def discover = socketResource.use { socket =>
-      val (_, buffer) = Encryption.encryptWithHeader(discoveryQuery).splitAt(4)
-      val packet = new DatagramPacket(buffer, buffer.length, InetAddress.getByName(broadcastAddress), port.value)
+    def discover: F[(Set[DiscoveredDeviceKey], Map[(NonEmptyString, DeviceType), TplinkDevice[F]])] =
+      socketResource.use { socket =>
+        val (_, buffer) = Encryption.encryptWithHeader(discoveryQuery).splitAt(4)
+        val packet = new DatagramPacket(buffer, buffer.length, InetAddress.getByName(broadcastAddress), port.value)
 
-      def receiveData: F[Map[(NonEmptyString, PortNumber), Json]] =
-        F.tailRecM(Map.empty[(NonEmptyString, PortNumber), Json]) { state =>
-          val inBuffer: Array[Byte] = Array.fill(4096)(1.byteValue())
-          val inPacket = new DatagramPacket(inBuffer, inBuffer.length)
+        def receiveData: F[Map[(NonEmptyString, PortNumber), Json]] =
+          F.tailRecM(Map.empty[(NonEmptyString, PortNumber), Json]) { state =>
+            val inBuffer: Array[Byte] = Array.fill(4096)(1.byteValue())
+            val inPacket = new DatagramPacket(inBuffer, inBuffer.length)
 
-          val ret: F[Either[Map[(NonEmptyString, PortNumber), Json], Map[(NonEmptyString, PortNumber), Json]]] = for {
-            _ <- F.delay(socket.receive(inPacket))
-            in <- Encryption.decrypt[F](new ByteArrayInputStream(inBuffer), 1)
-            host <- refineF(NonEmptyString.from(inPacket.getAddress.getHostAddress))
-            port <- refineF(PortNumber.from(inPacket.getPort))
-            json <- parse(in).fold(errors.decodingFailure(host, _), _.pure[F])
-          } yield Left(state + (((host, port), json)))
+            val ret: F[Either[Map[(NonEmptyString, PortNumber), Json], Map[(NonEmptyString, PortNumber), Json]]] = for {
+              _ <- F.delay(socket.receive(inPacket))
+              in <- Encryption.decrypt[F](new ByteArrayInputStream(inBuffer), 1)
+              host <- refineF(NonEmptyString.from(inPacket.getAddress.getHostAddress))
+              port <- refineF(PortNumber.from(inPacket.getPort))
+              json <- parse(in).fold(errors.decodingFailure(host, _), _.pure[F])
+            } yield Left(state + (((host, port), json)))
 
-          ret.recover {
-            case _: SocketTimeoutException => Right(state)
-          }
-        }
-
-      for {
-        _ <- List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence
-        discovered <- blocker.blockOn(receiveData)
-        filtered = discovered.flatMap {
-          case ((host, port), v) =>
-            for {
-              dt <- deviceType(v)
-              name <- deviceName(v)
-            } yield TplinkInstance(name, host, port, dt)
-        }.toList
-        devices <- filtered.parFlatTraverse {
-          case k @ TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
-            HS100SmartPlug(TplinkDevice(name, host, port, commandTimeout, blocker)).map { dev =>
-              List(k -> dev)
+            ret.recover {
+              case _: SocketTimeoutException => Right(state)
             }
-          case _ => F.pure(List.empty[(TplinkInstance, HS100SmartPlug[F])])
-        }
-      } yield (Set.empty[DiscoveredDeviceKey], devices.toMap)
-    }
+          }
 
-    Discovery[F, G, TplinkInstance, (NonEmptyString, DeviceType), HS100SmartPlug[F]](
+        for {
+          _ <- List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence
+          discovered <- blocker.blockOn(receiveData)
+          filtered = discovered.flatMap {
+            case ((host, port), v) =>
+              for {
+                dt <- deviceType(v)
+                name <- deviceName(v)
+              } yield TplinkInstance(name, host, port, dt)
+          }.toList
+          devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
+            case TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
+              TplinkDevice.plug(TplinkClient(name, host, port, commandTimeout, blocker)).map { dev =>
+                List(((name, DeviceType.SmartPlug), dev))
+              }
+            case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
+          }
+        } yield (Set.empty[DiscoveredDeviceKey], devices.toMap)
+      }
+
+    Discovery[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
       name,
       config,
       _ => onUpdate(),
       onDeviceUpdate,
       () => discover,
-      instance => (instance.name, instance.`type`),
       _.refresh,
       deviceKey,
       device => List("device.name" -> device.name.value)

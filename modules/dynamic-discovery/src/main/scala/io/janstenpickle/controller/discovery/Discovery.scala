@@ -21,6 +21,7 @@ import scala.concurrent.duration._
 
 trait Discovery[F[_], K, V] {
   def devices: F[Discovered[K, V]]
+  def reinit: F[Unit]
 }
 
 object Discovery {
@@ -33,15 +34,15 @@ object Discovery {
   def combined[F[_]: FlatMap, K, V](x: Discovery[F, K, V], y: Discovery[F, K, V]): Discovery[F, K, V] =
     new Discovery[F, K, V] {
       override def devices: F[Discovered[K, V]] = x.devices.flatMap(xs => y.devices.map(xs |+| _))
+      override def reinit: F[Unit] = x.reinit >> y.reinit
     }
 
-  def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K0: Eq, K1, V: Eq](
+  def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K: Eq, V: Eq](
     deviceType: String,
     config: Polling,
-    onUpdate: ((Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long])) => F[Unit],
+    onUpdate: ((Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])) => F[Unit],
     onDeviceUpdate: () => F[Unit],
-    doDiscovery: () => F[(Set[DiscoveredDeviceKey], Map[K0, V])],
-    mapKey: K0 => K1,
+    doDiscovery: () => F[(Set[DiscoveredDeviceKey], Map[K, V])],
     refresh: V => F[Unit],
     makeKey: V => F[String],
     traceParams: V => List[(String, TraceValue)] = (_: V) => List.empty,
@@ -50,18 +51,18 @@ object Discovery {
     timer: Timer[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, Discovery[F, K1, V]] = {
+  ): Resource[F, Discovery[F, K, V]] = {
     lazy val timeout: Long = (config.discoveryInterval * 3).toMillis
 
-    implicit val empty: Empty[(Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long])] =
-      new Empty[(Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long])] {
-        override def empty: (Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long]) =
+    implicit val empty: Empty[(Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])] =
+      new Empty[(Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])] {
+        override def empty: (Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long]) =
           (Set.empty, Map.empty, Map.empty)
       }
 
     def updateDevices(
-      current: (Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long])
-    ): F[(Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long])] =
+      current: (Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])
+    ): F[(Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])] =
       trace.span(s"${deviceType}UpdateDevices") {
         for {
           _ <- trace.put("current.count" -> current._2.size)
@@ -85,18 +86,23 @@ object Discovery {
       }
 
     DataPoller
-      .traced[F, G, (Set[DiscoveredDeviceKey], Map[K0, V], Map[K0, Long]), Discovery[F, K1, V]](
-        s"${deviceType}Discovery"
-      )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onUpdate)(
-        (getData, _) =>
-          new Discovery[F, K1, V] {
-            override def devices: F[Discovered[K1, V]] = getData().map {
-              case (unmapped, devices, _) => Discovered(unmapped, devices.map { case (k, v) => mapKey(k) -> v })
+      .traced[F, G, (Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long]), Discovery[F, K, V]](s"${deviceType}Discovery")(
+        current => updateDevices(current.value),
+        config.discoveryInterval,
+        config.errorCount,
+        onUpdate
+      )(
+        (getData, setData) =>
+          new Discovery[F, K, V] {
+            override def devices: F[Discovered[K, V]] = getData().map {
+              case (unmapped, devices, _) => Discovered(unmapped, devices)
             }
+
+            override def reinit: F[Unit] = updateDevices((Set.empty, Map.empty, Map.empty)).flatMap(setData)
         }
       )
       .flatMap { disc =>
-        DeviceState[F, G, K1, V](
+        DeviceState[F, G, K, V](
           deviceType,
           config.stateUpdateInterval,
           config.errorCount,

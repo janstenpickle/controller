@@ -20,7 +20,7 @@ import io.janstenpickle.controller.kodi.KodiErrors
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
-import io.janstenpickle.controller.tplink.hs100.HS100Errors
+import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 
 class ErrorInterpreter[F[_]: Apply](
   implicit
@@ -30,7 +30,7 @@ class ErrorInterpreter[F[_]: Apply](
 ) extends MacroErrors[F]
     with SwitchErrors[F]
     with RemoteControlErrors[F]
-    with HS100Errors[F]
+    with TplinkDeviceErrors[F]
     with PollingSwitchErrors[F]
     with ExtruderErrors[F]
     with ConfigServiceErrors[F]

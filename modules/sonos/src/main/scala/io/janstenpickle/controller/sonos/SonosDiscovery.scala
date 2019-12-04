@@ -88,13 +88,12 @@ object SonosDiscovery {
               .map(_.toMap)
           }
 
-      Discovery[F, G, NonEmptyString, NonEmptyString, SonosDevice[F]](
+      Discovery[F, G, NonEmptyString, SonosDevice[F]](
         "sonos",
         config,
         data => devicesRef.set(data._2.values.map(d => d.id -> d).toMap) *> onUpdate(),
         onDeviceUpdate,
         () => discover.map(Set.empty -> _),
-        identity,
         _.refresh,
         device =>
           device.getState.map { state =>

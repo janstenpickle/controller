@@ -23,8 +23,8 @@ import natchez.Trace
 import cats.instances.int._
 import cats.instances.tuple._
 import cats.instances.long._
-import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
+import io.janstenpickle.controller.configsource.{ConfigSource, WritableConfigSource}
+import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
 
 import scala.collection.JavaConverters._
@@ -57,6 +57,8 @@ object KodiDiscovery {
             new Discovery[F, NonEmptyString, KodiDevice[F]] {
               override def devices: F[Discovered[NonEmptyString, KodiDevice[F]]] =
                 F.pure(Discovered(Set.empty, devs.toMap))
+
+              override def reinit: F[Unit] = F.unit
             }
           }
       )
@@ -77,7 +79,7 @@ object KodiDiscovery {
     blocker: Blocker,
     bindAddress: Option[InetAddress],
     config: Discovery.Polling,
-    nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
+    nameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(
@@ -135,17 +137,17 @@ object KodiDiscovery {
       }
     }
 
-    def serviceInstanceDevice(service: ServiceInfo): F[Either[DiscoveredDeviceKey, (KodiInstance, KodiDevice[F])]] =
+    def serviceInstanceDevice(service: ServiceInfo): F[Either[DiscoveredDeviceKey, (NonEmptyString, KodiDevice[F])]] =
       serviceInstance(service).flatMap {
         case Left(unmappedKey) => F.pure(Left(unmappedKey))
         case Right(instance) =>
           for {
             kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
             device <- KodiDevice[F](kodiClient, instance.name, instance.room, onDeviceUpdate)
-          } yield Right((instance, device))
+          } yield Right((instance.name, device))
       }
 
-    def discover: F[(Set[DiscoveredDeviceKey], Map[KodiInstance, KodiDevice[F]])] =
+    def discover: F[(Set[DiscoveredDeviceKey], Map[NonEmptyString, KodiDevice[F]])] =
       blocker
         .blockOn[F, List[ServiceInfo]](jmDNS.use { js =>
           trace.span("bonjourListDevices") {
@@ -163,16 +165,25 @@ object KodiDiscovery {
             })
         }
 
-    Discovery[F, G, KodiInstance, NonEmptyString, KodiDevice[F]](
+    Discovery[F, G, NonEmptyString, KodiDevice[F]](
       deviceName,
       config,
       _ => onUpdate(),
       onDeviceUpdate,
       () => discover,
-      _.name,
       _.refresh,
       deviceKey,
       device => List("device.name" -> device.name.value, "device.room" -> device.room.value)
-    )
+    ).map { disc =>
+      new DeviceRename[F] {
+        override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
+          nameMapping.upsert(k, v) *> disc.reinit
+        override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
+        override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
+          disc.devices.map(_.devices.map { case (_, v) => v.key -> DiscoveredDeviceValue(v.name, Some(v.room)) })
+      }
+
+      disc
+    }
   }
 }

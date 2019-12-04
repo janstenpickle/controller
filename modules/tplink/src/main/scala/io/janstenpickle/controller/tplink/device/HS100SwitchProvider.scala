@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.tplink.hs100
+package io.janstenpickle.controller.tplink.device
 
 import cats.effect._
 import cats.instances.list._
@@ -11,9 +11,9 @@ import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
 import natchez.Trace
 
 object HS100SwitchProvider {
-  def apply[F[_]: Concurrent: Timer: ContextShift: HS100Errors: PollingSwitchErrors: Trace, G[_]: Concurrent: Timer](
-    config: List[HS100SmartPlug.Config],
-    pollingConfig: HS100SmartPlug.PollingConfig,
+  def apply[F[_]: Concurrent: Timer: ContextShift: TplinkDeviceErrors: PollingSwitchErrors: Trace, G[_]: Concurrent: Timer](
+    config: List[TplinkDevice.Config],
+    pollingConfig: TplinkDevice.PollingConfig,
     onUpdate: State => F[Unit],
     blocker: Blocker
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SwitchProvider[F]] = ???

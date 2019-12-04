@@ -13,7 +13,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.model.{Command, Remote, State}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
-import io.janstenpickle.controller.tplink.hs100.HS100Errors
+import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -29,7 +29,7 @@ object TplinkComponents {
     enabled: Boolean = false
   )
 
-  def apply[F[_]: Concurrent: Timer: ContextShift: Parallel: RemoteControlErrors: HS100Errors: PollingSwitchErrors: Trace, G[
+  def apply[F[_]: Concurrent: Timer: ContextShift: Parallel: RemoteControlErrors: TplinkDeviceErrors: PollingSwitchErrors: Trace, G[
     _
   ]: Concurrent: Timer](config: Config, blocker: Blocker, onUpdate: () => F[Unit], onDeviceUpdate: () => F[Unit])(
     implicit liftLower: ContextualLiftLower[G, F, String]

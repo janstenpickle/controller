@@ -33,8 +33,8 @@ object ExtruderDiscoveryMappingConfigSource {
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue]] = {
     type EV[A] = EffectValidation[F, A]
-    val decoder: Decoder[EV, Settings, ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue], TConfig] =
-      Decoder[EV, Settings, ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue], TConfig]
+    val decoder: Decoder[EV, Settings, ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue], TConfig] = ???
+     // Decoder[EV, Settings, ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue], TConfig]
     val encoder: Encoder[F, Settings, ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue], Config] =
       Encoder[F, Settings, ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue], Config]
 

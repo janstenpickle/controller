@@ -11,7 +11,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components
 import io.janstenpickle.controller.components.Components
-import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
+import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource, WritableConfigSource}
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
@@ -45,7 +45,7 @@ object KodiComponents {
     client: Client[F],
     blocker: Blocker,
     config: Config,
-    discoveryNameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
+    discoveryNameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
