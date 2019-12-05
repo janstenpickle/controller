@@ -50,7 +50,13 @@ object KodiDiscovery {
           .traverse { instance =>
             for {
               kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
-              device <- KodiDevice[F](kodiClient, instance.name, instance.room, onDeviceUpdate)
+              device <- KodiDevice[F](
+                kodiClient,
+                instance.name,
+                instance.room,
+                DiscoveredDeviceKey(s"${instance.name}_${instance.host}", deviceName),
+                onDeviceUpdate
+              )
             } yield (instance.name, device)
           }
           .map { devs =>
@@ -126,9 +132,11 @@ object KodiDiscovery {
         (host, port) <- serviceToAddress(service)
       } yield KodiInstance(name, room, host, port)
 
+    def serviceDeviceKey(service: ServiceInfo): DiscoveredDeviceKey =
+      DiscoveredDeviceKey(s"${service.getName}_${service.getInet4Addresses.headOption.getOrElse("")}", deviceName)
+
     def serviceInstance(service: ServiceInfo): F[Either[DiscoveredDeviceKey, KodiInstance]] = {
-      val deviceId =
-        DiscoveredDeviceKey(s"${service.getName}_${service.getInet4Addresses.headOption.getOrElse("")}", deviceName)
+      val deviceId = serviceDeviceKey(service)
       nameMapping.getValue(deviceId).map { maybeName =>
         (for {
           (name, room) <- maybeName.flatMap(dv => dv.room.map(dv.name -> _))
@@ -143,7 +151,7 @@ object KodiDiscovery {
         case Right(instance) =>
           for {
             kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
-            device <- KodiDevice[F](kodiClient, instance.name, instance.room, onDeviceUpdate)
+            device <- KodiDevice[F](kodiClient, instance.name, instance.room, serviceDeviceKey(service), onDeviceUpdate)
           } yield Right((instance.name, device))
       }
 
@@ -159,7 +167,7 @@ object KodiDiscovery {
         .flatMap { services =>
           services
             .traverse(serviceInstanceDevice)
-            .map(_.foldLeft((Set.empty[DiscoveredDeviceKey], Map.empty[KodiInstance, KodiDevice[F]])) {
+            .map(_.foldLeft((Set.empty[DiscoveredDeviceKey], Map.empty[NonEmptyString, KodiDevice[F]])) {
               case ((unmapped, devices), Left(uk)) => (unmapped + uk, devices)
               case ((unmapped, devices), Right(dev)) => (unmapped, devices + dev)
             })
@@ -178,7 +186,9 @@ object KodiDiscovery {
       new DeviceRename[F] {
         override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
           nameMapping.upsert(k, v) *> disc.reinit
+
         override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
+
         override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
           disc.devices.map(_.devices.map { case (_, v) => v.key -> DiscoveredDeviceValue(v.name, Some(v.room)) })
       }

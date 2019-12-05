@@ -26,7 +26,7 @@ import scala.concurrent.duration._
 
 sealed trait TplinkDevice[F[_]] extends Switch[F] {
   def refresh: F[Unit]
-  def rename(name: NonEmptyString): F[Unit]
+  def rename(name: NonEmptyString, room: Option[Room]): F[Unit]
 }
 
 object TplinkDevice {
@@ -34,7 +34,7 @@ object TplinkDevice {
   trait SmartPlug[F[_]] extends TplinkDevice[F]
 
   trait SmartBulb[F[_]] extends TplinkDevice[F] {
-    def room: Room
+//    def room: Room
   }
 
   private final val SetRelayState = "set_relay_state"
@@ -68,16 +68,18 @@ object TplinkDevice {
           tplink.sendCommand(SwitchOnCommand).flatMap(tplink.parseSetResponse(SetRelayState)) *> state.set(State.On)
         override def switchOff: F[Unit] =
           tplink.sendCommand(SwitchOffCommand).flatMap(tplink.parseSetResponse(SetRelayState)) *> state.set(State.Off)
-        override def rename(name: NonEmptyString): F[Unit] =
+        override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] =
           tplink.sendCommand(s"""{"$System":{"$SetDevAlias":"$name"}}""").flatMap(tplink.parseSetResponse(SetDevAlias))
       }
 
   case class BulbState(power: State, brightness: Int)
 
-  def bulb[F[_]: Sync](deviceRoom: Room, tplink: TplinkClient[F])(implicit errors: TplinkDeviceErrors[F]): F[SmartBulb[F]] = {
+  def bulb[F[_]: Sync](deviceRoom: Room, tplink: TplinkClient[F])(
+    implicit errors: TplinkDeviceErrors[F]
+  ): F[SmartBulb[F]] = {
     def getBrightness: F[Int] = ???
 
- //   def _getState: F[BulbState] = tplink.getState
+    //   def _getState: F[BulbState] = tplink.getState
 
     for {
       initialState <- tplink.getState
@@ -92,7 +94,7 @@ object TplinkDevice {
           tplink.sendCommand(SwitchOnCommand).flatMap(tplink.parseSetResponse(SetRelayState)) *> state.set(State.On)
         override def switchOff: F[Unit] =
           tplink.sendCommand(SwitchOffCommand).flatMap(tplink.parseSetResponse(SetRelayState)) *> state.set(State.Off)
-        override def rename(name: NonEmptyString): F[Unit] =
+        override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] =
           tplink.sendCommand(s"""{"$System":{"$SetDevAlias":"$name"}}""").flatMap(tplink.parseSetResponse(SetDevAlias))
       }
   }

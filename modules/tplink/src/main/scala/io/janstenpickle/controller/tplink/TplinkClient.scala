@@ -6,18 +6,19 @@ import java.net.Socket
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Sync, Timer}
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
-import io.circe.{Decoder, Json, parser}
+import io.circe.{parser, Decoder, Json}
 import io.janstenpickle.controller.tplink.Encryption.{decrypt, encryptWithHeader}
 import cats.syntax.functor._
 import cats.syntax.flatMap._
 import cats.syntax.applicative._
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, State}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, Room, State}
 import io.janstenpickle.controller.tplink.Constants.{GetSysInfo, InfoCommand, System}
 
 import scala.concurrent.duration.FiniteDuration
 
 trait TplinkClient[F[_]] {
   def deviceName: NonEmptyString
+  def deviceRoom: Option[Room]
   def sendCommand(command: String): F[Json]
   def parseSetResponse(key: String)(json: Json): F[Unit]
   def getState: F[State]
@@ -31,6 +32,7 @@ object TplinkClient {
 
   def apply[F[_]: ContextShift: Timer](
     name: NonEmptyString,
+    room: Option[Room],
     host: NonEmptyString,
     port: PortNumber,
     commandTimeout: FiniteDuration,
@@ -94,5 +96,7 @@ object TplinkClient {
       }
 
     override def deviceName: NonEmptyString = name
+
+    override def deviceRoom: Option[Room] = room
   }
 }

@@ -22,7 +22,7 @@ import io.circe.parser._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.tplink.Constants._
-import io.janstenpickle.controller.tplink.device.{TplinkDeviceErrors, TplinkDevice}
+import io.janstenpickle.controller.tplink.device.{TplinkDevice, TplinkDeviceErrors}
 import natchez.Trace
 import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
@@ -65,7 +65,7 @@ object TplinkDiscovery {
         tplinks
           .parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
             case TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
-              TplinkDevice.plug[F](TplinkClient[F](name, host, port, commandTimeout, blocker)).map { dev =>
+              TplinkDevice.plug[F](TplinkClient[F](name, None, host, port, commandTimeout, blocker)).map { dev =>
                 List(((name, DeviceType.SmartPlug), dev))
               }
             case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
@@ -179,7 +179,8 @@ object TplinkDiscovery {
           }.toList
           devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
             case TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
-              TplinkDevice.plug(TplinkClient(name, host, port, commandTimeout, blocker)).map { dev =>
+              // TODO get room
+              TplinkDevice.plug(TplinkClient(name, None, host, port, commandTimeout, blocker)).map { dev =>
                 List(((name, DeviceType.SmartPlug), dev))
               }
             case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])

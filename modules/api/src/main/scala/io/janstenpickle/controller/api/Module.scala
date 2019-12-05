@@ -426,15 +426,15 @@ object Module {
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
-      kodiComponents <- KodiComponents[F, G](
-        client,
-        blocker,
-        config.kodi,
-        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
-      )
+//      kodiComponents <- KodiComponents[F, G](
+//        client,
+//        blocker,
+//        config.kodi,
+//        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+//        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+//      )
 
-      components = broadlinkComponents |+| tplinkComponents |+| sonosComponents |+| kodiComponents
+      components = broadlinkComponents |+| tplinkComponents |+| sonosComponents // |+| kodiComponents
 
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
       combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)
