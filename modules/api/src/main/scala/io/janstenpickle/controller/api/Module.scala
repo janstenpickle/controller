@@ -338,6 +338,20 @@ object Module {
         )
       }
 
+      discoveryMappingConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("discoveryMapping"),
+          config.config.polling.pollInterval,
+          blocker,
+          config.config.writeTimeout
+        )
+
+      discoveryMappingStore <- ExtruderDiscoveryMappingConfigSource[F, G](
+        discoveryMappingConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      )
+
       macroConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("macro"),
@@ -413,8 +427,10 @@ object Module {
         config.broadlink,
         commandStore,
         switchStateFileStore,
+        discoveryMappingStore,
         blocker,
-        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
       tplinkComponents <- TplinkComponents[F, G](
@@ -431,15 +447,16 @@ object Module {
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
-//      kodiComponents <- KodiComponents[F, G](
-//        client,
-//        blocker,
-//        config.kodi,
-//        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-//        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
-//      )
+      kodiComponents <- KodiComponents[F, G](
+        client,
+        blocker,
+        config.kodi,
+        discoveryMappingStore,
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+      )
 
-      components = broadlinkComponents |+| tplinkComponents |+| sonosComponents // |+| kodiComponents
+      components = broadlinkComponents |+| tplinkComponents |+| sonosComponents |+| kodiComponents
 
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
       combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)

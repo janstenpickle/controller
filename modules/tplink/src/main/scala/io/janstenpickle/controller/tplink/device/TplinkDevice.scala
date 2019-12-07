@@ -132,11 +132,11 @@ object TplinkDevice {
         override def device: NonEmptyString = model
         override def getState: F[State] = state.get
         override def switchOn: F[Unit] =
-          tplink.sendCommand(BulbSwitchOnCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
+          tplink.sendCommand(PlugSwitchOnCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
             State.On
           ) *> onUpdate()
         override def switchOff: F[Unit] =
-          tplink.sendCommand(BulbSwitchOffCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
+          tplink.sendCommand(PlugSwitchOffCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
             State.Off
           ) *> onUpdate()
         override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] = tplink.rename(name, room)

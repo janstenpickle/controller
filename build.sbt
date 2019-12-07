@@ -247,7 +247,8 @@ lazy val broadlink = (project in file("modules/broadlink"))
     switch,
     tracedSwitch,
     remoteControl,
-    pollingSwitch
+    pollingSwitch,
+    dynamicDiscovery
   )
 
 lazy val switch = (project in file("modules/switch"))

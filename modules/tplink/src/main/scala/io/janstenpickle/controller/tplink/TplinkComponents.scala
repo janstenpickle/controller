@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.tplink
 
 import cats.Parallel
-import cats.data.NonEmptyList
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
 import eu.timepit.refined.types.net.PortNumber
@@ -9,9 +8,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.components.Components
-import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
-import io.janstenpickle.controller.discovery.Discovery
-import io.janstenpickle.controller.model.{Command, Remote, State}
+import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.tplink.config.{TplinkActivityConfigSource, TplinkRemoteConfigSource}
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
@@ -42,7 +39,7 @@ object TplinkComponents {
       for {
         staticDiscovery <- TplinkDiscovery
           .static[F, G](config.instances, config.commandTimeout, blocker, config.polling, onDeviceUpdate)
-        discovery <- if (config.dynamicDiscovery)
+        (rename, discovery) <- if (config.dynamicDiscovery)
           TplinkDiscovery
             .dynamic[F, G](
               config.discoveryPort,
@@ -53,16 +50,18 @@ object TplinkComponents {
               onUpdate,
               onDeviceUpdate
             )
-            .map { dynamic =>
-              Discovery.combined(dynamic, staticDiscovery)
-            } else Resource.pure[F, TplinkDiscovery[F]](staticDiscovery)
+            .map {
+              case (rename, dynamic) =>
+                (rename, Discovery.combined(dynamic, staticDiscovery))
+            } else Resource.pure[F, (DeviceRename[F], TplinkDiscovery[F])](DeviceRename.empty[F], staticDiscovery)
 
       } yield
         emptyComponents.copy(
           switches = TplinkSwitchProvider(discovery),
           remotes = RemoteControls(TplinkRemoteControl(config.remoteName, discovery)),
           activityConfig = TplinkActivityConfigSource(discovery),
-          remoteConfig = TplinkRemoteConfigSource(config.remoteName, discovery)
+          remoteConfig = TplinkRemoteConfigSource(config.remoteName, discovery),
+          rename = rename
         )
     else
       Resource.pure[F, Components[F]](emptyComponents)

@@ -20,7 +20,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
 import io.circe.parser._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
+import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.device.{TplinkDevice, TplinkDeviceErrors}
 import natchez.Trace
@@ -28,13 +28,14 @@ import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
 import cats.instances.string._
 import cats.instances.int._
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, Room}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 object TplinkDiscovery {
   private final val name = "tplink"
+
   private final val discoveryQuery =
     s"""{
       $InfoCommand,
@@ -116,7 +117,7 @@ object TplinkDiscovery {
     timer: Timer[F],
     errors: TplinkErrors[F],
     liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, TplinkDiscovery[F]] = {
+  ): Resource[F, (DeviceRename[F], TplinkDiscovery[F])] = {
     def refineF[A](refined: Either[String, A]): F[A] =
       F.fromEither(refined.leftMap(new RuntimeException(_) with NoStackTrace))
 
@@ -197,7 +198,7 @@ object TplinkDiscovery {
           }
 
         for {
-          _ <- List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence
+          _ <- blocker.blockOn(List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence)
           discovered <- blocker.blockOn(receiveData)
           filtered = discovered.flatMap {
             case ((host, port), v) =>
@@ -234,6 +235,25 @@ object TplinkDiscovery {
       _.refresh,
       deviceKey,
       device => List("device.name" -> device.name.value)
-    )
+    ).map { disc =>
+      new DeviceRename[F] {
+        override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
+          disc.devices.flatMap(
+            _.devices
+              .collectFirst {
+                case ((name, t), dev) if name.value == k.deviceId && t.model.value == k.deviceType => dev
+              }
+              .fold(F.unit)(_.rename(v.name, v.room) *> disc.reinit)
+          )
+
+        override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
+
+        override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
+          disc.devices.map(_.devices.map {
+            case ((name, t), dev) =>
+              DiscoveredDeviceKey(name.value, s"$name-${t.model.value}") -> DiscoveredDeviceValue(dev.name, dev.room)
+          })
+      } -> disc
+    }
   }
 }

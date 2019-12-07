@@ -53,7 +53,7 @@ object KodiComponents {
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
         staticDiscovery <- KodiDiscovery.static[F, G](client, config.instances, config.polling, onDeviceUpdate)
-        discovery <- if (config.dynamicDiscovery)
+        (rename, discovery) <- if (config.dynamicDiscovery)
           KodiDiscovery
             .dynamic[F, G](
               client,
@@ -64,18 +64,18 @@ object KodiComponents {
               onUpdate,
               onDeviceUpdate
             )
-            .map { dynamic =>
-              Discovery.combined(dynamic, staticDiscovery)
-            } else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)
+            .map { case (rename, dynamic) =>
+              rename -> Discovery.combined(dynamic, staticDiscovery)
+            } else Resource.pure[F, (DeviceRename[F], KodiDiscovery[F])](DeviceRename.empty[F], staticDiscovery)
 
       } yield
         Components[F](
           KodiRemoteControl(discovery),
           KodiSwitchProvider(config.switchDevice, discovery),
-          DeviceRename.empty[F],
+          rename,
           KodiActivityConfigSource(config.activityConfig, discovery),
           KodiRemoteConfigSource(config.remote, config.activityConfig.name, discovery, remotesCache),
-          ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]
+          ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]],
         )
     else
       Resource.pure[F, Components[F]](Monoid[Components[F]].empty)

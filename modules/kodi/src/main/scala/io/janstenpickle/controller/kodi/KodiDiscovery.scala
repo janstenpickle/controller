@@ -93,7 +93,7 @@ object KodiDiscovery {
     timer: Timer[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, KodiDiscovery[F]] = {
+  ): Resource[F, (DeviceRename[F], KodiDiscovery[F])] = {
     def jmDNS: Resource[F, List[JmDNS]] =
       Resource
         .liftF(
@@ -185,15 +185,14 @@ object KodiDiscovery {
     ).map { disc =>
       new DeviceRename[F] {
         override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
-          nameMapping.upsert(k, v) *> disc.reinit
+          if (k.deviceType == deviceName) nameMapping.upsert(k, v) *> disc.reinit
+          else F.unit
 
         override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
 
         override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
           disc.devices.map(_.devices.map { case (_, v) => v.key -> DiscoveredDeviceValue(v.name, Some(v.room)) })
-      }
-
-      disc
+      } -> disc
     }
   }
 }
