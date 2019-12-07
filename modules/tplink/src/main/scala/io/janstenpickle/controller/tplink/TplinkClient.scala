@@ -3,16 +3,16 @@ package io.janstenpickle.controller.tplink
 import java.io.{InputStream, OutputStream}
 import java.net.Socket
 
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.syntax.applicative._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
-import io.circe.{parser, Decoder, Json}
+import io.circe.{parser, Json}
+import io.janstenpickle.controller.model.Room
+import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.Encryption.{decrypt, encryptWithHeader}
-import cats.syntax.functor._
-import cats.syntax.flatMap._
-import cats.syntax.applicative._
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, Room, State}
-import io.janstenpickle.controller.tplink.Constants.{GetSysInfo, InfoCommand, System}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -20,16 +20,12 @@ trait TplinkClient[F[_]] {
   def deviceName: NonEmptyString
   def deviceRoom: Option[Room]
   def sendCommand(command: String): F[Json]
-  def parseSetResponse(key: String)(json: Json): F[Unit]
-  def getState: F[State]
+  def parseSetResponse(key: String, subKey: String)(json: Json): F[Unit]
+  def getInfo: F[Json]
+  def rename(name: NonEmptyString, room: Option[Room]): F[Unit]
 }
 
 object TplinkClient {
-  implicit final val stateDecoder: Decoder[State] = Decoder.decodeInt.map {
-    case 1 => State.On
-    case _ => State.Off
-  }
-
   def apply[F[_]: ContextShift: Timer](
     name: NonEmptyString,
     room: Option[Room],
@@ -70,8 +66,8 @@ object TplinkClient {
       })
     }
 
-    def parseSetResponse(key: String)(json: Json): F[Unit] = {
-      val cursor = json.hcursor.downField(System).downField(key).downField("err_code")
+    def parseSetResponse(key: String, subKey: String)(json: Json): F[Unit] = {
+      val cursor = json.hcursor.downField(key).downField(subKey).downField("err_code")
 
       cursor.focus
         .fold[F[Unit]](errors.missingJson(deviceName, cursor.history))(_.as[Int] match {
@@ -83,17 +79,10 @@ object TplinkClient {
 
     def getInfo: F[Json] = sendCommand(s"{$InfoCommand}")
 
-    def getState: F[State] =
-      getInfo.flatMap { json =>
-        val cursor = json.hcursor
-          .downField(System)
-          .downField(GetSysInfo)
-          .downField("relay_state")
-
-        cursor.focus.fold[F[State]](errors.missingJson(deviceName, cursor.history))(
-          _.as[State].fold(errors.decodingFailure(deviceName, _), _.pure[F])
-        )
-      }
+    override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] = {
+      val devName = room.fold(name.value)(r => s"$name|$r")
+      sendCommand(s"""{"$System":{"$SetDevAlias":"$devName"}}""").flatMap(parseSetResponse(System, SetDevAlias))
+    }
 
     override def deviceName: NonEmptyString = name
 

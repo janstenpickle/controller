@@ -12,7 +12,8 @@ import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.model.{Command, Remote, State}
-import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
+import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
+import io.janstenpickle.controller.tplink.config.{TplinkActivityConfigSource, TplinkRemoteConfigSource}
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 import natchez.Trace
 
@@ -22,6 +23,7 @@ object TplinkComponents {
   case class Config(
     polling: Discovery.Polling,
     instances: List[TplinkDiscovery.TplinkInstance] = List.empty,
+    remoteName: NonEmptyString = NonEmptyString("tplink"),
     discoveryPort: PortNumber = PortNumber(9999),
     dynamicDiscovery: Boolean = true,
     commandTimeout: FiniteDuration = 2.seconds,
@@ -55,7 +57,13 @@ object TplinkComponents {
               Discovery.combined(dynamic, staticDiscovery)
             } else Resource.pure[F, TplinkDiscovery[F]](staticDiscovery)
 
-      } yield emptyComponents.copy(switches = TplinkSwitchProvider(discovery))
+      } yield
+        emptyComponents.copy(
+          switches = TplinkSwitchProvider(discovery),
+          remotes = RemoteControls(TplinkRemoteControl(config.remoteName, discovery)),
+          activityConfig = TplinkActivityConfigSource(discovery),
+          remoteConfig = TplinkRemoteConfigSource(config.remoteName, discovery)
+        )
     else
       Resource.pure[F, Components[F]](emptyComponents)
   }

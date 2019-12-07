@@ -12,7 +12,7 @@ import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource, WritableConfigSource}
-import io.janstenpickle.controller.discovery.Discovery
+import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
 import io.janstenpickle.controller.model.{Activity, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote, Room}
@@ -72,6 +72,7 @@ object KodiComponents {
         Components[F](
           KodiRemoteControl(discovery),
           KodiSwitchProvider(config.switchDevice, discovery),
+          DeviceRename.empty[F],
           KodiActivityConfigSource(config.activityConfig, discovery),
           KodiRemoteConfigSource(config.remote, config.activityConfig.name, discovery, remotesCache),
           ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]

@@ -417,7 +417,12 @@ object Module {
         notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
       )
 
-      tplinkComponents <- TplinkComponents[F, G](config.tplink, blocker, () => F.unit, () => F.unit)
+      tplinkComponents <- TplinkComponents[F, G](
+        config.tplink,
+        blocker,
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+      )
 
       sonosComponents <- SonosComponents[F, G](
         config.sonos,

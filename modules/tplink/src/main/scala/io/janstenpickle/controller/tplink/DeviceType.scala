@@ -1,9 +1,13 @@
 package io.janstenpickle.controller.tplink
 
-sealed trait DeviceType
+import eu.timepit.refined.types.string.NonEmptyString
+
+sealed trait DeviceType {
+  def model: NonEmptyString
+}
 
 object DeviceType {
-  case object SmartPlug extends DeviceType
-  case object SmartStrip extends DeviceType
-  case object SmartBulb extends DeviceType
+  case class SmartPlug(model: NonEmptyString) extends DeviceType
+  case class SmartStrip(model: NonEmptyString) extends DeviceType
+  case class SmartBulb(model: NonEmptyString) extends DeviceType
 }

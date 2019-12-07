@@ -9,7 +9,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
-import io.janstenpickle.controller.discovery.Discovery
+import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.model.{Activity, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
@@ -58,6 +58,7 @@ object SonosComponents {
         Components[F](
           remote,
           switches,
+          DeviceRename.empty[F],
           activityConfig,
           remoteConfig,
           ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]

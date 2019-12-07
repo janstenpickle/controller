@@ -167,7 +167,7 @@ lazy val model = (project in file("modules/model"))
 lazy val components = (project in file("modules/components"))
   .settings(commonSettings)
   .settings(name := "controller-components")
-  .dependsOn(model, configSource, remoteControl, switch)
+  .dependsOn(model, configSource, remoteControl, switch, dynamicDiscovery)
 
 lazy val configSource = (project in file("modules/config-source"))
   .settings(commonSettings)
@@ -278,7 +278,7 @@ lazy val tplink = (project in file("modules/tplink"))
       "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
-  .dependsOn(components, dynamicDiscovery, pollingSwitch, tracedSwitch)
+  .dependsOn(components, dynamicDiscovery, pollingSwitch, tracedSwitch, tracedConfigSource, tracedRemote)
 
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)

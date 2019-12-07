@@ -28,8 +28,7 @@ import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
 import cats.instances.string._
 import cats.instances.int._
-import io.janstenpickle.controller.model.DiscoveredDeviceKey
-import io.janstenpickle.controller.tplink.device.TplinkDevice.SmartPlug
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, Room}
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
@@ -47,7 +46,13 @@ object TplinkDiscovery {
 
   private final val broadcastAddress = "255.255.255.255"
 
-  case class TplinkInstance(name: NonEmptyString, host: NonEmptyString, port: PortNumber, `type`: DeviceType)
+  case class TplinkInstance(
+    name: NonEmptyString,
+    room: Option[NonEmptyString],
+    host: NonEmptyString,
+    port: PortNumber,
+    `type`: DeviceType
+  )
 
   private def deviceKey[F[_]: Functor](device: TplinkDevice[F]): F[String] = device.getState.map { state =>
     s"${device.name}${state.isOn}"
@@ -64,10 +69,17 @@ object TplinkDiscovery {
       .liftF(
         tplinks
           .parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
-            case TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
-              TplinkDevice.plug[F](TplinkClient[F](name, None, host, port, commandTimeout, blocker)).map { dev =>
-                List(((name, DeviceType.SmartPlug), dev))
-              }
+            case TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)) =>
+              TplinkDevice
+                .plug[F](
+                  TplinkClient[F](name, room, host, port, commandTimeout, blocker),
+                  model,
+                  Json.Null,
+                  onDeviceUpdate
+                )
+                .map { dev =>
+                  List(((name, t), dev))
+                }
             case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
           }
           .map { devs =>
@@ -114,23 +126,40 @@ object TplinkDiscovery {
     def deviceType(json: Json): Option[DeviceType] =
       for {
         sysInfo <- jsonInfo(json)
+        model <- deviceModel(sysInfo)
         cursor = sysInfo.hcursor
-        typeString <- cursor.get[String]("type").orElse((cursor.get[String]("mic_type"))).toOption
+        typeString <- cursor.get[String]("type").orElse(cursor.get[String]("mic_type")).toOption
         deviceType <- typeString.toLowerCase match {
           case dt if dt.contains("smartplug") && sysInfo.asObject.fold(false)(_.toMap.contains("children")) =>
-            Some(DeviceType.SmartStrip)
-          case dt if dt.contains("smartplug") => Some(DeviceType.SmartPlug)
-          case dt if dt.contains("smartbulb") => Some(DeviceType.SmartBulb)
+            Some(DeviceType.SmartStrip(model))
+          case dt if dt.contains("smartplug") => Some(DeviceType.SmartPlug(model))
+          case dt if dt.contains("smartbulb") => Some(DeviceType.SmartBulb(model))
           case _ => None
         }
       } yield deviceType
 
-    def deviceName(json: Json): Option[NonEmptyString] =
+    def deviceName(json: Json): Option[String] =
       for {
         sysInfo <- jsonInfo(json)
         alias <- sysInfo.hcursor.get[String]("alias").toOption
-        name <- NonEmptyString.from(alias).toOption
-      } yield name
+      } yield alias
+
+    def deviceNameRoom(str: String): Option[(NonEmptyString, Option[Room])] = str.split('|').toList match {
+      case n :: r :: Nil =>
+        for {
+          name <- NonEmptyString.from(n).toOption
+          room <- NonEmptyString.from(r).toOption
+        } yield (name, Some(room))
+      case n :: Nil => NonEmptyString.from(n).toOption.map(_ -> None)
+      case _ => None
+    }
+
+    def deviceModel(json: Json): Option[NonEmptyString] =
+      for {
+        str <- json.hcursor.get[String]("model").toOption
+        m <- str.split('(').headOption
+        model <- NonEmptyString.from(m).toOption
+      } yield model
 
     def socketResource: Resource[F, DatagramSocket] =
       Resource.make {
@@ -174,15 +203,23 @@ object TplinkDiscovery {
             case ((host, port), v) =>
               for {
                 dt <- deviceType(v)
-                name <- deviceName(v)
-              } yield TplinkInstance(name, host, port, dt)
+                str <- deviceName(v)
+                (name, room) <- deviceNameRoom(str)
+              } yield (TplinkInstance(name, room, host, port, dt), v)
           }.toList
           devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
-            case TplinkInstance(name, host, port, DeviceType.SmartPlug) =>
-              // TODO get room
-              TplinkDevice.plug(TplinkClient(name, None, host, port, commandTimeout, blocker)).map { dev =>
-                List(((name, DeviceType.SmartPlug), dev))
-              }
+            case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)), json) =>
+              TplinkDevice
+                .plug(TplinkClient(name, room, host, port, commandTimeout, blocker), model, json, onDeviceUpdate)
+                .map { dev =>
+                  List(((name, t), dev))
+                }
+            case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartBulb(model)), json) =>
+              TplinkDevice
+                .bulb(TplinkClient(name, room, host, port, commandTimeout, blocker), model, json, onDeviceUpdate)
+                .map { dev =>
+                  List(((name, t), dev))
+                }
             case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
           }
         } yield (Set.empty[DiscoveredDeviceKey], devices.toMap)
