@@ -6,6 +6,7 @@ import cats.Parallel
 import cats.data.NonEmptyList
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
+import cats.syntax.monoid._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
@@ -64,8 +65,9 @@ object KodiComponents {
               onUpdate,
               onDeviceUpdate
             )
-            .map { case (rename, dynamic) =>
-              rename -> Discovery.combined(dynamic, staticDiscovery)
+            .map {
+              case (rename, dynamic) =>
+                (rename, dynamic |+| staticDiscovery)
             } else Resource.pure[F, (DeviceRename[F], KodiDiscovery[F])](DeviceRename.empty[F], staticDiscovery)
 
       } yield

@@ -7,6 +7,7 @@ import cats.instances.long._
 import cats.instances.map._
 import cats.instances.set._
 import cats.instances.tuple._
+import cats.kernel.Semigroup
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.semigroup._
@@ -35,6 +36,11 @@ object Discovery {
     new Discovery[F, K, V] {
       override def devices: F[Discovered[K, V]] = x.devices.flatMap(xs => y.devices.map(xs |+| _))
       override def reinit: F[Unit] = x.reinit >> y.reinit
+    }
+
+  implicit def discoverySemigroup[F[_]: FlatMap, K, V]: Semigroup[Discovery[F, K, V]] =
+    new Semigroup[Discovery[F, K, V]] {
+      override def combine(x: Discovery[F, K, V], y: Discovery[F, K, V]): Discovery[F, K, V] = combined(x, y)
     }
 
   def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K: Eq, V: Eq](

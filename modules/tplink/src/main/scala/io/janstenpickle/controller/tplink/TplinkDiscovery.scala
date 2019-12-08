@@ -28,13 +28,14 @@ import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
 import cats.instances.string._
 import cats.instances.int._
+import cats.instances.option._
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 object TplinkDiscovery {
-  private final val name = "tplink"
+  private final val devName = "tplink"
 
   private final val discoveryQuery =
     s"""{
@@ -94,7 +95,7 @@ object TplinkDiscovery {
       )
       .flatMap { disc =>
         DeviceState[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
-          name,
+          devName,
           config.stateUpdateInterval,
           config.errorCount,
           disc,
@@ -227,7 +228,7 @@ object TplinkDiscovery {
       }
 
     Discovery[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
-      name,
+      devName,
       config,
       _ => onUpdate(),
       onDeviceUpdate,
@@ -237,13 +238,13 @@ object TplinkDiscovery {
       device => List("device.name" -> device.name.value)
     ).map { disc =>
       new DeviceRename[F] {
-        override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
+        override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
           disc.devices.flatMap(
             _.devices
               .collectFirst {
-                case ((name, t), dev) if name.value == k.deviceId && t.model.value == k.deviceType => dev
+                case ((name, t), dev) if name.value == k.deviceId && s"$devName-${t.model.value}" == k.deviceType => dev
               }
-              .fold(F.unit)(_.rename(v.name, v.room) *> disc.reinit)
+              .traverse(_.rename(v.name, v.room) *> disc.reinit)
           )
 
         override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
@@ -251,7 +252,7 @@ object TplinkDiscovery {
         override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
           disc.devices.map(_.devices.map {
             case ((name, t), dev) =>
-              DiscoveredDeviceKey(name.value, s"$name-${t.model.value}") -> DiscoveredDeviceValue(dev.name, dev.room)
+              DiscoveredDeviceKey(name.value, s"$devName-${t.model.value}") -> DiscoveredDeviceValue(dev.name, dev.room)
           })
       } -> disc
     }

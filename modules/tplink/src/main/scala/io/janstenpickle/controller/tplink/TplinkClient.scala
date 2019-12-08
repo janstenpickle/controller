@@ -81,7 +81,8 @@ object TplinkClient {
 
     override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] = {
       val devName = room.fold(name.value)(r => s"$name|$r")
-      sendCommand(s"""{"$System":{"$SetDevAlias":"$devName"}}""").flatMap(parseSetResponse(System, SetDevAlias))
+      sendCommand(s"""{"$System":{"$SetDevAlias":{"alias": "$devName"}}}""")
+        .flatMap(parseSetResponse(System, SetDevAlias))
     }
 
     override def deviceName: NonEmptyString = name

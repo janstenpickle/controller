@@ -12,8 +12,8 @@ object SpSwitchProvider {
   def apply[F[_]: Applicative: Trace](discovery: BroadlinkDiscovery[F]): SwitchProvider[F] = new SwitchProvider[F] {
     override def getSwitches: F[Map[SwitchKey, Switch[F]]] =
       discovery.devices.map(_.devices.collect {
-        case (name, Left(switch)) =>
-          SwitchKey(switch.device, name) -> TracedSwitch(switch, SpSwitch.manufacturerField)
+        case (_, Left(switch)) =>
+          SwitchKey(switch.device, switch.name) -> TracedSwitch(switch, SpSwitch.manufacturerField)
       })
   }
 }

@@ -6,5 +6,5 @@ import io.janstenpickle.controller.broadlink.switch.SpSwitch
 import io.janstenpickle.controller.discovery.Discovery
 
 package object broadlink {
-  type BroadlinkDiscovery[F[_]] = Discovery[F, NonEmptyString, Either[SpSwitch[F], RmRemote[F]]]
+  type BroadlinkDiscovery[F[_]] = Discovery[F, (NonEmptyString, String), Either[SpSwitch[F], RmRemote[F]]]
 }

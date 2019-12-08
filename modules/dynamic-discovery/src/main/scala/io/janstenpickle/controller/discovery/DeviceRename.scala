@@ -1,20 +1,21 @@
 package io.janstenpickle.controller.discovery
 
-import cats.{Applicative, Parallel}
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
-import cats.syntax.semigroup._
+import cats.instances.option._
 import cats.instances.unit._
 import cats.kernel.Monoid
+import cats.syntax.semigroup._
+import cats.{Applicative, Parallel}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 
 trait DeviceRename[F[_]] {
-  def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit]
+  def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]]
   def unassigned: F[Set[DiscoveredDeviceKey]]
   def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]]
 }
 
 object DeviceRename {
   def empty[F[_]](implicit F: Applicative[F]): DeviceRename[F] = new DeviceRename[F] {
-    override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] = F.unit
+    override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] = F.pure(None)
 
     override def unassigned: F[Set[DiscoveredDeviceKey]] = F.pure(Set.empty)
 
@@ -22,7 +23,7 @@ object DeviceRename {
   }
 
   def combined[F[_]: Parallel](x: DeviceRename[F], y: DeviceRename[F]): DeviceRename[F] = new DeviceRename[F] {
-    override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
+    override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
       Parallel.parMap2(x.rename(k, v), y.rename(k, v))(_ |+| _)
 
     override def unassigned: F[Set[DiscoveredDeviceKey]] = Parallel.parMap2(x.unassigned, y.unassigned)(_ ++ _)

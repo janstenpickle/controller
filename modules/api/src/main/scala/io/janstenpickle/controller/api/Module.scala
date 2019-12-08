@@ -340,7 +340,7 @@ object Module {
 
       discoveryMappingConfigFileSource <- ConfigFileSource
         .polling[F, G](
-          config.config.dir.resolve("discoveryMapping"),
+          config.config.dir.resolve("discovery-mapping"),
           config.config.polling.pollInterval,
           blocker,
           config.config.writeTimeout
@@ -461,9 +461,10 @@ object Module {
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
       combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)
 
-      switchStateStore <- Resource.liftF(
-        SwitchDependentStore
-          .fromProvider[F](config.virtualSwitch.dependentSwitches, switchStateFileStore, components.switches)
+      switchStateStore = SwitchDependentStore[F](
+        config.virtualSwitch.dependentSwitches,
+        switchStateFileStore,
+        components.switches
       )
 
       virtualSwitches <- SwitchesForRemote.polling[F](
@@ -532,6 +533,7 @@ object Module {
             configService,
             UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
           ).routes,
+          "/discovery" -> new RenameApi[F](components.rename).routes,
           "/" -> new ControllerUi[F](blocker).routes,
           "/" -> PrometheusExportService.service[F](registry)
         )

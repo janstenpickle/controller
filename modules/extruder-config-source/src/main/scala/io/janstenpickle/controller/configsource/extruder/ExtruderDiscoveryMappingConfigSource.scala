@@ -26,8 +26,6 @@ object ExtruderDiscoveryMappingConfigSource {
     s"${dk.deviceId}$KeySeparator${dk.deviceType}"
   }
 
-  case class Hurr(derr: Option[String])
-
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,

@@ -83,17 +83,12 @@ object RmRemote {
   def apply[F[_]: ContextShift](
     config: RmRemoteConfig,
     blocker: Blocker
-  )(implicit F: Sync[F], timer: Timer[F], trace: Trace[F]): F[Remote[F, CommandPayload]] =
+  )(implicit F: Sync[F], timer: Timer[F], trace: Trace[F]): F[RmRemote[F]] =
     (config match {
       case RM2(_, host, mac, _) => F.delay(new RM2Device(host.value, mac))
       case Mini3(_, host, mac, _) =>
         F.delay(BLDevice.createInstance(BLDevice.DEV_RM_MINI_3, host.value, mac).asInstanceOf[RM2Device])
     }).map { device =>
-      TracedRemote(
-        fromDevice(config.name, config.timeoutMillis, device, blocker),
-        "host" -> device.getHost,
-        "mac" -> device.getMac.getMacString,
-        "manufacturer" -> "broadlink"
-      )
+      fromDevice(config.name, config.timeoutMillis, device, blocker)
     }
 }

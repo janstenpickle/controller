@@ -23,8 +23,8 @@ object RmRemoteControls {
         discovery.devices.map(
           d =>
             RemoteControls(d.devices.collect {
-              case (name, Right(remote)) =>
-                name -> RemoteControl.traced(
+              case (_, Right(remote)) =>
+                remote.name -> RemoteControl.traced(
                   RemoteControl(
                     TracedRemote(remote, "host" -> remote.host, "mac" -> remote.mac, "manufacturer" -> "broadlink"),
                     store

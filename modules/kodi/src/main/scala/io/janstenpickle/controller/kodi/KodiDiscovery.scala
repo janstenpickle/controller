@@ -184,9 +184,9 @@ object KodiDiscovery {
       device => List("device.name" -> device.name.value, "device.room" -> device.room.value)
     ).map { disc =>
       new DeviceRename[F] {
-        override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Unit] =
-          if (k.deviceType == deviceName) nameMapping.upsert(k, v) *> disc.reinit
-          else F.unit
+        override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
+          if (k.deviceType == deviceName) (nameMapping.upsert(k, v) *> disc.reinit).map(Some(_))
+          else F.pure(None)
 
         override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
 

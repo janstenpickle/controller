@@ -3,6 +3,7 @@ package io.janstenpickle.controller.tplink
 import cats.Parallel
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
+import cats.syntax.semigroup._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
@@ -52,7 +53,7 @@ object TplinkComponents {
             )
             .map {
               case (rename, dynamic) =>
-                (rename, Discovery.combined(dynamic, staticDiscovery))
+                (rename, dynamic |+| staticDiscovery)
             } else Resource.pure[F, (DeviceRename[F], TplinkDiscovery[F])](DeviceRename.empty[F], staticDiscovery)
 
       } yield
