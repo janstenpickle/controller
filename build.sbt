@@ -240,6 +240,7 @@ lazy val broadlink = (project in file("modules/broadlink"))
     )
   )
   .dependsOn(
+    cache,
     broadlinkApiSubmodule,
     components,
     remote,

@@ -18,10 +18,7 @@ object TplinkRemoteControl {
     RemoteControl.traced(new RemoteControl[F] {
       private def commands(device: TplinkDevice.SmartBulb[F]): Map[NonEmptyString, F[Unit]] =
         (if (device.dimmable)
-           Map(
-             NonEmptyString("brightness_up") -> device.brightnessUp,
-             NonEmptyString("brightness_down") -> device.brightnessDown
-           )
+           Map(Commands.BrightnessUp -> device.brightnessUp, Commands.BrightnessDown -> device.brightnessDown)
          else Map.empty) ++ (
           if (device.colourTemp)
             Map(NonEmptyString("temp_up") -> device.tempUp, NonEmptyString("temp_down") -> device.tempDown)

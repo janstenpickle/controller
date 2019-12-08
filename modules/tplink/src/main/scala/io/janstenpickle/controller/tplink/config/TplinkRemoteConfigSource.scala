@@ -5,9 +5,8 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
-import io.janstenpickle.controller.tplink.TplinkDiscovery
+import io.janstenpickle.controller.tplink.{CommandSource, Commands, TplinkDiscovery}
 import natchez.Trace
-import io.janstenpickle.controller.tplink.CommandSource
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.flatMap._
@@ -45,8 +44,16 @@ object TplinkRemoteConfigSource {
     ): SwitchIcon =
       SwitchIcon(name, device, icon, isOn, Some(newRow), None, None, None)
 
-    def template(name: NonEmptyString, device: NonEmptyString, isOn: Boolean): List[Button] = List(
-      switchIcon(name, device, NonEmptyString("power_settings_new"), isOn)
+    def template(
+      name: NonEmptyString,
+      device: NonEmptyString,
+      roomName: NonEmptyString,
+      isOn: Boolean,
+      dimmable: Boolean
+    ): List[Button] = List(
+      switchIcon(name, device, NonEmptyString("power_settings_new"), isOn, newRow = true),
+      remoteIcon(roomName, Commands.BrightnessUp, NonEmptyString("add")),
+      remoteIcon(roomName, Commands.BrightnessDown, NonEmptyString("remove"))
     )
 
     TracedConfigSource(
@@ -62,7 +69,7 @@ object TplinkRemoteConfigSource {
                     dev.name -> Remote(
                       dev.roomName,
                       dev.name,
-                      template(dev.name, dev.device, state.isOn),
+                      template(dev.name, dev.device, dev.roomName, state.isOn, dev.dimmable),
                       Set(dev.roomName),
                       dev.room.toList
                     )

@@ -44,11 +44,12 @@ object TplinkClient {
         }
       } {
         case (s, is, os) =>
-          F.delay {
-            os.close()
-            is.close()
-            s.close()
-          }
+          F.start(F.delay {
+              os.close()
+              is.close()
+              s.close()
+            })
+            .void
       }
 
       blocker.blockOn(resource.use {

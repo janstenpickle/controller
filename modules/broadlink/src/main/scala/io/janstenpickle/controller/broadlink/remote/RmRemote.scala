@@ -32,7 +32,7 @@ object RmRemote {
 
   def fromDevice[F[_]: ContextShift](
     deviceName: NonEmptyString,
-    timeoutMillis: PosInt,
+    timeout: FiniteDuration,
     device: RM2Device,
     blocker: Blocker
   )(implicit F: Sync[F], timer: Timer[F], trace: Trace[F]): RmRemote[F] =
@@ -71,7 +71,7 @@ object RmRemote {
           _ <- trace.span("sendPacket") {
             blocker.delay(
               device.sendCmdPkt(
-                timeoutMillis.value,
+                timeout.toMillis.toInt,
                 new SendDataCmdPayload(DatatypeConverter.parseHexBinary(payload.hexValue))
               )
             )
@@ -89,6 +89,6 @@ object RmRemote {
       case Mini3(_, host, mac, _) =>
         F.delay(BLDevice.createInstance(BLDevice.DEV_RM_MINI_3, host.value, mac).asInstanceOf[RM2Device])
     }).map { device =>
-      fromDevice(config.name, config.timeoutMillis, device, blocker)
+      fromDevice(config.name, config.timeout, device, blocker)
     }
 }

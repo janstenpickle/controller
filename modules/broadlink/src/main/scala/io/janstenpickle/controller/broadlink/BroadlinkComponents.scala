@@ -1,30 +1,35 @@
 package io.janstenpickle.controller.broadlink
 
 import cats.Parallel
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Async, Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
+import cats.syntax.semigroup._
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.remote.{RmRemoteConfig, RmRemoteControls}
 import io.janstenpickle.controller.broadlink.switch.{SpSwitchConfig, SpSwitchProvider}
+import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, DiscoveredDeviceValue}
-import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
+import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.store.{RemoteCommandStore, SwitchStateStore}
 import natchez.Trace
-import cats.syntax.semigroup._
+
+import scala.concurrent.duration._
 
 object BroadlinkComponents {
   case class Config(
     enabled: Boolean = false,
     rm: List[RmRemoteConfig] = List.empty,
     sp: List[SpSwitchConfig] = List.empty,
-    discovery: BroadlinkDiscovery.Config
+    dynamicDiscovery: Boolean = true,
+    discovery: BroadlinkDiscovery.Config,
+    remotesCacheTimeout: FiniteDuration = 10.seconds
   )
 
-  def apply[F[_]: Sync: Parallel: ContextShift: Timer: PollingSwitchErrors: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
+  def apply[F[_]: Concurrent: Parallel: ContextShift: Timer: PollingSwitchErrors: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
     config: Config,
     remoteStore: RemoteCommandStore[F, CommandPayload],
     switchStore: SwitchStateStore[F],
@@ -34,45 +39,39 @@ object BroadlinkComponents {
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
-    (if (config.enabled)
-       for {
-         static <- BroadlinkDiscovery
-           .static[F, G](
-             config.rm,
-             config.sp,
-             switchStore,
-             workBlocker,
-             config.discovery.polling,
-             onDeviceUpdate: () => F[Unit]
-           )
-         (rename, dynamic) <- BroadlinkDiscovery
-           .dynamic[F, G](
-             config.discovery,
-             workBlocker,
-             discoveryBlocker,
-             switchStore,
-             nameMapping,
-             onUpdate,
-             onDeviceUpdate
-           )
-       } yield (rename, static |+| dynamic)
-     else
-       BroadlinkDiscovery
-         .static[F, G](
-           config.rm,
-           config.sp,
-           switchStore,
-           workBlocker,
-           config.discovery.polling,
-           onDeviceUpdate: () => F[Unit]
-         )
-         .map(DeviceRename.empty[F] -> _)).map {
-      case (rename, discovery) =>
+    if (config.enabled)
+      for {
+        remotesCache <- CacheResource[F, RemoteControls[F]](config.remotesCacheTimeout, classOf)
+        static <- BroadlinkDiscovery
+          .static[F, G](
+            config.rm,
+            config.sp,
+            switchStore,
+            workBlocker,
+            config.discovery.polling,
+            onDeviceUpdate: () => F[Unit]
+          )
+        (rename, discovery) <- if (config.dynamicDiscovery)
+          BroadlinkDiscovery
+            .dynamic[F, G](
+              config.discovery,
+              workBlocker,
+              discoveryBlocker,
+              switchStore,
+              nameMapping,
+              onUpdate,
+              onDeviceUpdate
+            )
+            .map { case (rename, dynamic) => (rename, static |+| dynamic) } else
+          Resource.pure[F, (DeviceRename[F], BroadlinkDiscovery[F])](DeviceRename.empty[F], static)
+      } yield {
         Monoid[Components[F]].empty
           .copy(
-            remotes = RmRemoteControls(discovery, remoteStore),
+            remotes = RmRemoteControls(discovery, remoteStore, remotesCache),
             switches = SpSwitchProvider(discovery),
             rename = rename
           )
-    }
+      } else
+      Resource.pure(Monoid[Components[F]].empty)
+
 }

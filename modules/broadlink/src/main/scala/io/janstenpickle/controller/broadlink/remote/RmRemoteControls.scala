@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.broadlink.remote
 
 import cats.Parallel
-import cats.effect.{ContextShift, Sync, Timer}
+import cats.effect.{Async, ContextShift, Sync, Timer}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.BroadlinkDiscovery
@@ -11,15 +11,20 @@ import io.janstenpickle.controller.store.RemoteCommandStore
 import natchez.Trace
 import cats.syntax.flatMap._
 import io.janstenpickle.controller.remote.trace.TracedRemote
+import scalacache.Cache
+import scalacache.CatsEffect.modes._
+import scalacache.memoization.memoizeF
 
 object RmRemoteControls {
-  def apply[F[_]: Sync: ContextShift: Timer: Parallel: RemoteControlErrors: Trace](
+  def apply[F[_]: Async: ContextShift: Timer: Parallel: RemoteControlErrors: Trace](
     discovery: BroadlinkDiscovery[F],
     store: RemoteCommandStore[F, CommandPayload],
+    cache: Cache[RemoteControls[F]]
   ): RemoteControls[F] =
     new RemoteControls[F] {
-      // TODO cache?
-      private def underlying =
+      private implicit def _cache = cache
+
+      private def underlying: F[RemoteControls[F]] = memoizeF(None) {
         discovery.devices.map(
           d =>
             RemoteControls(d.devices.collect {
@@ -32,6 +37,7 @@ object RmRemoteControls {
                 )
             })
         )
+      }
 
       override def send(
         remote: NonEmptyString,

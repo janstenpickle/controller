@@ -80,6 +80,7 @@ object KodiDiscovery {
         ).map(_ => disc)
       }
 
+  // FIXME kodi causes blocking behaviour
   def dynamic[F[_]: Parallel: ContextShift: KodiErrors, G[_]: Timer: Concurrent](
     client: Client[F],
     blocker: Blocker,

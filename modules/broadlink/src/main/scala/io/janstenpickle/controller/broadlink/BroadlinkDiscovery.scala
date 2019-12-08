@@ -24,7 +24,6 @@ import cats.syntax.applicativeError._
 import cats.syntax.either._
 import cats.syntax.parallel._
 import eu.timepit.refined.cats._
-import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.remote.{RmRemote, RmRemoteConfig}
 import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
@@ -40,7 +39,7 @@ object BroadlinkDiscovery {
 
   case class Config(
     bindAddress: Option[InetAddress],
-    rmCommandTimeoutMillis: PosInt = PosInt(100),
+    commandTimeout: FiniteDuration = 100.millis,
     discoverTimeout: FiniteDuration = 5.seconds,
     discoveryPort: Option[PortNumber],
     polling: Discovery.Polling,
@@ -65,7 +64,7 @@ object BroadlinkDiscovery {
     blocker: Blocker,
     config: Discovery.Polling,
     onDeviceUpdate: () => F[Unit]
-  )(implicit F: Sync[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, BroadlinkDiscovery[F]] = {
+  )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, BroadlinkDiscovery[F]] = {
     type Dev = BroadlinkDevice[F]
 
     Resource
@@ -116,7 +115,7 @@ object BroadlinkDiscovery {
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(
-    implicit F: Sync[F],
+    implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
@@ -139,15 +138,19 @@ object BroadlinkDiscovery {
     def makeDevice(device: BLDevice, name: NonEmptyString): F[Option[((NonEmptyString, String), Dev)]] =
       device match {
         case dev: RM2Device =>
+          F.pure(Some((name, "remote") -> Right(RmRemote.fromDevice[F](name, config.commandTimeout, dev, workBlocker))))
+        case dev: SP1Device =>
           F.pure(
             Some(
-              (name, "remote") -> Right(RmRemote.fromDevice[F](name, config.rmCommandTimeoutMillis, dev, workBlocker))
+              (name, "switch") -> Left(
+                SpSwitch.makeSp1[F](name, config.commandTimeout, dev, switchStateStore, workBlocker)
+              )
             )
           )
-        case dev: SP1Device =>
-          F.pure(Some((name, "switch") -> Left(SpSwitch.makeSp1[F](name, dev, switchStateStore, workBlocker))))
         case dev: SP2Device =>
-          SpSwitch.makeSp23[F](name, dev, workBlocker).map(sp => Some((name, "switch") -> Left(sp)))
+          SpSwitch
+            .makeSp23[F](name, config.commandTimeout, dev, workBlocker)
+            .map(sp => Some((name, "switch") -> Left(sp)))
         case _ => F.pure(None)
       }
 
