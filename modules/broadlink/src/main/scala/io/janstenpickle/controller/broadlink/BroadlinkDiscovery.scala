@@ -109,7 +109,8 @@ object BroadlinkDiscovery {
 
   def dynamic[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent](
     config: Config,
-    blocker: Blocker,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
     switchStateStore: SwitchStateStore[F],
     nameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
@@ -139,11 +140,14 @@ object BroadlinkDiscovery {
       device match {
         case dev: RM2Device =>
           F.pure(
-            Some((name, "remote") -> Right(RmRemote.fromDevice[F](name, config.rmCommandTimeoutMillis, dev, blocker)))
+            Some(
+              (name, "remote") -> Right(RmRemote.fromDevice[F](name, config.rmCommandTimeoutMillis, dev, workBlocker))
+            )
           )
         case dev: SP1Device =>
-          F.pure(Some((name, "switch") -> Left(SpSwitch.makeSp1[F](name, dev, switchStateStore, blocker))))
-        case dev: SP2Device => SpSwitch.makeSp23[F](name, dev, blocker).map(sp => Some((name, "switch") -> Left(sp)))
+          F.pure(Some((name, "switch") -> Left(SpSwitch.makeSp1[F](name, dev, switchStateStore, workBlocker))))
+        case dev: SP2Device =>
+          SpSwitch.makeSp23[F](name, dev, workBlocker).map(sp => Some((name, "switch") -> Left(sp)))
         case _ => F.pure(None)
       }
 
@@ -168,7 +172,7 @@ object BroadlinkDiscovery {
           )
         )(addr => F.delay(List(addr)))
         .flatMap(_.parFlatTraverse { addr =>
-          blocker
+          discoveryBlocker
             .delay[F, List[BLDevice]](
               BLDevice
                 .discoverDevices(addr, config.discoveryPort.fold(0)(_.value), config.discoverTimeout.toMillis.toInt)

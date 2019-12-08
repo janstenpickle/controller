@@ -44,7 +44,7 @@ object KodiComponents {
 
   def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors: KodiErrors, G[_]: Concurrent: Timer](
     client: Client[F],
-    blocker: Blocker,
+    discoveryBlocker: Blocker,
     config: Config,
     discoveryNameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
@@ -58,7 +58,7 @@ object KodiComponents {
           KodiDiscovery
             .dynamic[F, G](
               client,
-              blocker,
+              discoveryBlocker,
               config.discoveryBindAddress,
               config.polling,
               discoveryNameMapping,

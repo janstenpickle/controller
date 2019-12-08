@@ -29,7 +29,8 @@ object BroadlinkComponents {
     remoteStore: RemoteCommandStore[F, CommandPayload],
     switchStore: SwitchStateStore[F],
     nameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
-    blocker: Blocker,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
@@ -40,12 +41,20 @@ object BroadlinkComponents {
              config.rm,
              config.sp,
              switchStore,
-             blocker,
+             workBlocker,
              config.discovery.polling,
              onDeviceUpdate: () => F[Unit]
            )
          (rename, dynamic) <- BroadlinkDiscovery
-           .dynamic[F, G](config.discovery, blocker, switchStore, nameMapping, onUpdate, onDeviceUpdate)
+           .dynamic[F, G](
+             config.discovery,
+             workBlocker,
+             discoveryBlocker,
+             switchStore,
+             nameMapping,
+             onUpdate,
+             onDeviceUpdate
+           )
        } yield (rename, static |+| dynamic)
      else
        BroadlinkDiscovery
@@ -53,7 +62,7 @@ object BroadlinkComponents {
            config.rm,
            config.sp,
            switchStore,
-           blocker,
+           workBlocker,
            config.discovery.polling,
            onDeviceUpdate: () => F[Unit]
          )

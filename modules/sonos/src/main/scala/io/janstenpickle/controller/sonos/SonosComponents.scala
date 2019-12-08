@@ -40,14 +40,15 @@ object SonosComponents {
   def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
     config: Config,
     onUpdate: () => F[Unit],
-    blocker: Blocker,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
     onDeviceUpdate: () => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
         discovery <- SonosDiscovery
-          .polling[F, G](config.polling, config.commandTimeout, onUpdate, blocker, onDeviceUpdate)
+          .polling[F, G](config.polling, config.commandTimeout, onUpdate, workBlocker, discoveryBlocker, onDeviceUpdate)
       } yield {
         val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
         val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)

@@ -31,22 +31,27 @@ object TplinkComponents {
 
   def apply[F[_]: Concurrent: Timer: ContextShift: Parallel: RemoteControlErrors: TplinkDeviceErrors: PollingSwitchErrors: Trace, G[
     _
-  ]: Concurrent: Timer](config: Config, blocker: Blocker, onUpdate: () => F[Unit], onDeviceUpdate: () => F[Unit])(
-    implicit liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, Components[F]] = {
+  ]: Concurrent: Timer](
+    config: Config,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
+    onUpdate: () => F[Unit],
+    onDeviceUpdate: () => F[Unit]
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] = {
     val emptyComponents = Monoid[Components[F]].empty
 
     if (config.enabled)
       for {
         staticDiscovery <- TplinkDiscovery
-          .static[F, G](config.instances, config.commandTimeout, blocker, config.polling, onDeviceUpdate)
+          .static[F, G](config.instances, config.commandTimeout, workBlocker, config.polling, onDeviceUpdate)
         (rename, discovery) <- if (config.dynamicDiscovery)
           TplinkDiscovery
             .dynamic[F, G](
               config.discoveryPort,
               config.commandTimeout,
               config.discoveryTimeout,
-              blocker,
+              workBlocker,
+              discoveryBlocker,
               config.polling,
               onUpdate,
               onDeviceUpdate

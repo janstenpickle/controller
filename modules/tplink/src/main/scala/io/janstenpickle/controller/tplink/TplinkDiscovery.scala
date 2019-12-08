@@ -109,7 +109,8 @@ object TplinkDiscovery {
     port: PortNumber,
     commandTimeout: FiniteDuration,
     discoveryTimeout: FiniteDuration,
-    blocker: Blocker,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
     config: Discovery.Polling,
     onUpdate: () => F[Unit],
     onDeviceUpdate: () => F[Unit]
@@ -199,8 +200,8 @@ object TplinkDiscovery {
           }
 
         for {
-          _ <- blocker.blockOn(List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence)
-          discovered <- blocker.blockOn(receiveData)
+          _ <- discoveryBlocker.blockOn(List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence)
+          discovered <- discoveryBlocker.blockOn(receiveData)
           filtered = discovered.flatMap {
             case ((host, port), v) =>
               for {
@@ -212,13 +213,13 @@ object TplinkDiscovery {
           devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
             case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)), json) =>
               TplinkDevice
-                .plug(TplinkClient(name, room, host, port, commandTimeout, blocker), model, json, onDeviceUpdate)
+                .plug(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
                 .map { dev =>
                   List(((name, t), dev))
                 }
             case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartBulb(model)), json) =>
               TplinkDevice
-                .bulb(TplinkClient(name, room, host, port, commandTimeout, blocker), model, json, onDeviceUpdate)
+                .bulb(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
                 .map { dev =>
                   List(((name, t), dev))
                 }
