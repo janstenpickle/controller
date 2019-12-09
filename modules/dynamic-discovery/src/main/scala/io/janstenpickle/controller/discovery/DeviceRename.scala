@@ -9,7 +9,7 @@ import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceV
 
 trait DeviceRename[F[_]] {
   def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]]
-  def unassigned: F[Set[DiscoveredDeviceKey]]
+  def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]]
   def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]]
 }
 
@@ -17,7 +17,7 @@ object DeviceRename {
   def empty[F[_]](implicit F: Applicative[F]): DeviceRename[F] = new DeviceRename[F] {
     override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] = F.pure(None)
 
-    override def unassigned: F[Set[DiscoveredDeviceKey]] = F.pure(Set.empty)
+    override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = F.pure(Map.empty)
 
     override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] = F.pure(Map.empty)
   }
@@ -26,7 +26,8 @@ object DeviceRename {
     override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
       Parallel.parMap2(x.rename(k, v), y.rename(k, v))(_ |+| _)
 
-    override def unassigned: F[Set[DiscoveredDeviceKey]] = Parallel.parMap2(x.unassigned, y.unassigned)(_ ++ _)
+    override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] =
+      Parallel.parMap2(x.unassigned, y.unassigned)(_ ++ _)
 
     override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
       Parallel.parMap2(x.assigned, y.assigned)(_ ++ _)

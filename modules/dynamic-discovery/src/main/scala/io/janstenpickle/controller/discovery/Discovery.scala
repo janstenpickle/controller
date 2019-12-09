@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit
 import cats.effect._
 import cats.instances.long._
 import cats.instances.map._
-import cats.instances.set._
+import cats.instances.string._
 import cats.instances.tuple._
 import cats.kernel.Semigroup
 import cats.syntax.flatMap._
@@ -46,9 +46,9 @@ object Discovery {
   def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K: Eq, V: Eq](
     deviceType: String,
     config: Polling,
-    onUpdate: ((Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])) => F[Unit],
+    onUpdate: ((Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])) => F[Unit],
     onDeviceUpdate: () => F[Unit],
-    doDiscovery: () => F[(Set[DiscoveredDeviceKey], Map[K, V])],
+    doDiscovery: () => F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V])],
     refresh: V => F[Unit],
     makeKey: V => F[String],
     traceParams: V => List[(String, TraceValue)] = (_: V) => List.empty,
@@ -60,15 +60,15 @@ object Discovery {
   ): Resource[F, Discovery[F, K, V]] = {
     lazy val timeout: Long = (config.discoveryInterval * 3).toMillis
 
-    implicit val empty: Empty[(Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])] =
-      new Empty[(Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])] {
-        override def empty: (Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long]) =
-          (Set.empty, Map.empty, Map.empty)
+    implicit val empty: Empty[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] =
+      new Empty[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] {
+        override def empty: (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]) =
+          (Map.empty, Map.empty, Map.empty)
       }
 
     def updateDevices(
-      current: (Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])
-    ): F[(Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long])] =
+      current: (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])
+    ): F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] =
       trace.span(s"${deviceType}UpdateDevices") {
         for {
           _ <- trace.put("current.count" -> current._2.size)
@@ -92,19 +92,16 @@ object Discovery {
       }
 
     DataPoller
-      .traced[F, G, (Set[DiscoveredDeviceKey], Map[K, V], Map[K, Long]), Discovery[F, K, V]](s"${deviceType}Discovery")(
-        current => updateDevices(current.value),
-        config.discoveryInterval,
-        config.errorCount,
-        onUpdate
-      )(
+      .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
+        s"${deviceType}Discovery"
+      )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onUpdate)(
         (getData, setData) =>
           new Discovery[F, K, V] {
             override def devices: F[Discovered[K, V]] = getData().map {
               case (unmapped, devices, _) => Discovered(unmapped, devices)
             }
 
-            override def reinit: F[Unit] = updateDevices((Set.empty, Map.empty, Map.empty)).flatMap(setData)
+            override def reinit: F[Unit] = updateDevices((Map.empty, Map.empty, Map.empty)).flatMap(setData)
         }
       )
       .flatMap { disc =>

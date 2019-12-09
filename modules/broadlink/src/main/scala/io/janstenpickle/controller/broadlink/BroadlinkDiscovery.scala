@@ -28,6 +28,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.remote.{RmRemote, RmRemoteConfig}
 import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
 import io.janstenpickle.controller.store.SwitchStateStore
+import io.janstenpickle.controller.discovery.MetadataConstants._
 
 import scala.concurrent.duration._
 import scala.collection.JavaConverters._
@@ -84,7 +85,7 @@ object BroadlinkDiscovery {
           lazy val devs = (rms ++ sps).toMap
           new Discovery[F, (NonEmptyString, String), Dev] {
             override def devices: F[Discovered[(NonEmptyString, String), Dev]] =
-              F.pure(Discovered(Set.empty, devs))
+              F.pure(Discovered(Map.empty, devs))
 
             override def reinit: F[Unit] = F.unit
           }
@@ -154,10 +155,17 @@ object BroadlinkDiscovery {
         case _ => F.pure(None)
       }
 
-    def assignDevice(device: BLDevice): F[Option[Either[DiscoveredDeviceKey, ((NonEmptyString, String), Dev)]]] =
+    def metadata(device: BLDevice): Map[String, String] = Map(
+      Host -> device.getHost,
+      "mac" -> device.getMac.getMacString
+    )
+
+    def assignDevice(
+      device: BLDevice
+    ): F[Option[Either[(DiscoveredDeviceKey, Map[String, String]), ((NonEmptyString, String), Dev)]]] =
       devSwitch(device).flatTraverse { key =>
         nameMapping.getValue(key).flatMap {
-          case None => F.pure(Some(Left(key)))
+          case None => F.pure(Some(Left(key -> metadata(device))))
           case Some(value) => makeDevice(device, value.name).handleError(_ => None).map(_.map(Either.right(_)))
         }
       }
@@ -226,7 +234,7 @@ object BroadlinkDiscovery {
             (nameMapping.upsert(k, v) *> disc.reinit).map(Some(_))
           else F.pure(None)
 
-        override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
+        override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = disc.devices.map(_.unmapped)
 
         override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
           disc.devices.map(_.devices.map {

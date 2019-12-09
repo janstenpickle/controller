@@ -94,7 +94,7 @@ object SonosDiscovery {
         config,
         data => devicesRef.set(data._2.values.map(d => d.id -> d).toMap) *> onUpdate(),
         onDeviceUpdate,
-        () => discover.map(Set.empty -> _),
+        () => discover.map(Map.empty -> _),
         _.refresh,
         device =>
           device.getState.map { state =>

@@ -87,7 +87,7 @@ object TplinkDiscovery {
           .map { devs =>
             new Discovery[F, (NonEmptyString, DeviceType), TplinkDevice[F]] {
               override def devices: F[Discovered[(NonEmptyString, DeviceType), TplinkDevice[F]]] =
-                F.pure(Discovered(Set.empty, devs.toMap))
+                F.pure(Discovered(Map.empty, devs.toMap))
 
               override def reinit: F[Unit] = F.unit
             }
@@ -176,7 +176,9 @@ object TplinkDiscovery {
         F.delay(s.close())
       }
 
-    def discover: F[(Set[DiscoveredDeviceKey], Map[(NonEmptyString, DeviceType), TplinkDevice[F]])] =
+    def discover: F[
+      (Map[DiscoveredDeviceKey, Map[String, String]], Map[(NonEmptyString, DeviceType), TplinkDevice[F]])
+    ] =
       socketResource.use { socket =>
         val (_, buffer) = Encryption.encryptWithHeader(discoveryQuery).splitAt(4)
         val packet = new DatagramPacket(buffer, buffer.length, InetAddress.getByName(broadcastAddress), port.value)
@@ -225,7 +227,7 @@ object TplinkDiscovery {
                 }
             case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
           }
-        } yield (Set.empty[DiscoveredDeviceKey], devices.toMap)
+        } yield (Map.empty[DiscoveredDeviceKey, Map[String, String]], devices.toMap)
       }
 
     Discovery[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
@@ -248,7 +250,7 @@ object TplinkDiscovery {
               .traverse(_.rename(v.name, v.room) *> disc.reinit)
           )
 
-        override def unassigned: F[Set[DiscoveredDeviceKey]] = disc.devices.map(_.unmapped)
+        override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = disc.devices.map(_.unmapped)
 
         override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
           disc.devices.map(_.devices.map {
