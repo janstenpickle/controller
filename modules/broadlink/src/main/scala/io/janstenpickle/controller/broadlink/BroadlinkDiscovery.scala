@@ -42,7 +42,7 @@ object BroadlinkDiscovery {
     bindAddress: Option[InetAddress],
     commandTimeout: FiniteDuration = 200.millis,
     discoverTimeout: FiniteDuration = 5.seconds,
-    discoveryPort: Option[PortNumber],
+    discoveryPort: PortNumber = PortNumber(9998),
     polling: Discovery.Polling,
   )
 
@@ -182,7 +182,7 @@ object BroadlinkDiscovery {
           discoveryBlocker
             .delay[F, List[BLDevice]](
               BLDevice
-                .discoverDevices(addr, config.discoveryPort.fold(0)(_.value), config.discoverTimeout.toMillis.toInt)
+                .discoverDevices(addr, config.discoveryPort.value, config.discoverTimeout.toMillis.toInt)
                 .toList
             )
             .handleError(_ => List.empty[BLDevice])
