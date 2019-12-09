@@ -171,13 +171,13 @@ object BroadlinkDiscovery {
     def runDiscovery: F[List[BLDevice]] =
       config.bindAddress
         .fold(
-          F.delay(
+          discoveryBlocker.delay[F, List[InetAddress]](
             NetworkInterface.getNetworkInterfaces.asScala
               .flatMap(_.getInetAddresses.asScala)
               .toList
               .filter(_.isInstanceOf[Inet4Address])
           )
-        )(addr => F.delay(List(addr)))
+        )(addr => F.pure(List(addr)))
         .flatMap(_.parFlatTraverse { addr =>
           discoveryBlocker
             .delay[F, List[BLDevice]](

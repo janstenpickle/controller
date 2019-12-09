@@ -100,19 +100,20 @@ object KodiDiscovery {
       Resource
         .liftF(
           bindAddress.fold(
-            F.delay(
+            blocker.delay[F, List[InetAddress]](
               NetworkInterface.getNetworkInterfaces.asScala
                 .flatMap(_.getInetAddresses.asScala)
                 .toList
                 .filter(_.isInstanceOf[Inet4Address])
             )
-          )(addr => F.delay(List(addr)))
+          )(addr => F.pure(List(addr)))
         )
         .flatMap {
-          case Nil => Resource.make(F.delay(JmDNS.create()))(j => F.delay(j.close())).map(List(_))
+          case Nil =>
+            Resource.make(blocker.delay[F, JmDNS](JmDNS.create()))(j => blocker.delay[F, Unit](j.close())).map(List(_))
           case addrs =>
             addrs.traverse[Resource[F, *], JmDNS] { addr =>
-              Resource.make(F.delay(JmDNS.create(addr)))(j => F.delay(j.close()))
+              Resource.make(blocker.delay[F, JmDNS](JmDNS.create(addr)))(j => blocker.delay[F, Unit](j.close()))
             }
         }
 
