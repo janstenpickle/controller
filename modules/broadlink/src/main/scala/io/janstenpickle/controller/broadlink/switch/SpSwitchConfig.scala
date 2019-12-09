@@ -13,10 +13,10 @@ sealed trait SpSwitchConfig {
 }
 
 object SpSwitchConfig {
-  case class SP1(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeout: FiniteDuration = 100.millis)
+  case class SP1(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeout: FiniteDuration = 200.millis)
       extends SpSwitchConfig
-  case class SP2(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeout: FiniteDuration = 100.millis)
+  case class SP2(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeout: FiniteDuration = 50.millis)
       extends SpSwitchConfig
-  case class SP3(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeout: FiniteDuration = 100.millis)
+  case class SP3(name: NonEmptyString, host: NonEmptyString, mac: Mac, timeout: FiniteDuration = 200.millis)
       extends SpSwitchConfig
 }

@@ -39,7 +39,7 @@ object BroadlinkDiscovery {
 
   case class Config(
     bindAddress: Option[InetAddress],
-    commandTimeout: FiniteDuration = 100.millis,
+    commandTimeout: FiniteDuration = 200.millis,
     discoverTimeout: FiniteDuration = 5.seconds,
     discoveryPort: Option[PortNumber],
     polling: Discovery.Polling,
@@ -158,9 +158,7 @@ object BroadlinkDiscovery {
       devSwitch(device).flatTraverse { key =>
         nameMapping.getValue(key).flatMap {
           case None => F.pure(Some(Left(key)))
-          case Some(value) =>
-            makeDevice(device, value.name)
-              .map(_.map(Either.right(_)))
+          case Some(value) => makeDevice(device, value.name).handleError(_ => None).map(_.map(Either.right(_)))
         }
       }
 
@@ -185,13 +183,16 @@ object BroadlinkDiscovery {
         })
 
     def discover: F[(Set[DiscoveredDeviceKey], Map[(NonEmptyString, String), Dev])] =
-      runDiscovery.flatMap(
-        _.parFlatTraverse(assignDevice(_).map(_.toList))
-          .map(_.foldLeft((Set.empty[DiscoveredDeviceKey], Map.empty[(NonEmptyString, String), Dev])) {
-            case ((unmapped, discovered), Left(key)) => (unmapped + key, discovered)
-            case ((unmapped, discovered), Right(device)) => (unmapped, discovered + device)
-          })
-      )
+      runDiscovery
+        .flatMap(
+          _.traverse(assignDevice(_).flatTap(x => F.delay(println(x))))
+            .map(_.foldLeft((Set.empty[DiscoveredDeviceKey], Map.empty[(NonEmptyString, String), Dev])) {
+              case ((unmapped, discovered), Some(Left(key))) => (unmapped + key, discovered)
+              case ((unmapped, discovered), Some(Right(device))) => (unmapped, discovered + device)
+              case (acc, None) => acc
+            })
+        )
+        .flatTap(x => F.delay(println(x)))
 
     Discovery[F, G, (NonEmptyString, String), Dev](
       deviceName,
