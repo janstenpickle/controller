@@ -141,10 +141,7 @@ object KodiDiscovery {
       )
 
     def serviceMetadata(service: ServiceInfo): Map[String, String] =
-      Map(
-        Host -> service.getInet4Addresses.headOption.fold("")(_.getHostAddress),
-        Name -> service.getName
-      )
+      Map(Host -> service.getInet4Addresses.headOption.fold("")(_.getHostAddress), Name -> service.getName)
 
     def serviceInstance(service: ServiceInfo): F[Either[(DiscoveredDeviceKey, Map[String, String]), KodiInstance]] = {
       val deviceId = serviceDeviceKey(service)

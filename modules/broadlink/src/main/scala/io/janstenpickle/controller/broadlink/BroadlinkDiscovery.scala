@@ -155,10 +155,8 @@ object BroadlinkDiscovery {
         case _ => F.pure(None)
       }
 
-    def metadata(device: BLDevice): Map[String, String] = Map(
-      Host -> device.getHost,
-      "mac" -> device.getMac.getMacString
-    )
+    def metadata(device: BLDevice): Map[String, String] =
+      Map(Host -> device.getHost, "mac" -> device.getMac.getMacString)
 
     def assignDevice(
       device: BLDevice
@@ -190,17 +188,20 @@ object BroadlinkDiscovery {
             .handleError(_ => List.empty[BLDevice])
         })
 
-    def discover: F[(Set[DiscoveredDeviceKey], Map[(NonEmptyString, String), Dev])] =
+    def discover: F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[(NonEmptyString, String), Dev])] =
       runDiscovery
         .flatMap(
-          _.traverse(assignDevice(_).flatTap(x => F.delay(println(x))))
-            .map(_.foldLeft((Set.empty[DiscoveredDeviceKey], Map.empty[(NonEmptyString, String), Dev])) {
-              case ((unmapped, discovered), Some(Left(key))) => (unmapped + key, discovered)
-              case ((unmapped, discovered), Some(Right(device))) => (unmapped, discovered + device)
-              case (acc, None) => acc
-            })
+          _.parTraverse(assignDevice)
+            .map(
+              _.foldLeft(
+                (Map.empty[DiscoveredDeviceKey, Map[String, String]], Map.empty[(NonEmptyString, String), Dev])
+              ) {
+                case ((unmapped, discovered), Some(Left(key))) => (unmapped + key, discovered)
+                case ((unmapped, discovered), Some(Right(device))) => (unmapped, discovered + device)
+                case (acc, None) => acc
+              }
+            )
         )
-        .flatTap(x => F.delay(println(x)))
 
     Discovery[F, G, (NonEmptyString, String), Dev](
       deviceName,
