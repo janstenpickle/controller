@@ -167,7 +167,7 @@ object TplinkDiscovery {
     def socketResource: Resource[F, DatagramSocket] =
       Resource.make {
         F.delay {
-          val socket = new DatagramSocket()
+          val socket = new DatagramSocket(port.value)
           socket.setBroadcast(true)
           socket.setSoTimeout(discoveryTimeout.toMillis.toInt)
           socket
