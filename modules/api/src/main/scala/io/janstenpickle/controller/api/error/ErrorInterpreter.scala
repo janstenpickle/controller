@@ -20,7 +20,7 @@ import io.janstenpickle.controller.kodi.KodiErrors
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
-import io.janstenpickle.controller.tplink.hs100.HS100Errors
+import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 
 class ErrorInterpreter[F[_]: Apply](
   implicit
@@ -30,7 +30,7 @@ class ErrorInterpreter[F[_]: Apply](
 ) extends MacroErrors[F]
     with SwitchErrors[F]
     with RemoteControlErrors[F]
-    with HS100Errors[F]
+    with TplinkDeviceErrors[F]
     with PollingSwitchErrors[F]
     with ExtruderErrors[F]
     with ConfigServiceErrors[F]
@@ -52,8 +52,8 @@ class ErrorInterpreter[F[_]: Apply](
   override def missingSwitch[A](device: NonEmptyString, name: NonEmptyString): F[A] =
     raise(ControlError.Missing(s"Switch of type '$device' named '$name' not found"))
 
-  override def decodingFailure[A](name: NonEmptyString, error: circe.Error): F[A] =
-    raise(ControlError.Internal(s"Failed to decode response from smart plug '$name': ${error.getMessage}"))
+  override def decodingFailure[A](device: NonEmptyString, error: circe.Error): F[A] =
+    raise(ControlError.Internal(s"Failed to decode response from smart plug '$device': ${error.getMessage}"))
 
   override def missingJson[A](name: NonEmptyString, history: List[CursorOp]): F[A] =
     raise(ControlError.Internal(s"Missing data from smart plug '$name' response at '${history.mkString(",")}'"))
@@ -134,6 +134,9 @@ class ErrorInterpreter[F[_]: Apply](
     message: String
   ): F[A] =
     raise(ControlError.Internal(s"${kodiString(kodi, host, port)} responded with an error '$message', code '$code'"))
+
+  override def tpLinkCommandTimedOut[A](device: NonEmptyString): F[A] =
+    raise(ControlError.Internal(s"TP Link command timed out to device '${device.value}''"))
 }
 
 object ErrorInterpreter {

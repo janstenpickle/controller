@@ -119,7 +119,7 @@ object SonosRemoteConfigSource {
         override def getConfig: F[ConfigResult[NonEmptyString, Remote]] =
           cache.cachingForMemoizeF(s"${remoteName.value}_remotes")(None)(
             discovery.devices
-              .flatMap(_.values.toList.parTraverse {
+              .flatMap(_.devices.values.toList.parTraverse {
                 device =>
                   for {
                     isMuted <- device.isMuted

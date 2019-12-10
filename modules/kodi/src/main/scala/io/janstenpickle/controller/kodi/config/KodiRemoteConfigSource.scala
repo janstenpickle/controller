@@ -80,7 +80,7 @@ object KodiRemoteConfigSource {
         override def getConfig: F[ConfigResult[NonEmptyString, Remote]] =
           cache.cachingForMemoizeF(s"${remoteName.value}_remotes")(None)(
             discovery.devices
-              .flatMap(_.values.toList.parFlatTraverse {
+              .flatMap(_.devices.values.toList.parFlatTraverse {
                 device =>
                   for {
                     playing <- device.isPlaying

@@ -235,9 +235,8 @@ object Module {
 
     for {
       config <- Resource.liftF[F, Configuration.Config](configOrError(getConfig()))
-      blocker <- Resource
-        .make(Sync[F].delay(Executors.newCachedThreadPool()))(es => Sync[F].delay(es.shutdown()))
-        .map(e => Blocker.liftExecutorService(e))
+      discoveryBlocker <- Blocker[F]
+      workBlocker <- Blocker[F]
       registry <- makeRegistry
       _ <- Resource.liftF(PrometheusExportService.addDefaults[F](registry))
       activitiesUpdate <- Resource.liftF(Topic[F, Boolean](false))
@@ -251,7 +250,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("activity"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -265,7 +264,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("button"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -279,7 +278,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("remote"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -293,7 +292,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("virtual-switch"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -307,7 +306,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("multi-switch"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -321,7 +320,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("current-activity"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -338,11 +337,25 @@ object Module {
         )
       }
 
+      discoveryMappingConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("discovery-mapping"),
+          config.config.polling.pollInterval,
+          workBlocker,
+          config.config.writeTimeout
+        )
+
+      discoveryMappingStore <- ExtruderDiscoveryMappingConfigSource[F, G](
+        discoveryMappingConfigFileSource,
+        config.config.polling,
+        notifyUpdate(remotesUpdate, roomsUpdate, statsSwitchUpdate)
+      )
+
       macroConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("macro"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -363,7 +376,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("remote-command"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -392,7 +405,7 @@ object Module {
         .polling[F, G](
           config.config.dir.resolve("switch-state"),
           config.config.polling.pollInterval,
-          blocker,
+          workBlocker,
           config.config.writeTimeout
         )
 
@@ -413,27 +426,34 @@ object Module {
         config.broadlink,
         commandStore,
         switchStateFileStore,
-        blocker,
-        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate)
+        discoveryMappingStore,
+        workBlocker,
+        discoveryBlocker,
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
       tplinkComponents <- TplinkComponents[F, G](
         config.tplink,
-        notifyUpdate(buttonsUpdate, remotesUpdate, statsSwitchUpdate),
-        blocker
+        workBlocker,
+        discoveryBlocker,
+        () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
       sonosComponents <- SonosComponents[F, G](
         config.sonos,
         () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-        blocker,
+        workBlocker,
+        discoveryBlocker,
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
 
       kodiComponents <- KodiComponents[F, G](
         client,
-        blocker,
+        discoveryBlocker,
         config.kodi,
+        discoveryMappingStore,
         () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
         () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
       )
@@ -443,9 +463,10 @@ object Module {
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
       combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)
 
-      switchStateStore <- Resource.liftF(
-        SwitchDependentStore
-          .fromProvider[F](config.virtualSwitch.dependentSwitches, switchStateFileStore, components.switches)
+      switchStateStore = SwitchDependentStore[F](
+        config.virtualSwitch.dependentSwitches,
+        switchStateFileStore,
+        components.switches
       )
 
       virtualSwitches <- SwitchesForRemote.polling[F](
@@ -514,7 +535,8 @@ object Module {
             configService,
             UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
           ).routes,
-          "/" -> new ControllerUi[F](blocker).routes,
+          "/discovery" -> new RenameApi[F](components.rename).routes,
+          "/" -> new ControllerUi[F](workBlocker).routes,
           "/" -> PrometheusExportService.service[F](registry)
         )
 
@@ -522,7 +544,7 @@ object Module {
 
       val stats: Stream[G, Unit] = {
         val fullStream =
-          instrumentation.statsStream.translate(liftLower.lower).through(MetricsSink[G](registry, blocker))
+          instrumentation.statsStream.translate(liftLower.lower).through(MetricsSink[G](registry, workBlocker))
 
         fullStream.handleErrorWith { th =>
           Stream.eval(logger.error(th)("Stats publish failed")).flatMap(_ => fullStream)

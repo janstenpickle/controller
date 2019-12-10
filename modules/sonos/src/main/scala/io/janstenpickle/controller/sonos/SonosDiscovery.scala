@@ -42,7 +42,8 @@ object SonosDiscovery {
     config: Discovery.Polling,
     commandTimeout: FiniteDuration,
     onUpdate: () => F[Unit],
-    blocker: Blocker,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
     onDeviceUpdate: () => F[Unit]
   )(
     implicit F: Concurrent[F],
@@ -52,7 +53,7 @@ object SonosDiscovery {
   ): Resource[F, SonosDiscovery[F]] =
     Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
       def discover: F[Map[NonEmptyString, SonosDevice[F]]] =
-        blocker
+        discoveryBlocker
           .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
           .flatTap { devices =>
             trace.put("device.count" -> devices.size)
@@ -63,10 +64,10 @@ object SonosDiscovery {
                 trace.span("readDevice") {
                   for {
                     id <- trace.span("getId") {
-                      blocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
+                      discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
                     }
                     name <- trace.span("getZoneName") {
-                      blocker.delay[F, String](device.getZoneName)
+                      discoveryBlocker.delay[F, String](device.getZoneName)
                     }
                     formattedName <- F.fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
                     nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
@@ -78,7 +79,7 @@ object SonosDiscovery {
                       device,
                       devicesRef,
                       commandTimeout,
-                      blocker,
+                      workBlocker,
                       onDeviceUpdate
                     )
                   } yield dev.name -> dev
@@ -88,13 +89,12 @@ object SonosDiscovery {
               .map(_.toMap)
           }
 
-      Discovery[F, G, NonEmptyString, NonEmptyString, SonosDevice[F]](
+      Discovery[F, G, NonEmptyString, SonosDevice[F]](
         "sonos",
         config,
-        data => devicesRef.set(data._1.values.map(d => d.id -> d).toMap) *> onUpdate(),
+        data => devicesRef.set(data._2.values.map(d => d.id -> d).toMap) *> onUpdate(),
         onDeviceUpdate,
-        () => discover,
-        identity,
+        () => discover.map(Map.empty -> _),
         _.refresh,
         device =>
           device.getState.map { state =>

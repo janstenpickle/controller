@@ -11,11 +11,13 @@ import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
 import io.janstenpickle.controller.kodi.KodiDevice.DeviceState
+import io.janstenpickle.controller.model.DiscoveredDeviceKey
 import natchez.Trace
 
 trait KodiDevice[F[_]] {
   def name: NonEmptyString
   def room: NonEmptyString
+  def key: DiscoveredDeviceKey
   def isPlaying: F[Boolean]
   def setPlaying(playing: Boolean): F[Unit]
   def isMuted: F[Boolean]
@@ -39,6 +41,7 @@ object KodiDevice {
     client: KodiClient[F],
     deviceName: NonEmptyString,
     deviceRoom: NonEmptyString,
+    deviceKey: DiscoveredDeviceKey,
     onUpdate: () => F[Unit]
   )(implicit F: Sync[F], trace: Trace[F]): F[KodiDevice[F]] = {
     def playInfo: F[Option[Json]] =
@@ -145,6 +148,8 @@ object KodiDevice {
             sendInputAction(Commands.VolDown) *> state.set(st.copy(volume = st.volume - 1)) *> onUpdate()
           else F.unit
         }
+
+        override def key: DiscoveredDeviceKey = deviceKey
       }
   }
 }

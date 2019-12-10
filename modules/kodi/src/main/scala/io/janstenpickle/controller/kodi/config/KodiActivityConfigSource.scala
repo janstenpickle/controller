@@ -24,7 +24,7 @@ object KodiActivityConfigSource {
         override def getConfig: F[ConfigResult[String, Activity]] =
           discovery.devices.map(
             devices =>
-              ConfigResult(devices.map {
+              ConfigResult(devices.devices.map {
                 case (name, dev) =>
                   config.name.value -> Activity(
                     name = config.name,

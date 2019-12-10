@@ -9,7 +9,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
-import io.janstenpickle.controller.discovery.Discovery
+import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.model.{Activity, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
@@ -40,14 +40,15 @@ object SonosComponents {
   def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
     config: Config,
     onUpdate: () => F[Unit],
-    blocker: Blocker,
+    workBlocker: Blocker,
+    discoveryBlocker: Blocker,
     onDeviceUpdate: () => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
         discovery <- SonosDiscovery
-          .polling[F, G](config.polling, config.commandTimeout, onUpdate, blocker, onDeviceUpdate)
+          .polling[F, G](config.polling, config.commandTimeout, onUpdate, workBlocker, discoveryBlocker, onDeviceUpdate)
       } yield {
         val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
         val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
@@ -58,6 +59,7 @@ object SonosComponents {
         Components[F](
           remote,
           switches,
+          DeviceRename.empty[F],
           activityConfig,
           remoteConfig,
           ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]
