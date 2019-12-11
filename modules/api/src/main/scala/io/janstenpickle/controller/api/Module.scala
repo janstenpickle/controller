@@ -64,7 +64,8 @@ import org.http4s.dsl.Http4sDsl
 import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
-import org.scalactic.anyvals.NonEmptyString
+
+import scala.concurrent.duration._
 
 object Module {
   private final val serviceName = "controller"
@@ -95,6 +96,8 @@ object Module {
     for {
       metrics <- Prometheus.metricsOps(registry, "org_http4s_client")
       builder = BlazeClientBuilder(blocker.blockingContext)
+        .withMaxTotalConnections(2000)
+        .withMaxWaitQueueLimit(1000)
       client <- builder.resource
     } yield GZip()(Metrics(metrics)(client))
 
