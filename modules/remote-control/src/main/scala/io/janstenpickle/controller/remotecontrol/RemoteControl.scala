@@ -31,7 +31,7 @@ object RemoteControl {
           ): _*
         )
 
-      override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] = trace.span("remoteControlLearn") {
+      override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] = trace.span("remote.control.learn") {
         traceInfo(device, name) *> remoteControl.learn(device, name)
       }
 
@@ -40,11 +40,11 @@ object RemoteControl {
         device: NonEmptyString,
         name: NonEmptyString
       ): F[Unit] =
-        trace.span("remoteControlSendCommand") {
+        trace.span("remote.control.send.command") {
           traceInfo(device, name) *> remoteControl.sendCommand(source: Option[RemoteCommandSource], device, name)
         }
 
-      override def listCommands: F[List[RemoteCommand]] = trace.span("remoteControlListCommands") {
+      override def listCommands: F[List[RemoteCommand]] = trace.span("remote.control.list.commands") {
         trace.put(extraFields: _*) *> remoteControl.listCommands
       }
 

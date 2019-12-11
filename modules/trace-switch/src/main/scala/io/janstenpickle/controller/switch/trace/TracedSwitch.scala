@@ -20,9 +20,9 @@ object TracedSwitch {
       private def span[A](name: String)(k: F[A]): F[A] =
         trace.span[A](name) { trace.put(fields: _*) *> k }
 
-      override def getState: F[State] = span("switchState") { switch.getState }
-      override def switchOn: F[Unit] = span("switchOn") { switch.switchOn }
-      override def switchOff: F[Unit] = span("switchOff") { switch.switchOff }
-      override def toggle(implicit F: FlatMap[F]): F[Unit] = span("switchToggle") { switch.toggle }
+      override def getState: F[State] = span("switch.state") { switch.getState }
+      override def switchOn: F[Unit] = span("switch.on") { switch.switchOn }
+      override def switchOff: F[Unit] = span("switch.off") { switch.switchOff }
+      override def toggle(implicit F: FlatMap[F]): F[Unit] = span("switch.toggle") { switch.toggle }
     }
 }

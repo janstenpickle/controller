@@ -11,7 +11,7 @@ trait WritableConfigSource[F[_], K, V] extends ConfigSource[F, K, V] {
 }
 
 object WritableConfigSource {
-  def combined[F[_]: Monad: Parallel, A: Semigroup, K, V](
+  def combined[F[_]: Monad: Parallel, K, V](
     writable: WritableConfigSource[F, K, V],
     other: ConfigSource[F, K, V]
   ): WritableConfigSource[F, K, V] =

@@ -20,11 +20,11 @@ object TracedConfigSource {
         .put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
     }
 
-    override def getConfig: F[ConfigResult[K, V]] = span("getConfig") {
+    override def getConfig: F[ConfigResult[K, V]] = span("config.get.config") {
       source.getConfig
     }
 
-    override def getValue(key: K): F[Option[V]] = span("getValue") {
+    override def getValue(key: K): F[Option[V]] = span("config.get.value") {
       source.getValue(key)
     }
   }
@@ -41,30 +41,30 @@ object TracedConfigSource {
       trace.put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
     }
 
-    override def getConfig: F[ConfigResult[K, V]] = span("getConfig") {
+    override def getConfig: F[ConfigResult[K, V]] = span("config.get.config") {
       source.getConfig
     }
-    override def setConfig(a: Map[K, V]): F[Unit] = span("setConfig") {
+    override def setConfig(a: Map[K, V]): F[Unit] = span("config.set.config") {
       source.setConfig(a)
     }
 
-    override def mergeConfig(a: Map[K, V]): F[ConfigResult[K, V]] = span("mergeConfig") {
+    override def mergeConfig(a: Map[K, V]): F[ConfigResult[K, V]] = span("config.merge.config") {
       source.mergeConfig(a)
     }
 
-    override def deleteItem(key: K): F[ConfigResult[K, V]] = span("deleteItem") {
+    override def deleteItem(key: K): F[ConfigResult[K, V]] = span("config.delete.item") {
       source.deleteItem(key)
     }
 
-    override def upsert(key: K, value: V): F[ConfigResult[K, V]] = span("upsert") {
+    override def upsert(key: K, value: V): F[ConfigResult[K, V]] = span("config.upsert") {
       source.upsert(key, value)
     }
 
-    override def getValue(key: K): F[Option[V]] = span("getValue") {
+    override def getValue(key: K): F[Option[V]] = span("config.get.value") {
       source.getValue(key)
     }
 
-    override def listKeys: F[Set[K]] = span("listKeys") {
+    override def listKeys: F[Set[K]] = span("config.list.keys") {
       source.listKeys
     }
   }

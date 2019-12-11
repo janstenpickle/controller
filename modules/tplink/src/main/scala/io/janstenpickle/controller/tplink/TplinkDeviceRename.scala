@@ -8,24 +8,34 @@ import cats.syntax.functor._
 import cats.syntax.traverse._
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
+import natchez.Trace
 
 object TplinkDeviceRename {
-  def apply[F[_]: Monad](discovery: TplinkDiscovery[F]): DeviceRename[F] = new DeviceRename[F] {
-    override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
-      discovery.devices.flatMap(
-        _.devices
-          .collectFirst {
-            case ((name, t), dev) if name.value == k.deviceId && s"$DevName-${t.model.value}" == k.deviceType => dev
-          }
-          .traverse(_.rename(v.name, v.room) *> discovery.reinit)
+  def apply[F[_]: Monad: Trace](discovery: TplinkDiscovery[F]): DeviceRename[F] =
+    DeviceRename
+      .traced(
+        new DeviceRename[F] {
+          override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
+            discovery.devices.flatMap(
+              _.devices
+                .collectFirst {
+                  case ((name, t), dev) if name.value == k.deviceId && s"$DevName-${t.model.value}" == k.deviceType =>
+                    dev
+                }
+                .traverse(_.rename(v.name, v.room) *> discovery.reinit)
+            )
+
+          override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = discovery.devices.map(_.unmapped)
+
+          override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
+            discovery.devices.map(_.devices.map {
+              case ((name, t), dev) =>
+                DiscoveredDeviceKey(name.value, s"$DevName-${t.model.value}") -> DiscoveredDeviceValue(
+                  dev.name,
+                  dev.room
+                )
+            })
+        },
+        "tplink"
       )
-
-    override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = discovery.devices.map(_.unmapped)
-
-    override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
-      discovery.devices.map(_.devices.map {
-        case ((name, t), dev) =>
-          DiscoveredDeviceKey(name.value, s"$DevName-${t.model.value}") -> DiscoveredDeviceValue(dev.name, dev.room)
-      })
-  }
 }

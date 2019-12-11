@@ -32,7 +32,7 @@ object Activity {
     onUpdate: ((Room, NonEmptyString)) => F[Unit]
   )(implicit F: Monad[F], trace: Trace[F]): Activity[F] = new Activity[F] {
     override def setActivity(room: Room, name: NonEmptyString): F[Unit] =
-      span("setActivity", room, "activity" -> name.value) {
+      span("set.activity", room, "activity" -> name.value) {
         config
           .getValue(name.value)
           .flatMap(
@@ -43,7 +43,7 @@ object Activity {
           .storeActivity(room, name) *> onUpdate(room -> name)
       }
 
-    override def getActivity(room: Room): F[Option[NonEmptyString]] = span("getActivity", room) {
+    override def getActivity(room: Room): F[Option[NonEmptyString]] = span("get.activity", room) {
       activities.loadActivity(room)
     }
   }
@@ -60,7 +60,7 @@ object Activity {
 
     new Activity[F] {
       override def setActivity(room: Room, name: NonEmptyString): F[Unit] =
-        span("dependsOnSwitchSetActivity", room, "activity" -> name.value) {
+        span("depends.on.switch.set.activity", room, "activity" -> name.value) {
           switches.get(room).fold(underlying.setActivity(room, name)) { key =>
             trace
               .put("switch.device" -> key.device.value, "switch.name" -> key.name.value) *> switchProvider.getSwitches
@@ -82,7 +82,7 @@ object Activity {
           }
         }
 
-      override def getActivity(room: Room): F[Option[NonEmptyString]] = span("dependsOnSwitchGetActivity", room) {
+      override def getActivity(room: Room): F[Option[NonEmptyString]] = span("depends.on.switch.get.activity", room) {
         underlying.getActivity(room)
       }
     }

@@ -17,10 +17,10 @@ object TracedActivityStore {
     def fields(f: (String, TraceValue)*): Seq[(String, TraceValue)] =
       (f ++ extraFields) :+ ("store.type" -> StringValue(`type`))
 
-    override def storeActivity(room: Room, name: NonEmptyString): F[Unit] = trace.span("storeActivity") {
+    override def storeActivity(room: Room, name: NonEmptyString): F[Unit] = trace.span("activity.store") {
       trace.put(fields("room" -> room.value, "activity" -> name.value): _*) *> store.storeActivity(room, name)
     }
-    override def loadActivity(room: Room): F[Option[NonEmptyString]] = trace.span("loadActivity") {
+    override def loadActivity(room: Room): F[Option[NonEmptyString]] = trace.span("activity.load") {
       trace.put(fields("room" -> room.value): _*) *> store.loadActivity(room).flatTap { activity =>
         trace.put("activity.exists" -> activity.isDefined)
       }

@@ -51,7 +51,7 @@ object ConfigFileSource {
 
         def getFile(extension: String): Path = Paths.get(s"${configFile.toString}.$extension")
 
-        def loadFile(extension: String): F[Option[String]] = trace.span("loadFile") {
+        def loadFile(extension: String): F[Option[String]] = trace.span("load.config.file") {
           val file = getFile(extension)
           trace.put("file.name" -> file.toString) *> blocker.blockOn(for {
             exists <- F.delay(Files.exists(file))
@@ -63,7 +63,7 @@ object ConfigFileSource {
           } yield ret)
         }
 
-        def writeFile(extension: String)(contents: Array[Byte]): F[Unit] = trace.span("writeFile") {
+        def writeFile(extension: String)(contents: Array[Byte]): F[Unit] = trace.span("write.config.file") {
           val file = getFile(extension)
           evalMutex(
             trace.put("file.name" -> file.toString) *> blocker
@@ -104,24 +104,25 @@ object ConfigFileSource {
     timeout: FiniteDuration
   )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, ConfigFileSource[F]] =
     Resource.liftF(apply[F](configFile, blocker, timeout)).flatMap { source =>
-      DataPoller.traced[F, G, ConfigFiles, ConfigFileSource[F]]("configFileSource")(
-        (_: Data[ConfigFiles]) => source.configs,
-        pollInterval,
-        PosInt(1),
-        (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
-        (_: ConfigFiles) => F.unit
-      ) { (get, set) =>
-        new ConfigFileSource[F] {
-          override def configs: F[ConfigFiles] = get()
+      DataPoller
+        .traced[F, G, ConfigFiles, ConfigFileSource[F]]("config.file.source", "config.file" -> configFile.toString)(
+          (_: Data[ConfigFiles]) => source.configs,
+          pollInterval,
+          PosInt(1),
+          (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
+          (_: ConfigFiles) => F.unit
+        ) { (get, set) =>
+          new ConfigFileSource[F] {
+            override def configs: F[ConfigFiles] = get()
 
-          override def write(typesafe: Config): F[Unit] = get().flatMap { files =>
-            source.write(typesafe) *> set(files.copy(typesafe = typesafe))
-          }
+            override def write(typesafe: Config): F[Unit] = get().flatMap { files =>
+              source.write(typesafe) *> set(files.copy(typesafe = typesafe))
+            }
 
-          override def write(json: Json): F[Unit] = get().flatMap { files =>
-            source.write(json) *> set(files.copy(json = json))
+            override def write(json: Json): F[Unit] = get().flatMap { files =>
+              source.write(json) *> set(files.copy(json = json))
+            }
           }
         }
-      }
     }
 }

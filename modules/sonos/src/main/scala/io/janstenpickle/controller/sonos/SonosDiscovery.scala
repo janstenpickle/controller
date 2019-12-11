@@ -61,12 +61,12 @@ object SonosDiscovery {
           .flatMap { discovered =>
             discovered
               .parTraverse { device =>
-                trace.span("readDevice") {
+                trace.span("sonos.read.device") {
                   for {
                     id <- trace.span("getId") {
                       discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
                     }
-                    name <- trace.span("getZoneName") {
+                    name <- trace.span("sonos.get.zone.name") {
                       discoveryBlocker.delay[F, String](device.getZoneName)
                     }
                     formattedName <- F.fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))

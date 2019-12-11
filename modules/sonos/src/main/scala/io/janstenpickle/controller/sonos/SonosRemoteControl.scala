@@ -32,7 +32,7 @@ object SonosRemoteControl {
                 device.isController.flatMap(if (_) command(device) else F.unit)
               })
 
-            def span[A](n: String)(k: F[A]): F[A] = trace.span(s"sonosCombined$n") {
+            def span[A](n: String)(k: F[A]): F[A] = trace.span(s"sonos.combined.$n") {
               trace.put("device.name" -> combinedDeviceName.value) *> k
             }
 
@@ -48,7 +48,7 @@ object SonosRemoteControl {
             override def previous: F[Unit] = span("Previous") { doOnControllers(_.previous) }
           }
 
-          def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] = trace.span("sonosListDevices") {
+          def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] = trace.span("sonos.list.devices") {
             discovery.devices.map(_.devices.updated(combinedDeviceName, combinedDevice)).flatTap { devices =>
               trace.put("device.count" -> devices.size)
             }

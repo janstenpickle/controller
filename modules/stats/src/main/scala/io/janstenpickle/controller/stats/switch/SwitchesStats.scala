@@ -23,6 +23,6 @@ object SwitchesStats {
 
       override def getState(device: NonEmptyString, name: NonEmptyString): F[State] = underlying.getState(device, name)
 
-      override def list: F[List[SwitchKey]] = underlying.list
+      override def list: F[Set[SwitchKey]] = underlying.list
     }
 }

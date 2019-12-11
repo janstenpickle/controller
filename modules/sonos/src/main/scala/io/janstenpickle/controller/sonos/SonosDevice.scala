@@ -57,13 +57,13 @@ object SonosDevice {
     blocker: Blocker,
     onUpdate: () => F[Unit]
   )(implicit F: Concurrent[F], trace: Trace[F]): F[SonosDevice[F]] = {
-    def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] = trace.span(s"sonos$name") {
+    def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] = trace.span(s"sonos.$name") {
       trace.put(
         Seq[(String, TraceValue)]("device.id" -> deviceId, "device.name" -> formattedName.value) ++ extraFields: _*
       ) *> k
     }
 
-    def _isPlaying: F[Boolean] = span("ReadIsPlaying") {
+    def _isPlaying: F[Boolean] = span("read.is.playing") {
       blocker.delay(underlying.getPlayState).map {
         case PlayState.PLAYING => true
         case PlayState.TRANSITIONING => true
@@ -71,11 +71,11 @@ object SonosDevice {
       }
     }
 
-    def _isMuted: F[Boolean] = span("ReadIsMuted") {
+    def _isMuted: F[Boolean] = span("read.is.muted") {
       blocker.delay(underlying.isMuted)
     }
 
-    def _nowPlaying: F[Option[NowPlaying]] = span("ReadNowPlaying") {
+    def _nowPlaying: F[Option[NowPlaying]] = span("read.now.playing") {
       blocker.delay(underlying.getCurrentTrackInfo).map { trackInfo =>
         def element(f: TrackMetadata => String): Option[String] = Option(f(trackInfo.getMetadata)).filterNot(_.isEmpty)
 
@@ -86,15 +86,15 @@ object SonosDevice {
       }
     }
 
-    def refreshState: F[DeviceState] = span("RefreshState") {
+    def refreshState: F[DeviceState] = span("refresh.state") {
       Parallel.parMap7(
-        trace.span("getVolume")(blocker.delay(underlying.getVolume)),
-        trace.span("isJoined")(blocker.delay(underlying.isJoined)),
+        span("get.volume")(blocker.delay(underlying.getVolume)),
+        span("is.joined")(blocker.delay(underlying.isJoined)),
         _isPlaying,
         _isMuted,
         _nowPlaying,
-        trace.span("isCoordinator")(blocker.delay(underlying.isCoordinator)),
-        trace.span("devicesInGroup")(blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
+        span("is.coordinator")(blocker.delay(underlying.isCoordinator)),
+        span("devices.in.group")(blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
       )(DeviceState.apply)
     }
 
@@ -112,7 +112,7 @@ object SonosDevice {
           state.update(_.copy(isPlaying = np))
         }
 
-        override def play: F[Unit] = span("Play") {
+        override def play: F[Unit] = span("play") {
           (for {
             grouped <- isGrouped
             controller <- isController
@@ -138,7 +138,7 @@ object SonosDevice {
             .void
         }
 
-        override def pause: F[Unit] = span("Pause") {
+        override def pause: F[Unit] = span("pause") {
           (for {
             grouped <- isGrouped
             controller <- isController
@@ -164,7 +164,7 @@ object SonosDevice {
             .void
         }
 
-        override def isPlaying: F[Boolean] = span("IsPlaying") {
+        override def isPlaying: F[Boolean] = span("is.playing") {
           for {
             grouped <- isGrouped
             controller <- isController
@@ -177,8 +177,8 @@ object SonosDevice {
           } yield playing
         }
 
-        override def volume: F[Int] = span("Volume") { state.get.map(_.volume) }
-        override def volumeUp: F[Unit] = span("VolumeUp") {
+        override def volume: F[Int] = span("volume") { state.get.map(_.volume) }
+        override def volumeUp: F[Unit] = span("volume.up") {
           for {
             vol <- volume
             _ <- trace.put("current.volume" -> vol)
@@ -193,7 +193,7 @@ object SonosDevice {
           } yield ()
         }
 
-        override def volumeDown: F[Unit] = span("VolumeDown") {
+        override def volumeDown: F[Unit] = span("volume.down") {
           for {
             vol <- volume
             _ <- trace.put("current.volume" -> vol)
@@ -208,29 +208,29 @@ object SonosDevice {
           } yield ()
         }
 
-        override def mute: F[Unit] = span("Mute") {
+        override def mute: F[Unit] = span("mute") {
           blocker.delay(underlying.setMute(true)) *> state.update(_.copy(isMuted = true)) *> onUpdate()
         }
 
-        override def unMute: F[Unit] = span("UnMute") {
+        override def unMute: F[Unit] = span("unmute") {
           blocker.delay(underlying.setMute(false)) *> state.update(_.copy(isMuted = false)) *> onUpdate()
         }
 
-        override def isMuted: F[Boolean] = span("IsMuted") { state.get.map(_.isMuted) }
+        override def isMuted: F[Boolean] = span("is.muted") { state.get.map(_.isMuted) }
 
-        override def next: F[Unit] = span("Next") {
+        override def next: F[Unit] = span("next") {
           blocker.delay(underlying.next()) *> refreshNowPlaying *> onUpdate()
         }
-        override def previous: F[Unit] = span("Previous") {
+        override def previous: F[Unit] = span("previous") {
           blocker.delay(underlying.previous()) *> refreshNowPlaying *> onUpdate()
         }
-        private def refreshController: F[Unit] = span("RefreshController") {
+        private def refreshController: F[Unit] = span("refresh.controller") {
           blocker.delay(underlying.isCoordinator).flatMap { con =>
             state.update(_.copy(isController = con))
           }
         }
-        override def isController: F[Boolean] = span("IsController") { state.get.map(_.isController) }
-        override def playPause: F[Unit] = span("PlayPause") {
+        override def isController: F[Boolean] = span("is.controller") { state.get.map(_.isController) }
+        override def playPause: F[Unit] = span("play.pause") {
           for {
             playing <- isPlaying
             _ <- trace.put("is.playing" -> playing)
@@ -238,13 +238,13 @@ object SonosDevice {
           } yield ()
         }
 
-        private def refreshNowPlaying: F[Unit] = span("RefreshNowPlaying") {
+        private def refreshNowPlaying: F[Unit] = span("refresh.now.playing") {
           _nowPlaying.flatMap { np =>
             state.update(_.copy(nowPlaying = np))
           }
         }
 
-        override def nowPlaying: F[Option[NowPlaying]] = span("NowPlaying") { state.get.map(_.nowPlaying) }
+        override def nowPlaying: F[Option[NowPlaying]] = span("now.playing") { state.get.map(_.nowPlaying) }
 
         override def group: F[Unit] = span("Group") {
           isGrouped.flatMap { grouped =>
@@ -260,7 +260,7 @@ object SonosDevice {
           }
         }
 
-        override def unGroup: F[Unit] = span("UnGroup") {
+        override def unGroup: F[Unit] = span("ungroup") {
           for {
             isC <- isController
             _ <- if (isC) F.unit
@@ -271,17 +271,17 @@ object SonosDevice {
           } yield ()
         }
 
-        override def isGrouped: F[Boolean] = span("IsGrouped") { state.get.map(_.isGrouped) }
+        override def isGrouped: F[Boolean] = span("is.grouped") { state.get.map(_.isGrouped) }
 
         override def id: String = deviceId
 
-        private def refreshGroup: F[Unit] = span("RefreshGroup") {
+        private def refreshGroup: F[Unit] = span("refresh.group") {
           blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet).flatMap { devs =>
             trace.put("group.devices" -> devs.mkString(",")) *> state.update(_.copy(devicesInGroup = devs))
           }
         }
 
-        override def devicesInGroup: F[Set[String]] = span("DevicesInGroup") { state.get.map(_.devicesInGroup) }
+        override def devicesInGroup: F[Set[String]] = span("gevices.in.group") { state.get.map(_.devicesInGroup) }
 
         private def masterToJoin: F[Option[SonosDevice[F]]] =
           allDevices.get
@@ -307,11 +307,11 @@ object SonosDevice {
             })
             .void
 
-        override def refresh: F[Unit] = span("Refresh") {
+        override def refresh: F[Unit] = span("refresh") {
           refreshState.flatMap(state.set)
         }
 
-        override def getState: F[DeviceState] = span("GerState") { state.get }
+        override def getState: F[DeviceState] = span("get.state") { state.get }
       }
   }
 

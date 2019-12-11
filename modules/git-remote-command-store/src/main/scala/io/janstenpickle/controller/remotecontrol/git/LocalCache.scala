@@ -108,7 +108,7 @@ object LocalCache {
 
     }
 
-    DataPoller.traced[F, G, Map[Key, CommandPayload], LocalCache[F]]("localGitCache")(
+    DataPoller.traced[F, G, Map[Key, CommandPayload], LocalCache[F]]("local.git.cache")(
       _ => underlying.list,
       pollInterval,
       errorThreshold,

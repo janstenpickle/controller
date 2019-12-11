@@ -20,8 +20,8 @@ object TracedRemote {
       private def span[A](name: String)(k: F[A]): F[A] =
         trace.span[A](name) { trace.put(fields: _*) *> k }
 
-      override def learn: F[Option[T]] = span("remoteLearn") { remote.learn }
+      override def learn: F[Option[T]] = span("remote.learn") { remote.learn }
 
-      override def sendCommand(payload: T): F[Unit] = span("remoteSendCommand") { remote.sendCommand(payload) }
+      override def sendCommand(payload: T): F[Unit] = span("remote.send.command") { remote.sendCommand(payload) }
     }
 }

@@ -38,12 +38,12 @@ class ConfigService[F[_]: Parallel] private (
   validation: ConfigValidation[F],
   logger: Logger[F]
 )(implicit F: MonadError[F, Throwable], errors: ConfigServiceErrors[F], trace: Trace[F]) {
-  private def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, a: A, op: State => A): F[A] =
-    switches.list.flatMap { switchList =>
-      if (switchList.contains(SwitchKey(device, name))) F.handleErrorWith(switches.getState(device, name).map(op)) {
+  private def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, default: A, op: State => A): F[A] =
+    switches.list.flatMap { switchSet =>
+      if (switchSet.contains(SwitchKey(device, name))) F.handleErrorWith(switches.getState(device, name).map(op)) {
         err =>
-          logger.warn(err)(s"Could not update switch state for '$device' '$name'").as(a)
-      } else F.pure(a)
+          logger.warn(err)(s"Could not update switch state for '$device' '$name'").as(default)
+      } else F.pure(default)
     }
 
   private def macroSwitchState(device: NonEmptyString, name: NonEmptyString): F[Option[Boolean]] =
@@ -118,11 +118,11 @@ class ConfigService[F[_]: Parallel] private (
         activities.copy(values = ListMap(acts.sortBy(_._2.order): _*))
       }
 
-  def getActivities: F[ConfigResult[String, Activity]] = trace.span("getActivities") {
+  def getActivities: F[ConfigResult[String, Activity]] = trace.span("get.activities") {
     activity.getConfig.flatMap(addActiveActivity)
   }
 
-  def addActivity(a: Activity): F[ConfigResult[String, Activity]] = trace.span("addActivity") {
+  def addActivity(a: Activity): F[ConfigResult[String, Activity]] = trace.span("add.activity") {
     val activityKey = s"${a.room}-${a.name}"
 
     activity.getValue(activityKey).flatMap {
@@ -132,7 +132,7 @@ class ConfigService[F[_]: Parallel] private (
   }
 
   def updateActivity(activityName: String, a: Activity): F[ConfigResult[String, Activity]] =
-    trace.span("updateActivity") {
+    trace.span("update.activity") {
       validation
         .validateActivity(a)
         .flatMap(NonEmptyList.fromList(_) match {
@@ -141,7 +141,7 @@ class ConfigService[F[_]: Parallel] private (
         })
     }
 
-  def deleteActivity(a: NonEmptyString): F[ConfigResult[String, Activity]] = trace.span("deleteActivity") {
+  def deleteActivity(a: NonEmptyString): F[ConfigResult[String, Activity]] = trace.span("delete.activity") {
     activity.getConfig.flatMap { activities =>
       if (activities.values.values.map(_.name).toSet.contains(a)) remote.getConfig.flatMap { remotes =>
         val rs = remotes.values.values.collect {
@@ -154,7 +154,7 @@ class ConfigService[F[_]: Parallel] private (
     }
   }
 
-  def getRemotes: F[ConfigResult[NonEmptyString, Remote]] = trace.span("getRemotes") {
+  def getRemotes: F[ConfigResult[NonEmptyString, Remote]] = trace.span("get.remotes") {
     remote.getConfig.flatMap { remotes =>
       remotes.values.toList
         .parTraverse {
@@ -165,7 +165,7 @@ class ConfigService[F[_]: Parallel] private (
     }
   }
 
-  def addRemote(r: Remote): F[ConfigResult[NonEmptyString, Remote]] = trace.span("addRemote") {
+  def addRemote(r: Remote): F[ConfigResult[NonEmptyString, Remote]] = trace.span("add.remote") {
     remote.getValue(r.name).flatMap {
       case Some(_) => errors.remoteAlreadyExists(r.name)
       case None => updateRemote(r.name, r)
@@ -173,7 +173,7 @@ class ConfigService[F[_]: Parallel] private (
   }
 
   def updateRemote(remoteName: NonEmptyString, r: Remote): F[ConfigResult[NonEmptyString, Remote]] =
-    trace.span("updateRemote") {
+    trace.span("update.remote") {
       validation
         .validateRemote(r)
         .flatMap(NonEmptyList.fromList(_) match {
@@ -182,14 +182,14 @@ class ConfigService[F[_]: Parallel] private (
         })
     }
 
-  def deleteRemote(r: NonEmptyString): F[ConfigResult[NonEmptyString, Remote]] = trace.span("deleteRemote") {
+  def deleteRemote(r: NonEmptyString): F[ConfigResult[NonEmptyString, Remote]] = trace.span("delete.remote") {
     remote.getConfig.flatMap { remotes =>
       if (remotes.values.keySet.contains(r)) remote.deleteItem(r)
       else errors.remoteMissing[ConfigResult[NonEmptyString, Remote]](r)
     }
   }
 
-  def getCommonButtons: F[ConfigResult[String, Button]] = trace.span("getCommonButtons") {
+  def getCommonButtons: F[ConfigResult[String, Button]] = trace.span("get.commonButtons") {
     button.getConfig.flatMap { buttons =>
       addSwitchState(buttons.values.values.toList).map { bs =>
         buttons.copy(
@@ -222,7 +222,7 @@ class ConfigService[F[_]: Parallel] private (
   }
 
   def deleteCommonButton(b: String): F[ConfigResult[String, Button]] =
-    trace.span("deleteCommonButton") {
+    trace.span("delete.common.button") {
       button.getConfig.flatMap { buttons =>
         if (buttons.values.keySet.contains(b)) button.deleteItem(b)
         else errors.buttonMissing[ConfigResult[String, Button]](b)
@@ -233,11 +233,11 @@ class ConfigService[F[_]: Parallel] private (
     override def compare(x: Int, y: Int): Int = if (x < y) 1 else if (x > y) -1 else 0
   }
 
-  def getRooms: F[Rooms] = trace.span("getRooms") {
+  def getRooms: F[Rooms] = trace.span("get.rooms") {
     List(
-      trace.span("getRemotes") { remote.getConfig.map(r => r.values.values.flatMap(_.rooms) -> r.errors) },
-      trace.span("getActivities") { activity.getConfig.map(a => a.values.values.map(_.room) -> a.errors) },
-      trace.span("getCommonButtons") { button.getConfig.map(b => b.values.values.flatMap(_.room) -> b.errors) }
+      trace.span("get.remotes") { remote.getConfig.map(r => r.values.values.flatMap(_.rooms) -> r.errors) },
+      trace.span("get.activities") { activity.getConfig.map(a => a.values.values.map(_.room) -> a.errors) },
+      trace.span("get.common.buttons") { button.getConfig.map(b => b.values.values.flatMap(_.room) -> b.errors) }
     ).parSequence.map { data =>
       val (remotes, errors) = data.unzip
 

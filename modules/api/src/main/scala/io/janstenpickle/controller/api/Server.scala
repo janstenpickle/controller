@@ -35,7 +35,7 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](configFile: 
     for {
       components <- Stream.resource(Module.components(getConfig))
       (config, routes, registry, stats) = components
-      prometheus <- Stream.eval(Prometheus(registry))
+      prometheus <- Stream.resource(Prometheus.metricsOps(registry))
       instrumentedRoutes = Metrics(prometheus)(routes)
       exit <- Stream.eval(Ref[F].of(ExitCode.Success))
       corsConfig = CORSConfig(

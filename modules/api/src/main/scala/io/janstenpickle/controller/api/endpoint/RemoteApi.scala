@@ -52,7 +52,7 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / "send" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
-        trace.span("remoteSendCommand") {
+        trace.span("api.remote.send.command") {
           trace.put(
             "name" -> TraceValue.stringToTraceValue(name),
             "device" -> TraceValue.stringToTraceValue(device),
@@ -63,7 +63,7 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
       }
     case POST -> Root / "send" / name / sourceName / sourceType / device / command =>
       refineOrBadReq(name, sourceName, sourceType, device, command) { (n, cs, d, c) =>
-        trace.span("remoteSendCommand") {
+        trace.span("api.remote.send.command") {
           trace.put(
             "name" -> TraceValue.stringToTraceValue(name),
             "device" -> TraceValue.stringToTraceValue(device),
@@ -76,7 +76,7 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
       }
     case POST -> Root / "learn" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
-        trace.span("remoteLearnCommand") {
+        trace.span("api.remote.learn.command") {
           trace.put(
             "name" -> TraceValue.stringToTraceValue(name),
             "device" -> TraceValue.stringToTraceValue(device),

@@ -17,12 +17,7 @@ object SwitchDependentStore {
         case None => op
         case Some(key) =>
           provider.getSwitches.flatMap(_.get(key) match {
-            case None =>
-              F.raiseError(
-                new RuntimeException(
-                  s"Could not find switch '${key.name.value}' of device '${key.device.value}' for remote '${remote.value}'"
-                )
-              )
+            case None => default
             case Some(switch) =>
               switch.getState.flatMap {
                 case State.On => op

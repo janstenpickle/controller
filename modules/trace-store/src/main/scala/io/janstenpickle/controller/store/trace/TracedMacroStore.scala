@@ -18,17 +18,18 @@ object TracedMacroStore {
     def fields(f: (String, TraceValue)*): Seq[(String, TraceValue)] =
       (f ++ extraFields) :+ ("store.type" -> StringValue(`type`))
 
-    override def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] = trace.span("storeMacro") {
-      trace.put(fields("name" -> name.value, "commands" -> commands.size): _*) *> store.storeMacro(name, commands)
-    }
+    override def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] =
+      trace.span("store.macro") {
+        trace.put(fields("name" -> name.value, "commands" -> commands.size): _*) *> store.storeMacro(name, commands)
+      }
 
-    override def loadMacro(name: NonEmptyString): F[Option[NonEmptyList[Command]]] = trace.span("loadMacro") {
+    override def loadMacro(name: NonEmptyString): F[Option[NonEmptyList[Command]]] = trace.span("load.macro") {
       trace.put(fields("name" -> name.value): _*) *> store.loadMacro(name).flatTap { commands =>
         trace.put("macro.exists" -> commands.isDefined)
       }
     }
 
-    override def listMacros: F[List[NonEmptyString]] = trace.span("listMacros") {
+    override def listMacros: F[List[NonEmptyString]] = trace.span("list.macros") {
       trace.put(fields(): _*) *> store.listMacros.flatTap { macros =>
         trace.put("macros" -> macros.size)
       }

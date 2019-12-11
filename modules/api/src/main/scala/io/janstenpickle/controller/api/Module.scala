@@ -1,9 +1,7 @@
 package io.janstenpickle.controller.api
 
-import java.util.concurrent.Executors
-
 import cats.data.{EitherT, Kleisli, OptionT}
-import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Blocker, Bracket, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.instances.list._
 import cats.instances.parallel._
 import cats.mtl.ApplicativeHandle
@@ -52,55 +50,70 @@ import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteComma
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
 import io.janstenpickle.controller.tplink.TplinkComponents
+import io.janstenpickle.controller.trace.EmptyTrace
+import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.controller.trace.instances._
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
 import natchez.jaeger.Jaeger
 import org.http4s.client.Client
 import org.http4s.client.blaze.BlazeClientBuilder
+import org.http4s.client.middleware.{GZip, Metrics}
 import org.http4s.dsl.Http4sDsl
-import org.http4s.metrics.prometheus.PrometheusExportService
+import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
-
-import scala.concurrent.ExecutionContext
+import org.scalactic.anyvals.NonEmptyString
 
 object Module {
-  def entryPoint[F[_]: Sync]: Resource[F, EntryPoint[F]] =
-    Jaeger.entryPoint[F]("controller") { c =>
+  private final val serviceName = "controller"
+
+  def makeRegistry[F[_]: Sync]: Resource[F, CollectorRegistry] =
+    Resource.make[F, CollectorRegistry](Sync[F].delay {
+      val registry = new CollectorRegistry(true)
+      registry.register(new CacheCollector())
+      registry
+    })(r => Sync[F].delay(r.clear()))
+
+  def entryPoint[F[_]: Sync: ContextShift: Clock](
+    registry: CollectorRegistry,
+    blocker: Blocker
+  ): Resource[F, EntryPoint[F]] =
+    Jaeger.entryPoint[F](serviceName) { c =>
       Sync[F].delay {
         c.withSampler(SamplerConfiguration.fromEnv)
           .withReporter(ReporterConfiguration.fromEnv)
           .getTracer
       }
-    }
+    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
 
-  def httpClient[F[_]: ConcurrentEffect]: Resource[F, Client[F]] =
-    Resource
-      .make(Sync[F].delay(Executors.newCachedThreadPool()))(es => Sync[F].delay(es.shutdown()))
-      .flatMap { es =>
-        BlazeClientBuilder(ExecutionContext.fromExecutorService(es)).resource
-      }
+  def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
+    registry: CollectorRegistry,
+    blocker: Blocker
+  ): Resource[F, Client[F]] =
+    for {
+      metrics <- Prometheus.metricsOps(registry, "org_http4s_client")
+      builder = BlazeClientBuilder(blocker.blockingContext)
+      client <- builder.resource
+    } yield GZip()(Metrics(metrics)(client))
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
   ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] =
     for {
-      ep <- entryPoint[F]
-      client <- httpClient[F]
-      cs <- components(getConfig, ep, client)
+      blocker <- Blocker[F]
+      registry <- makeRegistry[F]
+      ep <- entryPoint[F](registry, blocker)
+      client <- httpClient[F](registry, blocker)
+      cs <- components(getConfig, ep, client, registry)
     } yield cs
-
-  def emptySpan[F[_]](implicit F: Applicative[F]): Span[F] = new Span[F] {
-    override def put(fields: (String, TraceValue)*): F[Unit] = F.unit
-    override def kernel: F[Kernel] = F.pure(Kernel(Map.empty))
-    override def span(name: String): Resource[F, Span[F]] = Resource.pure(emptySpan)
-  }
 
   def components[F[_]: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
     ep: EntryPoint[F],
-    client: Client[F]
+    client: Client[F],
+    registry: CollectorRegistry
   )(
     implicit F: Concurrent[F]
   ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] = {
@@ -109,13 +122,13 @@ object Module {
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
 
     implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
-      λ[G ~> F](_.run(emptySpan)),
+      λ[G ~> F](_.run(EmptyTrace.emptySpan)),
       name => λ[G ~> F](ga => ep.root(name).use(ga.run))
     )
 
     val liftedConfig: () => G[Either[ValidationErrors, Configuration.Config]] = () => lift(getConfig())
 
-    eitherTComponents[G, F](liftedConfig, ep.lowerT(client)).mapK(liftLower.lower).map {
+    eitherTComponents[G, F](liftedConfig, ep.lowerT(client), registry).mapK(liftLower.lower).map {
       case (config, routes, registry, stats) =>
         (config, ep.liftT(routes), registry, stats)
     }
@@ -123,7 +136,8 @@ object Module {
 
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: Concurrent: ContextShift: Timer](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
-    client: Client[F]
+    client: Client[F],
+    registry: CollectorRegistry
   )(
     implicit F: Concurrent[F],
     trace: Trace[F],
@@ -153,7 +167,7 @@ object Module {
     Resource
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
-        tracedComponents[G, M](liftedConfig, eitherTClient(client)).map {
+        tracedComponents[G, M](liftedConfig, eitherTClient(client), registry).map {
           case (config, routes, registry, stream) =>
             val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
               OptionT(handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
@@ -205,7 +219,8 @@ object Module {
 
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: Concurrent: ContextShift: Timer](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
-    client: Client[F]
+    client: Client[F],
+    registry: CollectorRegistry
   )(
     implicit F: Concurrent[F],
     trace: Trace[F],
@@ -226,19 +241,11 @@ object Module {
     def notifyUpdate[A](topic: Topic[F, Boolean], topics: Topic[F, Boolean]*): A => F[Unit] =
       _ => (topic :: topics.toList).parTraverse(_.publish1(true)).void
 
-    def makeRegistry: Resource[F, CollectorRegistry] =
-      Resource.make[F, CollectorRegistry](Sync[F].delay {
-        val registry = new CollectorRegistry(true)
-        registry.register(new CacheCollector())
-        registry
-      })(r => Sync[F].delay(r.clear()))
-
     for {
       config <- Resource.liftF[F, Configuration.Config](configOrError(getConfig()))
       discoveryBlocker <- Blocker[F]
       workBlocker <- Blocker[F]
-      registry <- makeRegistry
-      _ <- Resource.liftF(PrometheusExportService.addDefaults[F](registry))
+      _ <- PrometheusExportService.addDefaults[F](registry)
       activitiesUpdate <- Resource.liftF(Topic[F, Boolean](false))
       buttonsUpdate <- Resource.liftF(Topic[F, Boolean](false))
       remotesUpdate <- Resource.liftF(Topic[F, Boolean](false))
@@ -481,7 +488,7 @@ object Module {
 
       multiSwitchProvider = MultiSwitchProvider[F](multiSwitchConfig, Switches[F](combinedSwitchProvider))
 
-      switches = Switches[F](SwitchProvider.combined[F](combinedSwitchProvider, multiSwitchProvider))
+      switches = Switches[F](combinedSwitchProvider |+| multiSwitchProvider)
 
       instrumentation <- StatsStream[F](
         config.stats,

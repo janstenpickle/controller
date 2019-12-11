@@ -28,12 +28,12 @@ object TracedSwitchStateStore {
         }
 
       override def setOn(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        span("setOn", remote, device, name) { store.setOn(remote, device, name) }
+        span("switch.store.set.on", remote, device, name) { store.setOn(remote, device, name) }
 
       override def setOff(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        span("setOff", remote, device, name) { store.setOff(remote, device, name) }
+        span("switch.store.set.off", remote, device, name) { store.setOff(remote, device, name) }
 
       override def getState(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[State] =
-        span("getState", remote, device, name) { store.getState(remote, device, name) }
+        span("switch.store.get.state", remote, device, name) { store.getState(remote, device, name) }
     }
 }

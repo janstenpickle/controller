@@ -32,7 +32,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
 
   private def validateContextButtons(buttons: List[ContextButtonMapping])(
     remoteCommands: List[RemoteCommand],
-    switches: List[SwitchKey],
+    switches: Set[SwitchKey],
     macros: List[NonEmptyString]
   ): List[ValidationFailure] =
     buttons.flatMap {
@@ -46,7 +46,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
         conditionalFailure(!macros.contains(m))(ValidationFailure.MacroNotFound(m))
     }
 
-  def validateActivity(activity: Activity): F[List[ValidationFailure]] = trace.span("validateActivity") {
+  def validateActivity(activity: Activity): F[List[ValidationFailure]] = trace.span("validate.activity") {
     traceErrors(
       "activity.name" -> activity.name.value,
       "activity.label" -> activity.label.value,
@@ -63,7 +63,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
 
   private def validateButtons(buttons: List[Button])(
     remoteCommands: List[RemoteCommand],
-    switches: List[SwitchKey],
+    switches: Set[SwitchKey],
     macros: List[NonEmptyString]
   ): List[ValidationFailure] =
     buttons.flatMap {
@@ -78,7 +78,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
       case _: Button.Context => List.empty // context buttons can't be validated
     }
 
-  def validateRemote(remote: Remote): F[List[ValidationFailure]] = trace.span("validateRemote") {
+  def validateRemote(remote: Remote): F[List[ValidationFailure]] = trace.span("validate.remote") {
     traceErrors("remote.name" -> remote.name.value)(
       Parallel
         .parMap4(activitySource.getConfig, macros.listMacros, remoteControls.listCommands, switches.list) {
@@ -92,7 +92,7 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
     )
   }
 
-  def validateButton(button: Button): F[List[ValidationFailure]] = trace.span("validateButton") {
+  def validateButton(button: Button): F[List[ValidationFailure]] = trace.span("validate.button") {
     traceErrors("button.name" -> button.name.value)(
       Parallel.parMap3(remoteControls.listCommands, switches.list, macros.listMacros)(validateButtons(List(button)))
     )

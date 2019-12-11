@@ -6,11 +6,11 @@ val circeVer = "0.12.1"
 val collectionCompatVer = "2.1.2"
 val extruderVer = "0.11.0"
 val fs2Ver = "2.1.0"
-val http4sVer = "0.21.0-M5"
+val http4sVer = "0.21.0-M6"
 val kittensVer = "2.0.0"
 val log4catsVer = "1.0.1"
 val natchezVer = "0.0.10"
-val prometheusVer = "0.6.0"
+val prometheusVer = "0.8.0"
 val refinedVer = "0.9.10"
 val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
@@ -149,7 +149,9 @@ lazy val api = (project in file("modules/api"))
     virtualSwitch,
     multiSwitch,
     stats,
-    prometheusStats
+    prometheusStats,
+    prometheusTrace,
+    trace
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
@@ -257,9 +259,10 @@ lazy val switch = (project in file("modules/switch"))
   .settings(
     name := "controller-switch",
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core" % catsVer,
-      "eu.timepit"    %% "refined"   % refinedVer,
-      "org.typelevel" %% "kittens"   % kittensVer
+      "org.typelevel" %% "cats-core"    % catsVer,
+      "eu.timepit"    %% "refined"      % refinedVer,
+      "org.typelevel" %% "kittens"      % kittensVer,
+      "org.tpolecat"  %% "natchez-core" % natchezVer
     )
   )
   .dependsOn(model)
@@ -380,6 +383,17 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   )
   .dependsOn(stats)
 
+lazy val prometheusTrace = (project in file("modules/prometheus-trace"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-prometheus-trace",
+    libraryDependencies ++= Seq(
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "io.prometheus"     % "simpleclient"    % prometheusVer,
+      "org.tpolecat"      %% "natchez-core"   % natchezVer,
+    )
+  )
+
 lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
   .settings(
@@ -463,6 +477,10 @@ lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
     libraryDependencies ++= Seq("org.typelevel" %% "kittens" % kittensVer)
   )
   .dependsOn(poller)
+
+lazy val trace = (project in file("modules/trace"))
+  .settings(commonSettings)
+  .settings(name := "controller-trace", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

@@ -30,7 +30,7 @@ object TracedRemoteCommandStore {
         }
 
       override def storeCommand(device: NonEmptyString, name: NonEmptyString, payload: T): F[Unit] =
-        span("storeCommand", None, device, name) {
+        span("macro.store.command", None, device, name) {
           store.storeCommand(device, name, payload)
         }
 
@@ -39,13 +39,13 @@ object TracedRemoteCommandStore {
         device: NonEmptyString,
         name: NonEmptyString
       ): F[Option[T]] =
-        span("loadCommand", source, device, name) {
+        span("macro.load.command", source, device, name) {
           store.loadCommand(source, device, name).flatTap { command =>
             trace.put("command.exists" -> command.isDefined)
           }
         }
 
-      override def listCommands: F[List[RemoteCommandKey]] = trace.span("listCommands") {
+      override def listCommands: F[List[RemoteCommandKey]] = trace.span("macro.list.commands") {
         store.listCommands.flatTap { commands =>
           trace.put("commands" -> commands.size)
         }

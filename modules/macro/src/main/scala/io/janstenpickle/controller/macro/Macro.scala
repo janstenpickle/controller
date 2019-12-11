@@ -34,7 +34,7 @@ object Macro {
       trace.span[A](name) { trace.put(extraFields :+ "macro.name" -> StringValue(macroName.value): _*) *> k }
 
     def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] =
-      span("storeMacro", name, "commands" -> commands.size) {
+      span("store.macro", name, "commands" -> commands.size) {
         listMacros.flatMap { macros =>
           if (macros.contains(name))
             trace.put("error" -> true, "reason" -> "macro already exists") *> errors.macroAlreadyExists(name)
@@ -59,7 +59,7 @@ object Macro {
         }.void
       }
 
-    def executeMacro(name: NonEmptyString): F[Unit] = span("executeMacro", name) {
+    def executeMacro(name: NonEmptyString): F[Unit] = span("execute.macro", name) {
       macroStore
         .loadMacro(name)
         .flatMap[Unit](
@@ -69,7 +69,7 @@ object Macro {
         )
     }
 
-    def maybeExecuteMacro(name: NonEmptyString): F[Unit] = span("maybeExecuteMacro", name) {
+    def maybeExecuteMacro(name: NonEmptyString): F[Unit] = span("maybe.execute.macro", name) {
       macroStore
         .loadMacro(name)
         .flatMap(
@@ -77,6 +77,6 @@ object Macro {
         )
     }
 
-    def listMacros: F[List[NonEmptyString]] = trace.span("listMacros") { macroStore.listMacros }
+    def listMacros: F[List[NonEmptyString]] = trace.span("list.macros") { macroStore.listMacros }
   }
 }

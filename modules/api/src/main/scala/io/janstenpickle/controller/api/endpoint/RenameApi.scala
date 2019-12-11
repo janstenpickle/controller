@@ -16,15 +16,15 @@ class RenameApi[F[_]: Sync](rename: DeviceRename[F])(implicit trace: Trace[F]) e
 
   val routes: HttpRoutes[F] = HttpRoutes.of {
     case GET -> Root / "devices" / "unassigned" =>
-      trace.span("unassignedDevices") {
+      trace.span("api.unassigned.devices") {
         Ok(rename.unassigned.map(_.toList.map((UnassignedDevice.apply _).tupled)))
       }
     case GET -> Root / "devices" / "assigned" =>
-      trace.span("assignedDevices") {
+      trace.span("api.assigned.devices") {
         Ok(rename.assigned.map(_.toList.map((AssignedDevice.apply _).tupled)))
       }
     case req @ PUT -> Root / "devices" / "rename" / t / name =>
-      trace.span("renameDevice") {
+      trace.span("api.rename.device") {
         trace.put("device.type" -> t, "device.name" -> name) *> req
           .as[DiscoveredDeviceValue]
           .flatMap(rename.rename(DiscoveredDeviceKey(name, t), _))

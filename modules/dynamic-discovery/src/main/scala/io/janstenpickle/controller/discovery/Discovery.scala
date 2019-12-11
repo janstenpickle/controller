@@ -69,13 +69,13 @@ object Discovery {
     def updateDevices(
       current: (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])
     ): F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] =
-      trace.span(s"${deviceType}UpdateDevices") {
+      trace.span(s"discoveryUpdateDevices") {
         for {
-          _ <- trace.put("current.count" -> current._2.size)
+          _ <- trace.put("current.count" -> current._2.size, "device.type" -> deviceType)
           (unmapped, discovered) <- trace.span("discover") {
             doDiscovery().flatTap {
               case (u, d) =>
-                trace.put("discovered.count" -> d.size, "unmapped.count" -> u.size)
+                trace.put("discovered.count" -> d.size, "unmapped.count" -> u.size, "device.type" -> deviceType)
             }
           }
           now <- timer.clock.realTime(TimeUnit.MILLISECONDS)
@@ -87,13 +87,14 @@ object Discovery {
             .filter { case (_, ts) => (now - ts) < timeout }
           updatedCurrent = current._2.filterKeys(updatedExpiry.keySet.contains)
           devices = discovered ++ updatedCurrent
-          _ <- trace.put("new.count" -> devices.size)
+          _ <- trace.put("new.count" -> devices.size, "device.type" -> deviceType)
         } yield (unmapped, devices, updatedExpiry)
       }
 
     DataPoller
       .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
-        s"${deviceType}Discovery"
+        "discovery",
+        "device.type" -> deviceType
       )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onUpdate)(
         (getData, setData) =>
           new Discovery[F, K, V] {

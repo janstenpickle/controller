@@ -13,7 +13,8 @@ import cats.{Applicative, Apply, Eq}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.Stream
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import natchez.Trace
+import natchez.TraceValue.StringValue
+import natchez.{Trace, TraceValue}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -80,11 +81,11 @@ object DataPoller {
     } yield create(() => read(dataRef), update(dataRef)) -> F.suspend(p.cancel))
   }
 
-  def traced[F[_], G[_], A, B](name: String): TracedPollerPartiallyApplied[F, G, A, B] =
+  def traced[F[_], G[_], A, B](name: String, fields: (String, TraceValue)*): TracedPollerPartiallyApplied[F, G, A, B] =
     new TracedPollerPartiallyApplied[F, G, A, B] {
 
       private def span[C](n: String)(k: F[C])(implicit F: Apply[F], trace: Trace[F]): F[C] = trace.span(n) {
-        trace.put("poller.name" -> name) *> k
+        trace.put(fields ++ List("poller.name" -> StringValue(name)): _*) *> k
       }
 
       override def apply(
@@ -101,14 +102,14 @@ object DataPoller {
         eq: Eq[A],
         liftLower: ContextualLiftLower[G, F, String]
       ): Resource[F, B] = {
-        val low = liftLower.lower(s"${name}Poll")
+        val low = liftLower.lower(s"$name.poll")
 
         DataPoller[G, A, B](getData.andThen { read =>
           low(span("poll")(read))
         }, pollInterval, errorThreshold, onUpdate.andThen(low.apply)) { (get, update) =>
           create(
-            () => span("readState") { liftLower.lift(get()) },
-            a => span("updateState") { liftLower.lift(update(a)) }
+            () => span("poller.read.state") { liftLower.lift(get()) },
+            a => span("poller.update.state") { liftLower.lift(update(a)) }
           )
         }.mapK(liftLower.lift)
       }
@@ -128,7 +129,7 @@ object DataPoller {
         eq: Eq[A],
         liftLower: ContextualLiftLower[G, F, String]
       ): Resource[F, B] = {
-        val low = liftLower.lower(s"${name}Poll")
+        val low = liftLower.lower(s"$name.poll")
 
         DataPoller[G, A, B](
           getData.andThen { read =>
@@ -136,12 +137,12 @@ object DataPoller {
           },
           pollInterval,
           errorThreshold,
-          (data: Data[A], th: Throwable) => low(span("handleError")(handleError(data, th))),
+          (data: Data[A], th: Throwable) => low(span("handle.error")(handleError(data, th))),
           onUpdate.andThen(low.apply)
         ) { (get, update) =>
           create(
-            () => span("readState") { liftLower.lift(get()) },
-            a => span("updateState") { liftLower.lift(update(a)) }
+            () => span("read.state") { liftLower.lift(get()) },
+            a => span("update.state") { liftLower.lift(update(a)) }
           )
         }.mapK(liftLower.lift)
       }

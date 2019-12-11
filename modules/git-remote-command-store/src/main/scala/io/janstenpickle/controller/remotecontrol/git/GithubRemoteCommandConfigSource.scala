@@ -136,7 +136,7 @@ object GithubRemoteCommandConfigSource {
       } yield resp.map(_.leftMap(NonEmptyList.one).merge))
 
     def listRemote: F[List[(Repo, NonEmptyString, NonEmptyString, Content)]] =
-      trace.span("listRemoteGithub") {
+      trace.span("github.list.remote") {
         reversedRepos.toList
           .parFlatTraverse[OptionT[F, *], (Repo, NonEmptyString, NonEmptyString, Content)] { repo =>
             loadRepoPath(repo, "")
@@ -160,7 +160,7 @@ object GithubRemoteCommandConfigSource {
       }
 
     def downloadData(repo: Repo, path: String): F[Option[(Content, CommandPayload)]] =
-      trace.span("downloadDataFromGithub") {
+      trace.span("github.download.data") {
         loadRepoPath(repo, path).subflatMap {
           case NonEmptyList(file, Nil) if file.encoding.contains("base64") =>
             for {
@@ -188,7 +188,7 @@ object GithubRemoteCommandConfigSource {
       key: RemoteCommandKey,
       content: Content,
       payload: CommandPayload
-    ): F[Unit] = trace.span("cacheGithubDownload") {
+    ): F[Unit] = trace.span("github.cache.download") {
       for {
         _ <- repoTraceKeys(repo)
         commits <- getCommit(repo, content.path)
@@ -198,7 +198,7 @@ object GithubRemoteCommandConfigSource {
     }
 
     def downloadAndCache(cache: LocalCache[F], repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]] =
-      trace.span("downloadAndCache") {
+      trace.span("github.download.and.cache") {
         repoTraceKeys(repo) *> keyTraceKeys(key) *> downloadData(repo, keyPath(key)).flatMap {
           case Some((content, payload)) =>
             trace.put("command.present" -> true) *> cacheDownload(cache, repo, key, content, payload).as(Some(payload))
@@ -223,7 +223,7 @@ object GithubRemoteCommandConfigSource {
       )
 
     def checkUpdates(cache: LocalCache[F]) =
-      trace.span("checkUpdates") {
+      trace.span("github.check.updates") {
         cache.list.flatMap { data =>
           trace.put("commands" -> data.size) *> data.keys.toList.parTraverse {
             case (repo, key) =>
@@ -251,7 +251,7 @@ object GithubRemoteCommandConfigSource {
         def stream =
           fs2.Stream
             .fixedRate[G](config.gitPollInterval)
-            .evalMap(_ => liftLower.lower("githubCheckUpdates")(checkUpdates(cache)))
+            .evalMap(_ => liftLower.lower("github.check.updates")(checkUpdates(cache)))
         Resource
           .make(
             Concurrent[G].start(
@@ -275,7 +275,7 @@ object GithubRemoteCommandConfigSource {
     for {
       logger <- Resource.liftF(Slf4jLogger.fromClass[F](this.getClass))
 
-      repoListingPoller <- DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("githubtRepoListing")(
+      repoListingPoller <- DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("githubt.repo.listing")(
         _ => listRemote,
         config.gitPollInterval,
         config.pollErrorThreshold,

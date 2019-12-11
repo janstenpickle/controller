@@ -91,7 +91,7 @@ object ExtruderConfigSource {
       val source = decode[F, K, V](configFileSource, decoder, logger)
       val sink = encode[F, K, V](configFileSource, encoder)
 
-      DataPoller.traced[F, G, ConfigResult[K, V], WritableConfigSource[F, K, V]](name)(
+      DataPoller.traced[F, G, ConfigResult[K, V], WritableConfigSource[F, K, V]](name, "type" -> "extruder.config")(
         (data: Data[ConfigResult[K, V]]) => source(data.value),
         config.pollInterval,
         PosInt(1),
