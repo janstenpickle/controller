@@ -98,6 +98,8 @@ object Module {
       builder = BlazeClientBuilder(blocker.blockingContext)
         .withMaxTotalConnections(2000)
         .withMaxWaitQueueLimit(1000)
+        .withRequestTimeout(5.seconds)
+        .withIdleTimeout(10.seconds)
       client <- builder.resource
     } yield GZip()(Metrics(metrics)(client))
 
