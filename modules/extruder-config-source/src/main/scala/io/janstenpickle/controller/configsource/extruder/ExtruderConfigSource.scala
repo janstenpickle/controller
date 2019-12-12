@@ -87,7 +87,7 @@ object ExtruderConfigSource {
     monoid: Monoid[ConfigResult[K, V]],
     setEditable: SetEditable[V]
   ): Resource[F, WritableConfigSource[F, K, V]] =
-    Resource.liftF(Slf4jLogger.fromName[F](s"${name}ConfigSource")).flatMap { logger =>
+    Resource.liftF(Slf4jLogger.fromName[F](s"${name}ConfigSource")).flatMap { implicit logger =>
       val source = decode[F, K, V](configFileSource, decoder, logger)
       val sink = encode[F, K, V](configFileSource, encoder)
 

@@ -14,6 +14,8 @@ import eu.timepit.refined.types.numeric.PosInt
 import extruder.cats.effect.EffectValidation
 import extruder.core.ExtruderErrors
 import extruder.data.ValidationErrors
+import io.chrisdavenport.log4cats.Logger
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.poller.DataPoller.Data
 
 import scala.concurrent.duration._
@@ -37,6 +39,7 @@ object ConfigPoller {
         .make(F.delay(Executors.newCachedThreadPool()))(es => F.delay(es.shutdown()))
         .map(e => Blocker.liftExecutorService(e))
       initial <- Resource.liftF(Configuration.load[ConfigResult](blocker, configFile).value)
+      implicit0(logger: Logger[F]) <- Resource.liftF(Slf4jLogger.fromName("mainApplicationConfigPoller"))
       getConfig <- {
         implicit val empty: Empty[Either[ValidationErrors, Configuration.Config]] = Empty(initial)
 

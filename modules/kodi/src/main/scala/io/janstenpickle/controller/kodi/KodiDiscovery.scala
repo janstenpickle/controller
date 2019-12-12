@@ -75,15 +75,17 @@ object KodiDiscovery {
           }
       )
       .flatMap { disc =>
-        DeviceState[F, G, NonEmptyString, KodiDevice[F]](
-          DeviceName,
-          config.stateUpdateInterval,
-          config.errorCount,
-          disc,
-          onDeviceUpdate,
-          _.refresh,
-          deviceKey
-        ).map(_ => disc)
+        if (kodis.nonEmpty)
+          DeviceState[F, G, NonEmptyString, KodiDevice[F]](
+            DeviceName,
+            config.stateUpdateInterval,
+            config.errorCount,
+            disc,
+            onDeviceUpdate,
+            _.refresh,
+            deviceKey
+          ).map(_ => disc)
+        else Resource.pure(disc)
       }
 
   def dynamic[F[_]: Parallel: ContextShift: KodiErrors, G[_]: Timer: Concurrent](

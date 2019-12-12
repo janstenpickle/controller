@@ -86,17 +86,19 @@ object BroadlinkDiscovery {
         }
       )
       .flatMap { disc =>
-        DeviceState[F, G, (NonEmptyString, String), Dev](
-          DeviceName,
-          config.stateUpdateInterval,
-          config.errorCount,
-          disc,
-          onDeviceUpdate, {
-            case Left(sp) => sp.refresh
-            case Right(_) => F.unit
-          },
-          deviceKey
-        ).map(_ => disc)
+        if (rm.nonEmpty || sp.nonEmpty)
+          DeviceState[F, G, (NonEmptyString, String), Dev](
+            DeviceName,
+            config.stateUpdateInterval,
+            config.errorCount,
+            disc,
+            onDeviceUpdate, {
+              case Left(sp) => sp.refresh
+              case Right(_) => F.unit
+            },
+            deviceKey
+          ).map(_ => disc)
+        else Resource.pure(disc)
       }
   }
 

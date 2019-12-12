@@ -275,12 +275,15 @@ object GithubRemoteCommandConfigSource {
     for {
       logger <- Resource.liftF(Slf4jLogger.fromClass[F](this.getClass))
 
-      repoListingPoller <- DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("githubt.repo.listing")(
-        _ => listRemote,
-        config.gitPollInterval,
-        config.pollErrorThreshold,
-        onUpdate
-      )((getData, _) => getData)
+      repoListingPoller <- Resource.liftF(Slf4jLogger.fromName[F](s"githubRepoListingPoller")).flatMap {
+        implicit logger =>
+          DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("githubt.repo.listing")(
+            _ => listRemote,
+            config.gitPollInterval,
+            config.pollErrorThreshold,
+            onUpdate
+          )((getData, _) => getData)
+      }
 
       localCache <- LocalCache[F, G](
         config.localCacheDir,

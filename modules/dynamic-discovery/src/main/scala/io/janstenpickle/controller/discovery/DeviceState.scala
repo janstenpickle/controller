@@ -9,6 +9,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import eu.timepit.refined.types.numeric.PosInt
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
@@ -46,13 +47,15 @@ object DeviceState {
         .map(_.toSet)
     }
 
-    DataPoller.traced[F, G, Set[String], Unit](s"deviceState", "device.type" -> deviceType)(
-      (_: Data[Set[String]]) => deviceState,
-      pollInterval,
-      errorCount,
-      (_: Set[String]) => onUpdate()
-    ) { (_, _) =>
-      ()
+    Resource.liftF(Slf4jLogger.fromName[F](s"deviceState-$deviceType")).flatMap { implicit logger =>
+      DataPoller.traced[F, G, Set[String], Unit]("device.state", "device.type" -> deviceType)(
+        (_: Data[Set[String]]) => deviceState,
+        pollInterval,
+        errorCount,
+        (_: Set[String]) => onUpdate()
+      ) { (_, _) =>
+        ()
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.switch.virtual
 
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Concurrent, Resource, Sync, Timer}
 import cats.instances.map._
 import cats.instances.tuple._
 import cats.syntax.applicative._
@@ -10,6 +10,8 @@ import cats.syntax.functor._
 import cats.{Eq, Monad}
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model.{SwitchKey => ModelSwitchKey, _}
 import io.janstenpickle.controller.poller.DataPoller
@@ -18,6 +20,7 @@ import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import natchez.Trace
 
 import scala.concurrent.duration._
 
@@ -59,21 +62,23 @@ object SwitchesForRemote {
           }
     }.toMap)
 
-  def polling[F[_]: Concurrent: Timer](
+  def polling[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     pollingConfig: PollingConfig,
     virtualSwitches: ConfigSource[F, ModelSwitchKey, VirtualSwitch],
     remotes: RemoteControls[F],
     state: SwitchStateStore[F],
     onUpdate: Map[SwitchKey, Switch[F]] => F[Unit]
-  ): Resource[F, SwitchProvider[F]] =
-    DataPoller[F, Map[SwitchKey, Switch[F]], SwitchProvider[F]](
-      (_: Data[Map[SwitchKey, Switch[F]]]) => make(virtualSwitches, remotes, state),
-      pollingConfig.pollInterval,
-      pollingConfig.errorThreshold,
-      onUpdate
-    ) { (getData, _) =>
-      new SwitchProvider[F] {
-        override def getSwitches: F[Map[SwitchKey, Switch[F]]] = getData()
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SwitchProvider[F]] =
+    Resource.liftF(Slf4jLogger.fromName[F](s"switchesForRemotePoller")).flatMap { implicit logger =>
+      DataPoller.traced[F, G, Map[SwitchKey, Switch[F]], SwitchProvider[F]]("switchesForRemote")(
+        (_: Data[Map[SwitchKey, Switch[F]]]) => make(virtualSwitches, remotes, state),
+        pollingConfig.pollInterval,
+        pollingConfig.errorThreshold,
+        onUpdate
+      ) { (getData, _) =>
+        new SwitchProvider[F] {
+          override def getSwitches: F[Map[SwitchKey, Switch[F]]] = getData()
+        }
       }
     }
 }

@@ -17,6 +17,7 @@ import eu.timepit.refined.cats._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.numeric.PosInt
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
 import natchez.Trace
@@ -108,24 +109,26 @@ object LocalCache {
 
     }
 
-    DataPoller.traced[F, G, Map[Key, CommandPayload], LocalCache[F]]("local.git.cache")(
-      _ => underlying.list,
-      pollInterval,
-      errorThreshold,
-      onUpdate
-    )(
-      (getData, update) =>
-        new LocalCache[F] {
-          override def load(repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]] =
-            getData().map(_.get(repo -> key))
+    Resource.liftF(Slf4jLogger.fromName[F](s"localGitCachePoller")).flatMap { implicit logger =>
+      DataPoller.traced[F, G, Map[Key, CommandPayload], LocalCache[F]]("local.git.cache")(
+        _ => underlying.list,
+        pollInterval,
+        errorThreshold,
+        onUpdate
+      )(
+        (getData, update) =>
+          new LocalCache[F] {
+            override def load(repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]] =
+              getData().map(_.get(repo -> key))
 
-          override def store(repo: Repo, updated: Long, key: RemoteCommandKey, payload: CommandPayload): F[Unit] =
-            underlying.store(repo, updated, key, payload) *> getData().flatMap { current =>
-              update(current.updated((repo, key), payload))
-            }
+            override def store(repo: Repo, updated: Long, key: RemoteCommandKey, payload: CommandPayload): F[Unit] =
+              underlying.store(repo, updated, key, payload) *> getData().flatMap { current =>
+                update(current.updated((repo, key), payload))
+              }
 
-          override def list: F[Map[(Repo, RemoteCommandKey), CommandPayload]] = getData()
-      }
-    )
+            override def list: F[Map[(Repo, RemoteCommandKey), CommandPayload]] = getData()
+        }
+      )
+    }
   }
 }

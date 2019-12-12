@@ -92,15 +92,17 @@ object TplinkDiscovery {
           }
       )
       .flatMap { disc =>
-        DeviceState[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
-          DevName,
-          config.stateUpdateInterval,
-          config.errorCount,
-          disc,
-          onDeviceUpdate,
-          _.refresh,
-          deviceKey
-        ).map(_ => disc)
+        if (tplinks.nonEmpty)
+          DeviceState[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
+            DevName,
+            config.stateUpdateInterval,
+            config.errorCount,
+            disc,
+            onDeviceUpdate,
+            _.refresh,
+            deviceKey
+          ).map(_ => disc)
+        else Resource.pure(disc)
       }
 
   def dynamic[F[_]: Parallel: ContextShift: TplinkDeviceErrors: Trace, G[_]: Timer: Concurrent](

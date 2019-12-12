@@ -350,6 +350,7 @@ lazy val poller = (project in file("modules/poller"))
     name := "controller-poller",
     libraryDependencies ++= Seq(
       "co.fs2"                 %% "fs2-core"                % fs2Ver,
+      "io.chrisdavenport"      %% "log4cats-slf4j"          % log4catsVer,
       "eu.timepit"             %% "refined"                 % refinedVer,
       "org.tpolecat"           %% "natchez-core"            % natchezVer,
       "org.typelevel"          %% "cats-effect"             % catsEffectVer,
@@ -390,7 +391,7 @@ lazy val prometheusTrace = (project in file("modules/prometheus-trace"))
     libraryDependencies ++= Seq(
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
       "io.prometheus"     % "simpleclient"    % prometheusVer,
-      "org.tpolecat"      %% "natchez-core"   % natchezVer,
+      "org.tpolecat"      %% "natchez-core"   % natchezVer
     )
   )
 

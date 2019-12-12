@@ -13,6 +13,7 @@ import cats.syntax.functor._
 import cats.syntax.semigroup._
 import cats.{Eq, FlatMap, Parallel}
 import eu.timepit.refined.types.numeric.PosInt
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
@@ -91,32 +92,33 @@ object Discovery {
         } yield (unmapped, devices, updatedExpiry)
       }
 
-    DataPoller
-      .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
-        "discovery",
-        "device.type" -> deviceType
-      )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onUpdate)(
-        (getData, setData) =>
-          new Discovery[F, K, V] {
-            override def devices: F[Discovered[K, V]] = getData().map {
-              case (unmapped, devices, _) => Discovered(unmapped, devices)
-            }
+    Resource.liftF(Slf4jLogger.fromName[F](s"discovery-$deviceType")).flatMap { implicit logger =>
+      DataPoller
+        .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
+          "discovery",
+          "device.type" -> deviceType
+        )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onUpdate)(
+          (getData, setData) =>
+            new Discovery[F, K, V] {
+              override def devices: F[Discovered[K, V]] = getData().map {
+                case (unmapped, devices, _) => Discovered(unmapped, devices)
+              }
 
-            override def reinit: F[Unit] = updateDevices((Map.empty, Map.empty, Map.empty)).flatMap(setData)
+              override def reinit: F[Unit] = updateDevices((Map.empty, Map.empty, Map.empty)).flatMap(setData)
+          }
+        )
+        .flatMap { disc =>
+          DeviceState[F, G, K, V](
+            deviceType,
+            config.stateUpdateInterval,
+            config.errorCount,
+            disc,
+            onDeviceUpdate,
+            refresh,
+            makeKey,
+            traceParams
+          ).map(_ => disc)
         }
-      )
-      .flatMap { disc =>
-        DeviceState[F, G, K, V](
-          deviceType,
-          config.stateUpdateInterval,
-          config.errorCount,
-          disc,
-          onDeviceUpdate,
-          refresh,
-          makeKey,
-          traceParams
-        ).map(_ => disc)
-      }
-
+    }
   }
 }

@@ -12,6 +12,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 import eu.timepit.refined.types.numeric.PosInt
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.{parser, Json}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource.ConfigFiles
@@ -103,26 +104,28 @@ object ConfigFileSource {
     blocker: Blocker,
     timeout: FiniteDuration
   )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, ConfigFileSource[F]] =
-    Resource.liftF(apply[F](configFile, blocker, timeout)).flatMap { source =>
-      DataPoller
-        .traced[F, G, ConfigFiles, ConfigFileSource[F]]("config.file.source", "config.file" -> configFile.toString)(
-          (_: Data[ConfigFiles]) => source.configs,
-          pollInterval,
-          PosInt(1),
-          (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
-          (_: ConfigFiles) => F.unit
-        ) { (get, set) =>
-          new ConfigFileSource[F] {
-            override def configs: F[ConfigFiles] = get()
+    Resource.liftF(Slf4jLogger.fromName[F](s"configFilePoller-${configFile.toString}")).flatMap { implicit logger =>
+      Resource.liftF(apply[F](configFile, blocker, timeout)).flatMap { source =>
+        DataPoller
+          .traced[F, G, ConfigFiles, ConfigFileSource[F]]("config.file.source", "config.file" -> configFile.toString)(
+            (_: Data[ConfigFiles]) => source.configs,
+            pollInterval,
+            PosInt(1),
+            (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
+            (_: ConfigFiles) => F.unit
+          ) { (get, set) =>
+            new ConfigFileSource[F] {
+              override def configs: F[ConfigFiles] = get()
 
-            override def write(typesafe: Config): F[Unit] = get().flatMap { files =>
-              source.write(typesafe) *> set(files.copy(typesafe = typesafe))
-            }
+              override def write(typesafe: Config): F[Unit] = get().flatMap { files =>
+                source.write(typesafe) *> set(files.copy(typesafe = typesafe))
+              }
 
-            override def write(json: Json): F[Unit] = get().flatMap { files =>
-              source.write(json) *> set(files.copy(json = json))
+              override def write(json: Json): F[Unit] = get().flatMap { files =>
+                source.write(json) *> set(files.copy(json = json))
+              }
             }
           }
-        }
+      }
     }
 }

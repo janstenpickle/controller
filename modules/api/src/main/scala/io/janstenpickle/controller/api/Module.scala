@@ -481,7 +481,7 @@ object Module {
         components.switches
       )
 
-      virtualSwitches <- SwitchesForRemote.polling[F](
+      virtualSwitches <- SwitchesForRemote.polling[F, G](
         config.virtualSwitch.polling,
         virtualSwitchConfig,
         components.remotes,

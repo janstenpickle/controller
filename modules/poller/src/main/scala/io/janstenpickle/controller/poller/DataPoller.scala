@@ -12,6 +12,8 @@ import cats.syntax.functor._
 import cats.{Applicative, Apply, Eq}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.Stream
+import io.chrisdavenport.log4cats.Logger
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import natchez.TraceValue.StringValue
 import natchez.{Trace, TraceValue}
@@ -28,7 +30,7 @@ object DataPoller {
     pollInterval: FiniteDuration,
     dataRef: Ref[F, Data[A]],
     onUpdate: A => F[Unit]
-  )(implicit F: Concurrent[F], timer: Timer[F]): F[Fiber[F, Unit]] = {
+  )(implicit F: Concurrent[F], timer: Timer[F], logger: Logger[F]): F[Fiber[F, Unit]] = {
 
     def update(now: Long): F[Unit] =
       (for {
@@ -37,10 +39,18 @@ object DataPoller {
         _ <- dataRef.set(Data(data, now))
         _ <- if (current.value.neqv(data)) onUpdate(data) else F.unit
       } yield ()).handleErrorWith(
-        th => dataRef.tryUpdate(d => d.copy(errorCount = d.errorCount + 1, error = Some(th))).void.handleError(_ => ())
+        th =>
+          (logger.warn(th)(s"Failed to update polled data") *> dataRef
+            .tryUpdate(d => d.copy(errorCount = d.errorCount + 1, error = Some(th)))
+            .void).handleError(_ => ())
       )
 
-    F.start(Stream.fixedRate(pollInterval).evalMap(_ => timeNow.flatMap(update)).compile.drain)
+    def stream: Stream[F, Unit] =
+      Stream.fixedRate(pollInterval).evalMap(_ => timeNow.flatMap(update)).onComplete(stream).handleErrorWith { th =>
+        Stream.eval(logger.error(th)("Poll stream encountered an error, restarting")) >> stream
+      }
+
+    F.start(stream.compile.drain)
   }
 
   private def reader[F[_]: Timer, A](dataRef: Ref[F, Data[A]], handleError: (Data[A], Throwable) => F[A])(
@@ -63,7 +73,9 @@ object DataPoller {
     pollInterval: FiniteDuration,
     read: Ref[F, Data[A]] => F[A],
     onUpdate: A => F[Unit]
-  )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Concurrent[F], empty: Empty[A]): Resource[F, B] = {
+  )(
+    create: (() => F[A], A => F[Unit]) => B
+  )(implicit F: Concurrent[F], empty: Empty[A], logger: Logger[F]): Resource[F, B] = {
     def update(dataRef: Ref[F, Data[A]])(a: A): F[Unit] =
       for {
         current <- dataRef.get
@@ -73,12 +85,14 @@ object DataPoller {
       } yield ()
 
     Resource[F, B](for {
+      _ <- logger.info("Starting initialising poller")
       initialTime <- timeNow
       data <- getData(Data(empty.empty, initialTime)).handleError(_ => empty.empty)
       updatedTime <- timeNow
       dataRef <- Ref.of(Data(data, updatedTime))
       p <- poller(getData, pollInterval, dataRef, onUpdate)
-    } yield create(() => read(dataRef), update(dataRef)) -> F.suspend(p.cancel))
+      _ <- logger.info("Finished initialising poller")
+    } yield create(() => read(dataRef), update(dataRef)) -> F.suspend(logger.info("Stopping poller") *> p.cancel))
   }
 
   def traced[F[_], G[_], A, B](name: String, fields: (String, TraceValue)*): TracedPollerPartiallyApplied[F, G, A, B] =
@@ -100,9 +114,12 @@ object DataPoller {
         timer: Timer[G],
         empty: Empty[A],
         eq: Eq[A],
+        logger: Logger[F],
         liftLower: ContextualLiftLower[G, F, String]
       ): Resource[F, B] = {
         val low = liftLower.lower(s"$name.poll")
+
+        implicit val l: Logger[G] = logger.mapK(low)
 
         DataPoller[G, A, B](getData.andThen { read =>
           low(span("poll")(read))
@@ -127,9 +144,12 @@ object DataPoller {
         timer: Timer[G],
         empty: Empty[A],
         eq: Eq[A],
+        logger: Logger[F],
         liftLower: ContextualLiftLower[G, F, String]
       ): Resource[F, B] = {
         val low = liftLower.lower(s"$name.poll")
+
+        implicit val l: Logger[G] = logger.mapK(low)
 
         DataPoller[G, A, B](
           getData.andThen { read =>
@@ -141,11 +161,17 @@ object DataPoller {
           onUpdate.andThen(low.apply)
         ) { (get, update) =>
           create(
-            () => span("read.state") { liftLower.lift(get()) },
-            a => span("update.state") { liftLower.lift(update(a)) }
+            () =>
+              span("read.state") {
+                liftLower.lift(get())
+            },
+            a =>
+              span("update.state") {
+                liftLower.lift(update(a))
+            }
           )
-        }.mapK(liftLower.lift)
-      }
+        }
+      }.mapK(liftLower.lift)
     }
 
   trait TracedPollerPartiallyApplied[F[_], G[_], A, B] {
@@ -158,6 +184,7 @@ object DataPoller {
       timer: Timer[G],
       empty: Empty[A],
       eq: Eq[A],
+      logger: Logger[F],
       liftLower: ContextualLiftLower[G, F, String]
     ): Resource[F, B]
 
@@ -174,6 +201,7 @@ object DataPoller {
       timer: Timer[G],
       empty: Empty[A],
       eq: Eq[A],
+      logger: Logger[F],
       liftLower: ContextualLiftLower[G, F, String]
     ): Resource[F, B]
   }
@@ -183,15 +211,22 @@ object DataPoller {
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
     onUpdate: A => F[Unit]
-  )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Concurrent[F]): Resource[F, B] =
+  )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Concurrent[F], logger: Logger[F]): Resource[F, B] =
     make[F, A, B](
       getData,
       pollInterval,
-      dataRef => reader(dataRef, errorHandler(errorThreshold, (_, th) => F.raiseError[A](th))),
+      dataRef =>
+        reader(
+          dataRef,
+          errorHandler(
+            errorThreshold,
+            (_, th) => logger.error(th)("Poller exceeded failure threshold") *> F.raiseError[A](th)
+          )
+      ),
       onUpdate
     )(create)
 
-  def apply[F[_]: Timer, A: Empty: Eq, B](
+  def apply[F[_]: Timer: Logger, A: Empty: Eq, B](
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
