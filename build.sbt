@@ -482,6 +482,10 @@ lazy val trace = (project in file("modules/trace"))
   .settings(commonSettings)
   .settings(name := "controller-trace", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
 
+lazy val schedule = (project in file("modules/schedule"))
+  .settings(commonSettings)
+  .settings(name := "controller-trace", libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % catsEffectVer))
+
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)
   .settings(
