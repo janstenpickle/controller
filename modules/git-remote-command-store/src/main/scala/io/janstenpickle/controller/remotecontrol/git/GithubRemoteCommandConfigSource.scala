@@ -277,7 +277,7 @@ object GithubRemoteCommandConfigSource {
 
       repoListingPoller <- Resource.liftF(Slf4jLogger.fromName[F](s"githubRepoListingPoller")).flatMap {
         implicit logger =>
-          DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("githubt.repo.listing")(
+          DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("github.repo.listing")(
             _ => listRemote,
             config.gitPollInterval,
             config.pollErrorThreshold,

@@ -12,7 +12,7 @@ import cats.syntax.functor._
 import io.chrisdavenport.log4cats.Logger
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer._
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge, Histogram}
-import natchez.TraceValue.{BooleanValue, StringValue}
+import natchez.TraceValue.{BooleanValue, NumberValue, StringValue}
 import natchez.{Kernel, Span, TraceValue}
 
 import scala.util.Try
@@ -21,8 +21,7 @@ private[prometheus] final case class PrometheusSpan[F[_]: Sync: Clock: ContextSh
   serviceName: String,
   parentService: Option[String],
   registry: CollectorRegistry,
-  gauges: ConcurrentHashMap[String, Histogram],
-  counters: ConcurrentHashMap[String, Counter],
+  metrics: Metrics,
   blocker: Blocker,
   labelsRef: Ref[F, Map[String, TraceValue]],
   histogramBuckets: NonEmptyList[Double]
@@ -38,7 +37,7 @@ private[prometheus] final case class PrometheusSpan[F[_]: Sync: Clock: ContextSh
   }
 
   override def span(name: String): Resource[F, Span[F]] =
-    PrometheusSpan.makeSpan[F](name, serviceName, parentService, registry, gauges, counters, blocker, histogramBuckets)
+    PrometheusSpan.makeSpan[F](name, serviceName, parentService, registry, metrics, blocker, histogramBuckets)
 }
 
 object PrometheusSpan {
@@ -54,77 +53,93 @@ object PrometheusSpan {
     serviceName: String,
     parentService: Option[String],
     registry: CollectorRegistry,
-    histograms: ConcurrentHashMap[String, Histogram],
-    counters: ConcurrentHashMap[String, Counter],
+    metrics: Metrics,
     blocker: Blocker,
     histogramBuckets: NonEmptyList[Double]
   )(implicit clock: Clock[F]): Resource[F, Span[F]] = {
     val sanitisedName = sanitise(name)
+
+    def recordNumberLabels(labelKeys: List[String], labelValues: List[String], numberValues: Map[String, Number]) =
+      blocker
+        .delay {
+          numberValues.foreach {
+            case (label, number) =>
+              val metricName = s"${sanitisedName}_${sanitise(label)}"
+              val key = makeKey(metricName, labelKeys: _*)
+
+              val gauge = metrics.gauges.getOrDefault(
+                key,
+                Gauge.build(metricName, s"Gauge of numeric label value $label").labelNames(labelKeys: _*).create()
+              )
+
+              Try(gauge.register(registry))
+              metrics.gauges.put(key, gauge)
+              gauge.labels(labelValues: _*).set(number.doubleValue())
+          }
+        }
+
+    def recordTime(labelKeys: List[String], labelValues: List[String], start: Long, end: Long) =
+      blocker
+        .delay {
+          val key = makeKey(sanitisedName, labelKeys: _*)
+
+          val histogram =
+            metrics.histograms.getOrDefault(
+              key,
+              Histogram
+                .build(s"${sanitisedName}_seconds", "Histogram of time from span")
+                .labelNames(labelKeys: _*)
+                .buckets(histogramBuckets.toList: _*)
+                .create()
+            )
+
+          val counter =
+            metrics.counters.getOrDefault(
+              key,
+              Counter.build(s"${sanitisedName}_total", "Count from span").labelNames(labelKeys: _*).create()
+            )
+          // doesn't matter if it throws an error saying already registered
+          Try(histogram.register(registry))
+          metrics.histograms.put(key, histogram)
+          Try(counter.register(registry))
+          metrics.counters.put(key, counter)
+
+          val seconds = (end - start).toDouble / 1000d
+          histogram.labels(labelValues: _*).observe(seconds)
+          counter.labels(labelValues: _*).inc()
+        }
+
     Resource
       .make(for {
         start <- clock.realTime(TimeUnit.MILLISECONDS)
         labelsRef <- Ref.of(Map.empty[String, TraceValue])
       } yield (start, labelsRef)) {
         case (start, labelsRef) =>
-          if (name.nonEmpty) for {
+          if (name.nonEmpty) (for {
             end <- clock.realTime(TimeUnit.MILLISECONDS)
             traceLabels <- labelsRef.get
-            _ <- blocker
-              .delay {
-                val labels = traceLabels
-                  .collect {
-                    case (k, StringValue(v)) => sanitise(k) -> v
-                    case (k, BooleanValue(v)) => sanitise(k) -> v.toString
-                  }
-                  .updated(ServiceNameHeader, serviceName) ++ parentService.map(ParentServiceNameHeader -> _)
 
-                val labelKeys = labels.keys.toList
-                val key = makeKey(sanitisedName, labelKeys: _*)
-
-                val histogram =
-                  histograms.getOrDefault(
-                    key,
-                    Histogram
-                      .build(s"${sanitisedName}_seconds", "Histogram of time from span")
-                      .labelNames(labelKeys: _*)
-                      .buckets(histogramBuckets.toList: _*)
-                      .create()
-                  )
-
-                val counter =
-                  counters.getOrDefault(
-                    key,
-                    Counter.build(s"${sanitisedName}_total", "Count from span").labelNames(labelKeys: _*).create()
-                  )
-                // doesn't matter if it throws an error saying already registered
-                Try(histogram.register(registry))
-                histograms.put(key, histogram)
-                Try(counter.register(registry))
-                counters.put(key, counter)
-
-                val labelValues = labels.values.toList
-                val seconds = (end - start).toDouble / 1000d
-                histogram.labels(labelValues: _*).observe(seconds)
-                counter.labels(labelValues: _*).inc()
+            labels = traceLabels
+              .collect {
+                case (k, StringValue(v)) => sanitise(k) -> v
+                case (k, BooleanValue(v)) => sanitise(k) -> v.toString
               }
-              .handleErrorWith { th =>
-                Logger[F].warn(th)("Failed to record trace metrics")
-              }
-          } yield ()
-          else Applicative[F].unit
+              .updated(ServiceNameHeader, serviceName) ++ parentService.map(ParentServiceNameHeader -> _)
+
+            numbers = traceLabels.collect { case (k, NumberValue(v)) => k -> v }
+
+            labelKeys = labels.keys.toList
+            labelValues = labels.values.toList
+
+            _ <- recordNumberLabels(labelKeys, labelValues, numbers)
+            _ <- recordTime(labelKeys, labelValues, start, end)
+          } yield ()).handleErrorWith { th =>
+            Logger[F].warn(th)("Failed to record trace metrics")
+          } else Applicative[F].unit
       }
       .map {
         case (_, labelsRef) =>
-          PrometheusSpan(
-            serviceName,
-            parentService,
-            registry,
-            histograms,
-            counters,
-            blocker,
-            labelsRef,
-            histogramBuckets
-          )
+          PrometheusSpan(serviceName, parentService, registry, metrics, blocker, labelsRef, histogramBuckets)
       }
   }
 }

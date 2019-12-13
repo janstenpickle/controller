@@ -41,7 +41,7 @@ object ExtruderDiscoveryMappingConfigSource {
 
     ExtruderConfigSource
       .polling[F, G, DiscoveredDeviceKey, DiscoveredDeviceValue](
-        "discoveredDevices",
+        "discovered.devices",
         pollingConfig,
         config,
         onUpdate,

@@ -70,7 +70,7 @@ object Discovery {
     def updateDevices(
       current: (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])
     ): F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] =
-      trace.span(s"discoveryUpdateDevices") {
+      trace.span(s"discovery.update.devices") {
         for {
           _ <- trace.put("current.count" -> current._2.size, "device.type" -> deviceType)
           (unmapped, discovered) <- trace.span("discover") {

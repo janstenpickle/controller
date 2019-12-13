@@ -53,13 +53,13 @@ object Switches {
         }
 
       override def toggle(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        span("switchesToggle", device, name) {
+        span("switches.toggle", device, name) {
           exec(device, name)(_.toggle)
         }
 
       override def list: F[Set[SwitchKey]] =
-        trace.span("switchesList") {
-          switches.getSwitches.map(_.keySet).flatTap(sw => trace.put("switches.count" -> sw.size))
+        trace.span("switches.list") {
+          switches.getSwitches.map(_.keySet).flatTap(sw => trace.put("count" -> sw.size))
         }
     }
 }

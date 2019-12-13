@@ -63,7 +63,7 @@ object SonosDiscovery {
               .parTraverse { device =>
                 trace.span("sonos.read.device") {
                   for {
-                    id <- trace.span("getId") {
+                    id <- trace.span("sonos.get.id") {
                       discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
                     }
                     name <- trace.span("sonos.get.zone.name") {

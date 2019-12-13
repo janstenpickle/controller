@@ -30,17 +30,18 @@ object DeviceState {
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] = {
     def span[A](name: String)(fa: F[A]): F[A] = trace.span(name)(trace.put("device.type" -> deviceType) *> fa)
 
-    def deviceState: F[Set[String]] = trace.span(s"deviceState") {
-      span("readDevices") {
+    def deviceState: F[Set[String]] = trace.span(s"device.state") {
+      span("read.devices") {
         discovery.devices
       }.flatMap(_.devices.values.toList.parTraverse { device =>
-          span("readDevice") {
+          span("read.device") {
             for {
               _ <- trace.put(traceParams(device): _*)
-              _ <- span("refreshDevice") {
+              _ <- span("refresh.device") {
                 refresh(device)
               }
               key <- makeKey(device)
+              _ <- trace.put("key" -> key)
             } yield key
           }
         })
