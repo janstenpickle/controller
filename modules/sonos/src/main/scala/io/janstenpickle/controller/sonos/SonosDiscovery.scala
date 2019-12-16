@@ -19,6 +19,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.poller.Empty
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.collection.JavaConverters._
@@ -40,11 +41,13 @@ object SonosDiscovery {
 
   def polling[F[_]: ContextShift: Parallel, G[_]: Concurrent: Timer](
     config: Discovery.Polling,
+    switchDeviceName: NonEmptyString,
     commandTimeout: FiniteDuration,
     onUpdate: () => F[Unit],
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    onDeviceUpdate: () => F[Unit]
+    onDeviceUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
@@ -76,11 +79,13 @@ object SonosDiscovery {
                       id,
                       formattedName,
                       nonEmptyName,
+                      switchDeviceName,
                       device,
                       devicesRef,
                       commandTimeout,
                       workBlocker,
-                      onDeviceUpdate
+                      onDeviceUpdate,
+                      onSwitchUpdate
                     )
                   } yield dev.name -> dev
 

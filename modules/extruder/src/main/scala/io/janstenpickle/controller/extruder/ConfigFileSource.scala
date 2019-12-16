@@ -2,7 +2,7 @@ package io.janstenpickle.controller.extruder
 
 import java.nio.file.{Files, Path, Paths}
 
-import cats.Eq
+import cats.{~>, Eq}
 import cats.effect._
 import cats.effect.concurrent.Semaphore
 import cats.instances.boolean._
@@ -23,10 +23,15 @@ import org.apache.commons.io.FileUtils
 
 import scala.concurrent.duration.FiniteDuration
 
-trait ConfigFileSource[F[_]] {
+trait ConfigFileSource[F[_]] { outer =>
   def configs: F[ConfigFiles]
   def write(typesafe: Config): F[Unit]
   def write(json: Json): F[Unit]
+  def mapK[G[_]](fk: F ~> G): ConfigFileSource[G] = new ConfigFileSource[G] {
+    override def configs: G[ConfigFiles] = fk(outer.configs)
+    override def write(typesafe: Config): G[Unit] = fk(outer.write(typesafe))
+    override def write(json: Json): G[Unit] = fk(outer.write(json))
+  }
 }
 
 object ConfigFileSource {

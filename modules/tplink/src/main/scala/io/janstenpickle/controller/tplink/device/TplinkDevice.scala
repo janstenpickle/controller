@@ -24,6 +24,7 @@ import cats.instances.string._
 
 import scala.concurrent.duration._
 import cats.syntax.applicativeError._
+import io.janstenpickle.controller.switch.model.SwitchKey
 
 sealed trait TplinkDevice[F[_]] extends Switch[F] {
   def room: Option[Room]
@@ -108,9 +109,14 @@ object TplinkDevice {
       _.as[A].fold(errors.decodingFailure(deviceName, _), _.pure[F])
     )
 
-  def plug[F[_]: Sync](tplink: TplinkClient[F], model: NonEmptyString, discovered: Json, onUpdate: () => F[Unit])(
-    implicit errors: TplinkDeviceErrors[F]
-  ): F[SmartPlug[F]] = {
+  def plug[F[_]: Sync](
+    tplink: TplinkClient[F],
+    model: NonEmptyString,
+    discovered: Json,
+    onUpdate: SwitchKey => F[Unit]
+  )(implicit errors: TplinkDeviceErrors[F]): F[SmartPlug[F]] = {
+    val switchKey = SwitchKey(model, tplink.deviceName)
+
     def parseState(json: Json): F[State] = decodeOrError[F, State](
       cursor = json.hcursor
         .downField(System)
@@ -126,7 +132,12 @@ object TplinkDevice {
       state <- Ref.of(initialState)
     } yield
       new SmartPlug[F] {
-        override def refresh: F[Unit] = _getState.flatMap(state.set)
+        override def refresh: F[Unit] =
+          for {
+            current <- state.get
+            newState <- _getState
+            _ <- if (current != newState) state.set(newState) *> onUpdate(switchKey) else Applicative[F].unit
+          } yield ()
         override def name: NonEmptyString = tplink.deviceName
         override def room: Option[Room] = tplink.deviceRoom
         override def device: NonEmptyString = model
@@ -134,21 +145,23 @@ object TplinkDevice {
         override def switchOn: F[Unit] =
           tplink.sendCommand(PlugSwitchOnCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
             State.On
-          ) *> onUpdate()
+          ) *> onUpdate(switchKey)
         override def switchOff: F[Unit] =
           tplink.sendCommand(PlugSwitchOffCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
             State.Off
-          ) *> onUpdate()
+          ) *> onUpdate(switchKey)
         override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] = tplink.rename(name, room)
       }
   }
 
   case class BulbState(power: State, brightness: Int, hue: Int, saturation: Int, temp: Int)
 
-  def bulb[F[_]](tplink: TplinkClient[F], model: NonEmptyString, discovered: Json, onUpdate: () => F[Unit])(
+  def bulb[F[_]](tplink: TplinkClient[F], model: NonEmptyString, discovered: Json, onUpdate: SwitchKey => F[Unit])(
     implicit F: Sync[F],
     errors: TplinkDeviceErrors[F]
   ): F[SmartBulb[F]] = {
+    val switchKey = SwitchKey(model, tplink.deviceName)
+
     def getBulbInfo: F[Json] = tplink.sendCommand(BulbInfoCommand)
 
     def getSwitchState(info: Json): F[State] =
@@ -192,7 +205,13 @@ object TplinkDevice {
       state <- Ref.of(initialState)
     } yield
       new SmartBulb[F] {
-        override def refresh: F[Unit] = _getState.flatMap(state.set)
+        override def refresh: F[Unit] =
+          for {
+            current <- state.get
+            newState <- _getState
+            _ <- if (current.power != newState.power) state.set(newState) *> onUpdate(switchKey)
+            else state.set(newState)
+          } yield ()
 
         override def name: NonEmptyString = tplink.deviceName
 
@@ -205,7 +224,7 @@ object TplinkDevice {
         override def switchOn: F[Unit] =
           (tplink
             .sendCommand(BulbSwitchOnCommand)
-            .flatMap(tplink.parseSetResponse(BulbCommandKey, SetBulbState)) *> state.update(_.copy(power = State.On)) *> onUpdate())
+            .flatMap(tplink.parseSetResponse(BulbCommandKey, SetBulbState)) *> state.update(_.copy(power = State.On)))
             .onError {
               case th =>
                 F.delay(th.printStackTrace())
@@ -213,7 +232,7 @@ object TplinkDevice {
         override def switchOff: F[Unit] =
           (tplink
             .sendCommand(BulbSwitchOffCommand)
-            .flatMap(tplink.parseSetResponse(BulbCommandKey, SetBulbState)) *> state.update(_.copy(power = State.Off)) *> onUpdate())
+            .flatMap(tplink.parseSetResponse(BulbCommandKey, SetBulbState)) *> state.update(_.copy(power = State.Off)))
             .onError {
               case th =>
                 F.delay(th.printStackTrace())
@@ -239,7 +258,7 @@ object TplinkDevice {
                 tplink
                   .sendCommand(s"""{"$BulbCommandKey": {"$SetBulbState": {"$attr": $newAttr}}}""")
                   .flatMap(tplink.parseSetResponse(BulbCommandKey, SetBulbState)) *> state
-                  .update(update(_, newAttr)) *> onUpdate()
+                  .update(update(_, newAttr))
               } else {
                 F.unit
               }

@@ -15,6 +15,7 @@ import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, DiscoveredDeviceValue}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.store.{RemoteCommandStore, SwitchStateStore}
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -37,20 +38,13 @@ object BroadlinkComponents {
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
     onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, RemoteControls[F]](config.remotesCacheTimeout, classOf)
         static <- BroadlinkDiscovery
-          .static[F, G](
-            config.rm,
-            config.sp,
-            switchStore,
-            workBlocker,
-            config.discovery.polling,
-            onDeviceUpdate: () => F[Unit]
-          )
+          .static[F, G](config.rm, config.sp, switchStore, workBlocker, config.discovery.polling, onSwitchUpdate)
         discovery <- if (config.dynamicDiscovery)
           BroadlinkDiscovery
             .dynamic[F, G](
@@ -60,7 +54,7 @@ object BroadlinkComponents {
               switchStore,
               nameMapping,
               onUpdate,
-              onDeviceUpdate
+              onSwitchUpdate
             )
             .map(static |+| _)
         else

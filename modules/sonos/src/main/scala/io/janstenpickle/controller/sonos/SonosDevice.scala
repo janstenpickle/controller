@@ -15,6 +15,7 @@ import com.vmichalak.sonoscontroller.model.{PlayState, TrackMetadata}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.sonos.SonosDevice.DeviceState
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.{Trace, TraceValue}
 
 import scala.collection.JavaConverters._
@@ -51,11 +52,13 @@ object SonosDevice {
     deviceId: String,
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
+    switchDevice: NonEmptyString,
     underlying: sonoscontroller.SonosDevice,
     allDevices: Ref[F, Map[String, SonosDevice[F]]],
     commandTimeout: FiniteDuration,
     blocker: Blocker,
-    onUpdate: () => F[Unit]
+    onUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit F: Concurrent[F], trace: Trace[F]): F[SonosDevice[F]] = {
     def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] = trace.span(s"sonos.$name") {
       trace.put(
@@ -104,13 +107,22 @@ object SonosDevice {
       state <- Ref.of(initState)
     } yield
       new SonosDevice[F] {
+        private val playPauseSwitchKey = SwitchKey(switchDevice, formattedName)
+        private val groupSwitchKey = SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${formattedName}_group"))
+        private val muteSwitchKey = SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${formattedName}_mute"))
+
         override def applicative: Applicative[F] = Applicative[F]
         override def name: NonEmptyString = formattedName
         override def label: NonEmptyString = nonEmptyName
 
-        private def refreshIsPlaying: F[Unit] = _isPlaying.flatMap { np =>
-          state.update(_.copy(isPlaying = np))
-        }
+        private def refreshIsPlaying: F[Unit] =
+          for {
+            current <- state.get
+            newIsPlaying <- _isPlaying
+            _ <- if (current.isPlaying != newIsPlaying)
+              state.update(_.copy(isPlaying = newIsPlaying)) *> onSwitchUpdate(playPauseSwitchKey)
+            else F.unit
+          } yield ()
 
         override def play: F[Unit] = span("play") {
           (for {
@@ -308,7 +320,14 @@ object SonosDevice {
             .void
 
         override def refresh: F[Unit] = span("refresh") {
-          refreshState.flatMap(state.set)
+          for {
+            currentState <- state.get
+            newState <- refreshState
+            _ <- state.set(newState)
+            _ <- if (newState.isPlaying != currentState.isPlaying) onSwitchUpdate(playPauseSwitchKey) else F.unit
+            _ <- if (newState.isGrouped != currentState.isGrouped) onSwitchUpdate(groupSwitchKey) else F.unit
+            _ <- if (newState.isMuted != currentState.isMuted) onSwitchUpdate(muteSwitchKey) else F.unit
+          } yield ()
         }
 
         override def getState: F[DeviceState] = span("get.state") { state.get }

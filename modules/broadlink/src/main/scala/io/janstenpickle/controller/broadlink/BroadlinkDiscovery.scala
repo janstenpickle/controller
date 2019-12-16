@@ -27,6 +27,7 @@ import io.janstenpickle.controller.discovery.MetadataConstants._
 import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import io.janstenpickle.controller.store.SwitchStateStore
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.collection.JavaConverters._
@@ -37,7 +38,8 @@ object BroadlinkDiscovery {
 
   case class Config(
     bindAddress: Option[InetAddress],
-    commandTimeout: FiniteDuration = 200.millis,
+    remoteCommandTimeout: FiniteDuration = 200.millis,
+    switchCommandTimeout: FiniteDuration = 500.millis,
     discoverTimeout: FiniteDuration = 5.seconds,
     discoveryPort: PortNumber = PortNumber(9998),
     polling: Discovery.Polling,
@@ -57,7 +59,7 @@ object BroadlinkDiscovery {
     switchStateStore: SwitchStateStore[F],
     blocker: Blocker,
     config: Discovery.Polling,
-    onDeviceUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit],
   )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, BroadlinkDiscovery[F]] = {
     type Dev = BroadlinkDevice[F]
 
@@ -70,7 +72,7 @@ object BroadlinkDiscovery {
             }
           },
           sp.parTraverse[F, ((NonEmptyString, String), Dev)] { config =>
-            SpSwitch[F](config, switchStateStore, blocker).map { dev =>
+            SpSwitch[F](config, switchStateStore, blocker, onSwitchUpdate).map { dev =>
               (dev.name, "switch") -> Left(dev)
             }
           }
@@ -92,7 +94,7 @@ object BroadlinkDiscovery {
             config.stateUpdateInterval,
             config.errorCount,
             disc,
-            onDeviceUpdate, {
+            () => F.unit, {
               case Left(sp) => sp.refresh
               case Right(_) => F.unit
             },
@@ -109,7 +111,7 @@ object BroadlinkDiscovery {
     switchStateStore: SwitchStateStore[F],
     nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
@@ -134,18 +136,20 @@ object BroadlinkDiscovery {
     def makeDevice(device: BLDevice, name: NonEmptyString): F[Option[((NonEmptyString, String), Dev)]] =
       device match {
         case dev: RM2Device =>
-          F.pure(Some((name, "remote") -> Right(RmRemote.fromDevice[F](name, config.commandTimeout, dev, workBlocker))))
+          F.pure(
+            Some((name, "remote") -> Right(RmRemote.fromDevice[F](name, config.remoteCommandTimeout, dev, workBlocker)))
+          )
         case dev: SP1Device =>
           F.pure(
             Some(
               (name, "switch") -> Left(
-                SpSwitch.makeSp1[F](name, config.commandTimeout, dev, switchStateStore, workBlocker)
+                SpSwitch.makeSp1[F](name, config.switchCommandTimeout, dev, switchStateStore, workBlocker)
               )
             )
           )
         case dev: SP2Device =>
           SpSwitch
-            .makeSp23[F](name, config.commandTimeout, dev, workBlocker)
+            .makeSp23[F](name, config.switchCommandTimeout, dev, workBlocker, onSwitchUpdate)
             .map(sp => Some((name, "switch") -> Left(sp)))
         case _ => F.pure(None)
       }
@@ -208,7 +212,7 @@ object BroadlinkDiscovery {
       DeviceName,
       config.polling,
       _ => onUpdate(),
-      onDeviceUpdate,
+      () => F.unit,
       () => discover, {
         case Left(sp) => sp.refresh
         case Right(_) => F.unit

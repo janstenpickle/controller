@@ -30,6 +30,7 @@ import cats.instances.string._
 import cats.instances.int._
 import cats.instances.option._
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
+import io.janstenpickle.controller.switch.model.SwitchKey
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
@@ -63,7 +64,7 @@ object TplinkDiscovery {
     commandTimeout: FiniteDuration,
     blocker: Blocker,
     config: Discovery.Polling,
-    onDeviceUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, TplinkDiscovery[F]] =
     Resource
       .liftF(
@@ -75,7 +76,7 @@ object TplinkDiscovery {
                   TplinkClient[F](name, room, host, port, commandTimeout, blocker),
                   model,
                   Json.Null,
-                  onDeviceUpdate
+                  onSwitchUpdate
                 )
                 .map { dev =>
                   List(((name, t), dev))
@@ -98,7 +99,7 @@ object TplinkDiscovery {
             config.stateUpdateInterval,
             config.errorCount,
             disc,
-            onDeviceUpdate,
+            () => F.unit,
             _.refresh,
             deviceKey
           ).map(_ => disc)
@@ -113,7 +114,7 @@ object TplinkDiscovery {
     discoveryBlocker: Blocker,
     config: Discovery.Polling,
     onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
@@ -217,13 +218,13 @@ object TplinkDiscovery {
             devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
               case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)), json) =>
                 TplinkDevice
-                  .plug(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
+                  .plug(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onSwitchUpdate)
                   .map { dev =>
                     List(((name, t), dev))
                   }
               case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartBulb(model)), json) =>
                 TplinkDevice
-                  .bulb(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
+                  .bulb(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onSwitchUpdate)
                   .map { dev =>
                     List(((name, t), dev))
                   }
@@ -238,7 +239,7 @@ object TplinkDiscovery {
       DevName,
       config,
       _ => onUpdate(),
-      onDeviceUpdate,
+      () => F.unit,
       () => discover,
       _.refresh,
       deviceKey,

@@ -18,6 +18,7 @@ import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRe
 import io.janstenpickle.controller.model.{Activity, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote, Room}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.switch.SwitchProvider
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 import org.http4s.client.Client
 
@@ -47,22 +48,26 @@ object KodiComponents {
     config: Config,
     discoveryNameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit]
+    onDeviceUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
-        staticDiscovery <- KodiDiscovery.static[F, G](client, config.instances, config.polling, onDeviceUpdate)
+        staticDiscovery <- KodiDiscovery
+          .static[F, G](client, config.instances, config.switchDevice, config.polling, onDeviceUpdate, onSwitchUpdate)
         discovery <- if (config.dynamicDiscovery)
           KodiDiscovery
             .dynamic[F, G](
               client,
+              config.switchDevice,
               discoveryBlocker,
               config.discoveryBindAddress,
               config.polling,
               discoveryNameMapping,
               onUpdate,
-              onDeviceUpdate
+              onDeviceUpdate,
+              onSwitchUpdate
             )
             .map(_ |+| staticDiscovery)
         else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)
