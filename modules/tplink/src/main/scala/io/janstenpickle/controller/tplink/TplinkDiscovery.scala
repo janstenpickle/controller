@@ -105,7 +105,7 @@ object TplinkDiscovery {
         else Resource.pure(disc)
       }
 
-  def dynamic[F[_]: Parallel: ContextShift: TplinkDeviceErrors: Trace, G[_]: Timer: Concurrent](
+  def dynamic[F[_]: Parallel: ContextShift: TplinkDeviceErrors, G[_]: Timer: Concurrent](
     port: PortNumber,
     commandTimeout: FiniteDuration,
     discoveryTimeout: FiniteDuration,
@@ -118,6 +118,7 @@ object TplinkDiscovery {
     implicit F: Concurrent[F],
     timer: Timer[F],
     errors: TplinkErrors[F],
+    trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, TplinkDiscovery[F]] = {
     def refineF[A](refined: Either[String, A]): F[A] =
@@ -201,33 +202,36 @@ object TplinkDiscovery {
             }
           }
 
-        for {
-          _ <- discoveryBlocker.blockOn(List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence)
-          discovered <- discoveryBlocker.blockOn(receiveData)
-          filtered = discovered.flatMap {
-            case ((host, port), v) =>
-              for {
-                dt <- deviceType(v)
-                str <- deviceName(v)
-                (name, room) <- deviceNameRoom(str)
-              } yield (TplinkInstance(name, room, host, port, dt), v)
-          }.toList
-          devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
-            case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)), json) =>
-              TplinkDevice
-                .plug(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
-                .map { dev =>
-                  List(((name, t), dev))
-                }
-            case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartBulb(model)), json) =>
-              TplinkDevice
-                .bulb(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
-                .map { dev =>
-                  List(((name, t), dev))
-                }
-            case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
-          }
-        } yield (Map.empty[DiscoveredDeviceKey, Map[String, String]], devices.toMap)
+        trace.span("tplink.discover") {
+          for {
+            _ <- discoveryBlocker.blockOn(List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence)
+            discovered <- discoveryBlocker.blockOn(receiveData)
+            filtered = discovered.flatMap {
+              case ((host, port), v) =>
+                for {
+                  dt <- deviceType(v)
+                  str <- deviceName(v)
+                  (name, room) <- deviceNameRoom(str)
+                } yield (TplinkInstance(name, room, host, port, dt), v)
+            }.toList
+            devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
+              case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)), json) =>
+                TplinkDevice
+                  .plug(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
+                  .map { dev =>
+                    List(((name, t), dev))
+                  }
+              case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartBulb(model)), json) =>
+                TplinkDevice
+                  .bulb(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onDeviceUpdate)
+                  .map { dev =>
+                    List(((name, t), dev))
+                  }
+              case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
+            }
+            _ <- trace.put("device.count" -> devices.size)
+          } yield (Map.empty[DiscoveredDeviceKey, Map[String, String]], devices.toMap)
+        }
       }
 
     Discovery[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](

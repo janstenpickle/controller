@@ -184,19 +184,25 @@ object BroadlinkDiscovery {
         })
 
     def discover: F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[(NonEmptyString, String), Dev])] =
-      runDiscovery
-        .flatMap(
-          _.parTraverse(assignDevice)
-            .map(
-              _.foldLeft(
-                (Map.empty[DiscoveredDeviceKey, Map[String, String]], Map.empty[(NonEmptyString, String), Dev])
-              ) {
-                case ((unmapped, discovered), Some(Left(key))) => (unmapped + key, discovered)
-                case ((unmapped, discovered), Some(Right(device))) => (unmapped, discovered + device)
-                case (acc, None) => acc
-              }
-            )
-        )
+      trace.span("broadlink.discover") {
+        runDiscovery
+          .flatMap(
+            _.parTraverse(assignDevice)
+              .map(
+                _.foldLeft(
+                  (Map.empty[DiscoveredDeviceKey, Map[String, String]], Map.empty[(NonEmptyString, String), Dev])
+                ) {
+                  case ((unmapped, discovered), Some(Left(key))) => (unmapped + key, discovered)
+                  case ((unmapped, discovered), Some(Right(device))) => (unmapped, discovered + device)
+                  case (acc, None) => acc
+                }
+              )
+          )
+          .flatTap {
+            case (unmapped, devices) =>
+              trace.put("unmapped.count" -> unmapped.size, "device.count" -> devices.size)
+          }
+      }
 
     Discovery[F, G, (NonEmptyString, String), Dev](
       DeviceName,

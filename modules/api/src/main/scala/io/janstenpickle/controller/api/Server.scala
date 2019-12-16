@@ -46,6 +46,8 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](configFile: 
       )
       exitCode <- BlazeServerBuilder[F]
         .bindHttp(config.port.value, config.host.value)
+        .withResponseHeaderTimeout(config.responseHeaderTimeout)
+        .withIdleTimeout(config.idleTimeout)
         .withHttpApp(CORS(GZip(instrumentedRoutes.orNotFound), corsConfig))
         .serveWhile(signal, exit)
         .concurrently(stats)

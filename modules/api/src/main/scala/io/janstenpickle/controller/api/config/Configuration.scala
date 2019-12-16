@@ -55,7 +55,12 @@ object Configuration {
     polling: SwitchesForRemote.PollingConfig
   )
 
-  case class Server(host: NonEmptyString = refineMV("0.0.0.0"), port: PortNumber = refineMV(8090))
+  case class Server(
+    host: NonEmptyString = refineMV("0.0.0.0"),
+    port: PortNumber = refineMV(8090),
+    responseHeaderTimeout: FiniteDuration = 4.seconds,
+    idleTimeout: FiniteDuration = 5.seconds
+  )
 
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
   implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))

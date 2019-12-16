@@ -193,27 +193,33 @@ object KodiDiscovery {
       }
 
     def discover: F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[NonEmptyString, KodiDevice[F]])] =
-      blocker
-        .blockOn[F, List[ServiceInfo]](jmDNS.use { js =>
-          trace.span("bonjourListDevices") {
-            F.delay(js.map(_.getInetAddress.toString).mkString(",")).flatMap { addrs =>
-              trace.put("bind.addresses" -> addrs)
-            } *> js.parFlatTraverse(j => F.delay(j.list("_http._tcp.local.").toList))
+      trace.span("kodi.discover") {
+        blocker
+          .blockOn[F, List[ServiceInfo]](jmDNS.use { js =>
+            trace.span("bonjour.list.devices") {
+              F.delay(js.map(_.getInetAddress.toString).mkString(",")).flatMap { addrs =>
+                trace.put("bind.addresses" -> addrs)
+              } *> js.parFlatTraverse(j => F.delay(j.list("_http._tcp.local.").toList))
+            }
+          })
+          .flatMap { services =>
+            services
+              .parTraverse(serviceInstanceDevice)
+              .map(
+                _.foldLeft(
+                  (Map.empty[DiscoveredDeviceKey, Map[String, String]], Map.empty[NonEmptyString, KodiDevice[F]])
+                ) {
+                  case ((unmapped, devices), Some(Left(uk))) => (unmapped + uk, devices)
+                  case ((unmapped, devices), Some(Right(dev))) => (unmapped, devices + dev)
+                  case (acc, None) => acc
+                }
+              )
           }
-        })
-        .flatMap { services =>
-          services
-            .traverse(serviceInstanceDevice)
-            .map(
-              _.foldLeft(
-                (Map.empty[DiscoveredDeviceKey, Map[String, String]], Map.empty[NonEmptyString, KodiDevice[F]])
-              ) {
-                case ((unmapped, devices), Some(Left(uk))) => (unmapped + uk, devices)
-                case ((unmapped, devices), Some(Right(dev))) => (unmapped, devices + dev)
-                case (acc, None) => acc
-              }
-            )
-        }
+          .flatTap {
+            case (unmapped, devices) =>
+              trace.put("unmapped.count" -> unmapped.size, "device.count" -> devices.size)
+          }
+      }
 
     Discovery[F, G, NonEmptyString, KodiDevice[F]](
       DeviceName,

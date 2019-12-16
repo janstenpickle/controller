@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import cats.data.NonEmptyList
 import cats.effect.{Blocker, Clock, ContextShift, Resource, Sync}
 import cats.syntax.apply._
+import cats.syntax.applicativeError._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge, Histogram}
 import natchez.{EntryPoint, Kernel, Span}
@@ -43,9 +44,17 @@ object PrometheusTracer {
           )
         ) {
           case Metrics(histograms, counters, gauges) =>
-            F.delay(histograms.elements().asScala.foreach(registry.unregister)) *> F
-              .delay(counters.elements().asScala.foreach(registry.unregister)) *> F
-              .delay(gauges.elements().asScala.foreach(registry.unregister)) *> F.delay(histograms.clear()) *> F
+            F.delay(histograms.elements().asScala.foreach(registry.unregister)).recover {
+              case _: NullPointerException => ()
+            } *> F
+              .delay(counters.elements().asScala.foreach(registry.unregister))
+              .recover {
+                case _: NullPointerException => ()
+              } *> F
+              .delay(gauges.elements().asScala.foreach(registry.unregister))
+              .recover {
+                case _: NullPointerException => ()
+              } *> F.delay(histograms.clear()) *> F
               .delay(counters.clear()) *> F.delay(gauges.clear())
         }
         .map { metrics =>

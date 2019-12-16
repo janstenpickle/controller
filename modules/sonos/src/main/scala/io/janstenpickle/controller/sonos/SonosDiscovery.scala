@@ -52,7 +52,7 @@ object SonosDiscovery {
     liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, SonosDiscovery[F]] =
     Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
-      def discover: F[Map[NonEmptyString, SonosDevice[F]]] =
+      def discover: F[Map[NonEmptyString, SonosDevice[F]]] = trace.span("sonos.discover") {
         discoveryBlocker
           .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
           .flatTap { devices =>
@@ -88,6 +88,7 @@ object SonosDiscovery {
               }
               .map(_.toMap)
           }
+      }
 
       Discovery[F, G, NonEmptyString, SonosDevice[F]](
         "sonos",
