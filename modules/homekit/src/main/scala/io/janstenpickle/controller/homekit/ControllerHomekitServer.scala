@@ -41,7 +41,7 @@ object ControllerHomekitServer {
     config: Config,
     configFile: ConfigFileSource[F],
     switches: Switches[F],
-    switchUpdate: Stream[F, Option[SwitchKey]],
+    switchUpdate: Stream[F, SwitchKey],
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id,
@@ -74,7 +74,7 @@ object ControllerHomekitServer {
     config: Config,
     configFile: ConfigFileSource[F],
     switches: Switches[F],
-    switchUpdate: Stream[F, Option[SwitchKey]],
+    switchUpdate: Stream[F, SwitchKey],
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id,
@@ -111,7 +111,7 @@ object ControllerHomekitServer {
     config: Config,
     configFile: ConfigFileSource[F],
     switches: Switches[F],
-    switchUpdate: Stream[F, Option[SwitchKey]]
+    switchUpdate: Stream[F, SwitchKey]
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]] =

@@ -67,11 +67,16 @@ object SonosDevice {
     }
 
     def _isPlaying: F[Boolean] = span("read.is.playing") {
-      blocker.delay(underlying.getPlayState).map {
-        case PlayState.PLAYING => true
-        case PlayState.TRANSITIONING => true
-        case _ => false
-      }
+      blocker
+        .delay(underlying.getPlayState)
+        .map {
+          case PlayState.PLAYING => true
+          case PlayState.TRANSITIONING => true
+          case _ => false
+        }
+        .handleError {
+          case _: IllegalArgumentException => false
+        }
     }
 
     def _isMuted: F[Boolean] = span("read.is.muted") {
@@ -89,6 +94,14 @@ object SonosDevice {
       }
     }
 
+    def _isCoordinator: F[Boolean] =
+      span("is.coordinator") {
+        blocker.delay {
+          val devs = underlying.getZoneGroupState.getZonePlayerUIDInGroup
+          underlying.isCoordinator || (devs.size() == 1 && devs.contains(deviceId))
+        }
+      }
+
     def refreshState: F[DeviceState] = span("refresh.state") {
       Parallel.parMap7(
         span("get.volume")(blocker.delay(underlying.getVolume)),
@@ -96,7 +109,7 @@ object SonosDevice {
         _isPlaying,
         _isMuted,
         _nowPlaying,
-        span("is.coordinator")(blocker.delay(underlying.isCoordinator)),
+        _isCoordinator,
         span("devices.in.group")(blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
       )(DeviceState.apply)
     }
@@ -237,7 +250,7 @@ object SonosDevice {
           blocker.delay(underlying.previous()) *> refreshNowPlaying *> onUpdate()
         }
         private def refreshController: F[Unit] = span("refresh.controller") {
-          blocker.delay(underlying.isCoordinator).flatMap { con =>
+          _isCoordinator.flatMap { con =>
             state.update(_.copy(isController = con))
           }
         }

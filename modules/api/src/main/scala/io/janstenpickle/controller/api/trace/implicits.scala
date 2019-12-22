@@ -7,6 +7,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{~>, Applicative}
 import io.janstenpickle.controller.api.trace.Http4sUtils._
+import natchez.TraceValue.BooleanValue
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client
 import org.http4s.{HttpApp, HttpRoutes, Request, Response}
@@ -36,7 +37,7 @@ object implicits {
             .flatMap {
               case Some(resp) =>
                 span
-                  .put(responseFields(resp): _*)
+                  .put(("stats" -> BooleanValue(false)) :: responseFields(resp): _*)
                   .as(Some(resp))
               case None => Applicative[F].pure(None)
             }
@@ -76,7 +77,11 @@ object implicits {
             .map(responseToTrace)
             .flatMapF { resp =>
               trace
-                .put("http.status_code" -> resp.status.code, "http.status_message" -> resp.status.reason)
+                .put(
+                  "http.status_code" -> resp.status.code,
+                  "http.status_message" -> resp.status.reason,
+                  "stats" -> false
+                )
                 .map(_ => resp)
             }
             .run(traceToClientRequest(req))

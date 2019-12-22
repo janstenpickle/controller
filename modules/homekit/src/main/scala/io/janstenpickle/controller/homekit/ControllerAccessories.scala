@@ -7,9 +7,11 @@ import java.util.concurrent.CompletableFuture
 import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
 import cats.effect.{Blocker, Concurrent, ContextShift, Fiber, Resource, Timer}
+import cats.instances.set._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.traverse._
 import cats.{~>, Id}
 import cats.syntax.applicativeError._
 import eu.timepit.refined.auto._
@@ -37,7 +39,7 @@ object ControllerAccessories {
   def apply[F[_]: Timer: ContextShift, G[_]](
     root: HomekitRoot,
     switches: Switches[F],
-    switchUpdate: Stream[F, Option[SwitchKey]],
+    switchUpdate: Stream[F, SwitchKey],
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id
@@ -69,8 +71,9 @@ object ControllerAccessories {
         private var switchChanges: Fiber[F, Unit] = null
 
         override def getSwitchState: CompletableFuture[lang.Boolean] =
-          fkFuture(span("get.state") { switches.getState(key.device, key.name) })
-            .map { state =>
+          fkFuture(span("get.state") {
+            switches.getState(key.device, key.name)
+          }).map { state =>
               lang.Boolean.valueOf(state.isOn)
             }(blocker.blockingContext)
             .toJava
@@ -85,7 +88,7 @@ object ControllerAccessories {
           if (switchChanges == null)
             switchChanges = fk(span("subscribe") {
               blocker.blockOn(
-                switchUpdate.unNone
+                switchUpdate
                   .evalMap { k =>
                     if (k == key) rootSpan(span("update.subscriber") {
                       Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
@@ -103,7 +106,10 @@ object ControllerAccessories {
           else ()
 
         override def unsubscribeSwitchState(): Unit =
-          if (switchChanges != null) fk(span("unsubscribe") { switchChanges.cancel }) else ()
+          if (switchChanges != null) fk(span("unsubscribe") {
+            switchChanges.cancel
+          })
+          else ()
 
         override def identify(): Unit = ()
 

@@ -10,3 +10,6 @@
 	path = submodules/HAP-Java
 	url = https://github.com/janstenpickle/HAP-Java.git
 	branch = fix_ios13_discoverability
+[submodule "submodules/sonos-controller"]
+	path = submodules/sonos-controller
+	url = https://github.com/janstenpickle/sonos-controller.git

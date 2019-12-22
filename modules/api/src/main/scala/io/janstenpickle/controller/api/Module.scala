@@ -609,7 +609,12 @@ object Module {
       }
 
       val homekit = ControllerHomekitServer
-        .stream[F, G](config.homekit, homekitConfigFileSource, instrumentation.switch, switchUpdate.subscribe(1000))
+        .stream[F, G](
+          config.homekit,
+          homekitConfigFileSource,
+          instrumentation.switch,
+          switchUpdate.subscribe(1000).unNone
+        )
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
             (

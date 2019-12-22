@@ -115,27 +115,33 @@ object PrometheusSpan {
         labelsRef <- Ref.of(Map.empty[String, TraceValue])
       } yield (start, labelsRef)) {
         case (start, labelsRef) =>
-          if (name.nonEmpty) (for {
-            end <- clock.realTime(TimeUnit.MILLISECONDS)
-            traceLabels <- labelsRef.get
+          labelsRef.get.flatMap { traceLabels =>
+            val stats = traceLabels.get("stats").fold(true) {
+              case BooleanValue(b) => b
+              case _ => true
+            }
 
-            labels = traceLabels
-              .collect {
-                case (k, StringValue(v)) => sanitise(k) -> v
-                case (k, BooleanValue(v)) => sanitise(k) -> v.toString
-              }
-              .updated(ServiceNameHeader, serviceName) ++ parentService.map(ParentServiceNameHeader -> _)
+            if (name.nonEmpty && stats) (for {
+              end <- clock.realTime(TimeUnit.MILLISECONDS)
 
-            numbers = traceLabels.collect { case (k, NumberValue(v)) => k -> v }
+              labels = traceLabels
+                .collect {
+                  case (k, StringValue(v)) => sanitise(k) -> v
+                  case (k, BooleanValue(v)) => sanitise(k) -> v.toString
+                }
+                .updated(ServiceNameHeader, serviceName) ++ parentService.map(ParentServiceNameHeader -> _)
 
-            labelKeys = labels.keys.toList
-            labelValues = labels.values.toList
+              numbers = traceLabels.collect { case (k, NumberValue(v)) => k -> v }
 
-            _ <- recordNumberLabels(labelKeys, labelValues, numbers)
-            _ <- recordTime(labelKeys, labelValues, start, end)
-          } yield ()).handleErrorWith { th =>
-            Logger[F].warn(th)("Failed to record trace metrics")
-          } else Applicative[F].unit
+              labelKeys = labels.keys.toList
+              labelValues = labels.values.toList
+
+              _ <- recordNumberLabels(labelKeys, labelValues, numbers)
+              _ <- recordTime(labelKeys, labelValues, start, end)
+            } yield ()).handleErrorWith { th =>
+              Logger[F].warn(th)("Failed to record trace metrics")
+            } else Applicative[F].unit
+          }
       }
       .map {
         case (_, labelsRef) =>
