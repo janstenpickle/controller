@@ -119,7 +119,7 @@ lazy val api = (project in file("modules/api"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
-      "org.http4s"        %% "http4s-blaze-client"       % http4sVer,
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.2.0-M4",
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,

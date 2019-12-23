@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.api
 
-import java.util.concurrent.{Executors, ThreadFactory}
+import java.net.http.HttpClient
+import java.util.concurrent.{Executor, Executors, ThreadFactory}
 
 import cats.data.{EitherT, Kleisli, OptionT, Reader}
 import cats.effect.{
@@ -74,7 +75,7 @@ import natchez.TraceValue.NumberValue
 import natchez._
 import natchez.jaeger.Jaeger
 import org.http4s.client.Client
-import org.http4s.client.blaze.BlazeClientBuilder
+import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
 import org.http4s.dsl.Http4sDsl
 import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
@@ -111,16 +112,20 @@ object Module {
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
     registry: CollectorRegistry,
     blocker: Blocker
-  ): Resource[F, Client[F]] =
+  ): Resource[F, Client[F]] = {
+    def blockerExecutor(blocker: Blocker): Executor =
+      new Executor {
+        override def execute(command: Runnable): Unit =
+          blocker.blockingContext.execute(command)
+      }
+
     for {
       metrics <- Prometheus.metricsOps(registry, "org_http4s_client")
-      builder = BlazeClientBuilder(blocker.blockingContext)
-        .withMaxTotalConnections(2000)
-        .withMaxWaitQueueLimit(1000)
-        .withRequestTimeout(5.seconds)
-        .withIdleTimeout(10.seconds)
-      client <- builder.resource
+      client <- Resource.liftF {
+        Sync[F].delay(JdkHttpClient[F](HttpClient.newBuilder().executor(blockerExecutor(blocker)).build()))
+      }
     } yield GZip()(Metrics(metrics)(client))
+  }
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
