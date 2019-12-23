@@ -16,6 +16,7 @@ import extruder.typesafe._
 import extruder.refined._
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
@@ -39,7 +40,8 @@ object Configuration {
     server: Server,
     activity: Activity,
     stats: StatsStream.Config,
-    githubRemoteCommands: GithubRemoteCommandConfigSource.Config
+    githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
+    homekit: ControllerHomekitServer.Config
   )
 
   case class Activity(dependentSwitches: Map[Room, SwitchKey] = Map.empty)

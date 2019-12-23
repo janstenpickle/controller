@@ -13,6 +13,7 @@
         <appender-ref ref="STDOUT" />
     </appender>
 
+    <logger name="org.http4s.blaze.channel.nio1.NIO1SocketServerGroup" level="WARN" />
 
     <root level="${LOG_LEVEL}">
         <appender-ref ref="ASYNCSTDOUT" />

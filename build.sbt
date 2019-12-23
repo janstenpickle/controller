@@ -94,7 +94,9 @@ lazy val root = (project in file("."))
     virtualSwitch,
     stats,
     prometheusStats,
-    gitRemoteStore
+    gitRemoteStore,
+    homekit,
+    hapJavaSubmodule
   )
 
 lazy val api = (project in file("modules/api"))
@@ -117,14 +119,14 @@ lazy val api = (project in file("modules/api"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
-      "org.http4s"        %% "http4s-blaze-client"       % http4sVer,
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.2.0-M4",
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
       "org.typelevel"     %% "cats-mtl-core"             % "0.7.0",
-      "org.tpolecat"      %% "natchez-jaeger"            % natchezVer
+      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
     ),
     mappings in Universal := {
       val universalMappings = (mappings in Universal).value
@@ -151,7 +153,8 @@ lazy val api = (project in file("modules/api"))
     stats,
     prometheusStats,
     prometheusTrace,
-    trace
+    trace,
+    homekit
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
@@ -279,6 +282,7 @@ lazy val tplink = (project in file("modules/tplink"))
     libraryDependencies ++= Seq(
       "io.circe"      %% "circe-core"   % circeVer,
       "io.circe"      %% "circe-parser" % circeVer,
+      "eu.timepit"    %% "refined"      % refinedVer,
       "eu.timepit"    %% "refined"      % refinedVer,
       "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
@@ -483,6 +487,23 @@ lazy val trace = (project in file("modules/trace"))
   .settings(commonSettings)
   .settings(name := "controller-trace", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
 
+lazy val homekit = (project in file("modules/homekit"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-homekit",
+    libraryDependencies ++= Seq(
+      "co.fs2"                 %% "fs2-core"             % fs2Ver,
+      "eu.timepit"             %% "refined"              % refinedVer,
+      "io.chrisdavenport"      %% "log4cats-slf4j"       % log4catsVer,
+      "io.extruder"            %% "extruder-cats-effect" % extruderVer,
+      "io.extruder"            %% "extruder-typesafe"    % extruderVer,
+      "org.typelevel"          %% "cats-effect"          % catsEffectVer,
+      "org.tpolecat"           %% "natchez-core"         % natchezVer,
+      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0"
+    )
+  )
+  .dependsOn(extruder, poller, switch, hapJavaSubmodule)
+
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)
   .settings(
@@ -513,5 +534,26 @@ lazy val broadlinkApiSubmodule = (project in file("submodules/broadlink-java-api
       "org.slf4j"      % "slf4j-api"    % "1.7.22",
       "junit"          % "junit"        % "4.12" % Test,
       "org.slf4j"      % "slf4j-simple" % "1.7.22" % Test
+    )
+  )
+
+lazy val hapJavaSubmodule = (project in file("submodules/HAP-Java"))
+  .settings(commonSettings)
+  .settings(
+    organization := "io.github.hap-java",
+    name := "hap-java",
+    libraryDependencies ++= Seq(
+      "org.slf4j"        % "slf4j-api"       % "1.7.22",
+      "io.netty"         % "netty-all"       % "4.1.43.Final",
+      "com.nimbusds"     % "srp6a"           % "1.5.2",
+      "org.bouncycastle" % "bcprov-jdk15on"  % "1.51",
+      "net.vrallev.ecc"  % "ecc-25519-java"  % "1.0.1",
+      "org.zeromq"       % "curve25519-java" % "0.1.0",
+      "javax.json"       % "javax.json-api"  % "1.0",
+      "org.glassfish"    % "javax.json"      % "1.0.4",
+      "org.jmdns"        % "jmdns"           % "3.5.5",
+      "commons-io"       % "commons-io"      % "2.6",
+      "junit"            % "junit"           % "4.12" % Test,
+      "org.mockito"      % "mockito-all"     % "1.10.19" % Test
     )
   )

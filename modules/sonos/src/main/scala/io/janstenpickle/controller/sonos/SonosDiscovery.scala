@@ -1,5 +1,6 @@
 package io.janstenpickle.controller.sonos
 
+import cats.data.OptionT
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.instances.list._
@@ -14,12 +15,15 @@ import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.{~>, Eq, Parallel}
 import com.vmichalak.sonoscontroller
-import com.vmichalak.sonoscontroller.{SonosDevice => JSonosDevice}
+import com.vmichalak.sonoscontroller.{CommandBuilder, ParserHelper, SonosDevice => JSonosDevice}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.poller.Empty
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
+
+import scala.xml._
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
@@ -40,11 +44,13 @@ object SonosDiscovery {
 
   def polling[F[_]: ContextShift: Parallel, G[_]: Concurrent: Timer](
     config: Discovery.Polling,
+    switchDeviceName: NonEmptyString,
     commandTimeout: FiniteDuration,
     onUpdate: () => F[Unit],
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    onDeviceUpdate: () => F[Unit]
+    onDeviceUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
@@ -52,6 +58,30 @@ object SonosDiscovery {
     liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, SonosDiscovery[F]] =
     Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
+      def deviceName(device: JSonosDevice) =
+        OptionT(
+          discoveryBlocker.delay[F, Option[String]](Option(device.getSpeakerInfo.getIpAddress).filter(_.nonEmpty))
+        ).semiflatMap { ip =>
+          discoveryBlocker
+            .delay[F, String](
+              CommandBuilder
+                .zoneGroupTopology("GetZoneGroupState")
+                .executeOn(ip)
+            )
+            .flatMap { resp =>
+              F.delay((XML.loadString(resp) \\ "ZoneGroups" \ "ZoneGroup").flatMap { zoneGroup =>
+                val members = (zoneGroup \ "ZoneGroupMember").flatMap { zoneGroupMember =>
+                  if (zoneGroupMember \@ "Invisible" != "1")
+                    Some(zoneGroupMember \@ "UUID" -> zoneGroupMember \@ "ZoneName")
+                  else None
+                }
+
+                if (members.isEmpty) None
+                else Some(zoneGroup \@ "Coordinator" -> members)
+              }.toMap)
+            }
+        }
+
       def discover: F[Map[NonEmptyString, SonosDevice[F]]] = trace.span("sonos.discover") {
         discoveryBlocker
           .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
@@ -60,29 +90,36 @@ object SonosDiscovery {
           }
           .flatMap { discovered =>
             discovered
-              .parTraverse { device =>
+              .parFlatTraverse { device =>
                 trace.span("sonos.read.device") {
-                  for {
+                  (for {
                     id <- trace.span("sonos.get.id") {
                       discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
                     }
-                    name <- trace.span("sonos.get.zone.name") {
-                      discoveryBlocker.delay[F, String](device.getZoneName)
-                    }
-                    formattedName <- F.fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
-                    nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
-                    _ <- trace.put("device.id" -> id, "device.name" -> name)
-                    dev <- SonosDevice[F](
-                      id,
-                      formattedName,
-                      nonEmptyName,
-                      device,
-                      devicesRef,
-                      commandTimeout,
-                      workBlocker,
-                      onDeviceUpdate
-                    )
-                  } yield dev.name -> dev
+                    zoneInfo <- deviceName(device).value
+                    name = zoneInfo.flatMap(_.values.flatten.toMap.get(id))
+                  } yield (id, name)).flatMap {
+                    case (id, Some(name)) if id.nonEmpty && name.nonEmpty =>
+                      for {
+                        formattedName <- F
+                          .fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
+                        nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
+                        _ <- trace.put("device.id" -> id, "device.name" -> name)
+                        dev <- SonosDevice[F](
+                          id,
+                          formattedName,
+                          nonEmptyName,
+                          switchDeviceName,
+                          device,
+                          devicesRef,
+                          commandTimeout,
+                          workBlocker,
+                          onDeviceUpdate,
+                          onSwitchUpdate
+                        )
+                      } yield List(dev.name -> dev)
+                    case _ => F.pure(List.empty[(NonEmptyString, SonosDevice[F])])
+                  }
 
                 }
               }

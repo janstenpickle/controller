@@ -12,6 +12,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
 import io.janstenpickle.controller.kodi.KodiDevice.DeviceState
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 trait KodiDevice[F[_]] {
@@ -41,8 +42,9 @@ object KodiDevice {
     client: KodiClient[F],
     deviceName: NonEmptyString,
     deviceRoom: NonEmptyString,
+    switchDevice: NonEmptyString,
     deviceKey: DiscoveredDeviceKey,
-    onUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit F: Sync[F], trace: Trace[F]): F[KodiDevice[F]] = {
     def playInfo: F[Option[Json]] =
       client
@@ -105,15 +107,26 @@ object KodiDevice {
       state <- Ref.of(initialState)
     } yield
       new KodiDevice[F] {
+        private val mutedSwitchKey = SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${deviceName.value}_mute"))
+        private val playPauseSwitchKey =
+          SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${deviceName.value}_playpause"))
+
         override def sendInputAction(action: NonEmptyString): F[Unit] =
           client.send("Input.ExecuteAction", Json.fromFields(Map("action" -> Json.fromString(action.value)))).void
 
         override def isPlaying: F[Boolean] = state.get.map(_.isPlaying)
 
         override def setPlaying(playing: Boolean): F[Unit] =
-          setSpeed(if (playing) 1 else 0) *> state.get.flatMap(st => state.set(st.copy(isPlaying = playing))) *> onUpdate()
+          setSpeed(if (playing) 1 else 0) *> state.get.flatMap(st => state.set(st.copy(isPlaying = playing)))
 
-        override def refresh: F[Unit] = refreshState.flatMap(state.set)
+        override def refresh: F[Unit] =
+          for {
+            current <- state.get
+            newState <- refreshState
+            _ <- state.set(newState)
+            _ <- if (newState.isMuted != current.isMuted) onSwitchUpdate(mutedSwitchKey) else F.unit
+            _ <- if (newState.isPlaying != current.isPlaying) onSwitchUpdate(playPauseSwitchKey) else F.unit
+          } yield ()
 
         override def name: NonEmptyString = deviceName
 
@@ -131,7 +144,7 @@ object KodiDevice {
         override def setMuted(muted: Boolean): F[Unit] = state.get.flatMap { st =>
           if (st.isMuted != muted)
             sendInputAction(Commands.Mute) *> state.get
-              .flatMap(st => state.set(st.copy(isMuted = muted))) *> onUpdate()
+              .flatMap(st => state.set(st.copy(isMuted = muted)))
           else F.unit
         }
 
@@ -139,13 +152,13 @@ object KodiDevice {
 
         override def volumeUp: F[Unit] = state.get.flatMap { st =>
           if (st.volume < 100)
-            sendInputAction(Commands.VolUp) *> state.set(st.copy(volume = st.volume + 1)) *> onUpdate()
+            sendInputAction(Commands.VolUp) *> state.set(st.copy(volume = st.volume + 1))
           else F.unit
         }
 
         override def volumeDown: F[Unit] = state.get.flatMap { st =>
           if (st.volume > 0)
-            sendInputAction(Commands.VolDown) *> state.set(st.copy(volume = st.volume - 1)) *> onUpdate()
+            sendInputAction(Commands.VolDown) *> state.set(st.copy(volume = st.volume - 1))
           else F.unit
         }
 

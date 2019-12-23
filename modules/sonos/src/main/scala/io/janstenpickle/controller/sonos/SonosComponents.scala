@@ -14,6 +14,7 @@ import io.janstenpickle.controller.model.{Activity, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
 import io.janstenpickle.controller.switch.SwitchProvider
+import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -42,13 +43,23 @@ object SonosComponents {
     onUpdate: () => F[Unit],
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    onDeviceUpdate: () => F[Unit]
+    onDeviceUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
         discovery <- SonosDiscovery
-          .polling[F, G](config.polling, config.commandTimeout, onUpdate, workBlocker, discoveryBlocker, onDeviceUpdate)
+          .polling[F, G](
+            config.polling,
+            config.switchDevice,
+            config.commandTimeout,
+            onUpdate,
+            workBlocker,
+            discoveryBlocker,
+            onDeviceUpdate,
+            onSwitchUpdate
+          )
       } yield {
         val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
         val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)

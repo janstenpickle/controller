@@ -1,7 +1,22 @@
 package io.janstenpickle.controller.api
 
-import cats.data.{EitherT, Kleisli, OptionT}
-import cats.effect.{Blocker, Bracket, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import java.net.http.HttpClient
+import java.util.concurrent.{Executor, Executors, ThreadFactory}
+
+import cats.data.{EitherT, Kleisli, OptionT, Reader}
+import cats.effect.{
+  Blocker,
+  Bracket,
+  Clock,
+  Concurrent,
+  ConcurrentEffect,
+  ContextShift,
+  ExitCode,
+  Resource,
+  Sync,
+  Timer
+}
+import cats.effect.syntax.concurrent._
 import cats.instances.list._
 import cats.instances.parallel._
 import cats.mtl.ApplicativeHandle
@@ -11,12 +26,12 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.semigroup._
-import cats.{~>, Applicative, ApplicativeError, Parallel}
+import cats.{~>, Applicative, ApplicativeError, Id, Parallel}
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
 import fs2.Stream
-import fs2.concurrent.Topic
+import fs2.concurrent.{Queue, Signal, Topic}
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
@@ -34,6 +49,7 @@ import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
@@ -47,6 +63,7 @@ import io.janstenpickle.controller.store.trace.{
   TracedSwitchStateStore
 }
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
+import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
 import io.janstenpickle.controller.tplink.TplinkComponents
@@ -58,16 +75,19 @@ import natchez.TraceValue.NumberValue
 import natchez._
 import natchez.jaeger.Jaeger
 import org.http4s.client.Client
-import org.http4s.client.blaze.BlazeClientBuilder
+import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
 import org.http4s.dsl.Http4sDsl
 import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
 
 object Module {
+  type Homekit[F[_]] = Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]]
+
   private final val serviceName = "controller"
 
   def makeRegistry[F[_]: Sync]: Resource[F, CollectorRegistry] =
@@ -92,20 +112,24 @@ object Module {
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
     registry: CollectorRegistry,
     blocker: Blocker
-  ): Resource[F, Client[F]] =
+  ): Resource[F, Client[F]] = {
+    def blockerExecutor(blocker: Blocker): Executor =
+      new Executor {
+        override def execute(command: Runnable): Unit =
+          blocker.blockingContext.execute(command)
+      }
+
     for {
       metrics <- Prometheus.metricsOps(registry, "org_http4s_client")
-      builder = BlazeClientBuilder(blocker.blockingContext)
-        .withMaxTotalConnections(2000)
-        .withMaxWaitQueueLimit(1000)
-        .withRequestTimeout(5.seconds)
-        .withIdleTimeout(10.seconds)
-      client <- builder.resource
+      client <- Resource.liftF {
+        Sync[F].delay(JdkHttpClient[F](HttpClient.newBuilder().executor(blockerExecutor(blocker)).build()))
+      }
     } yield GZip()(Metrics(metrics)(client))
+  }
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]]
-  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] =
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit], Homekit[F])] =
     for {
       blocker <- Blocker[F]
       registry <- makeRegistry[F]
@@ -121,7 +145,7 @@ object Module {
     registry: CollectorRegistry
   )(
     implicit F: Concurrent[F]
-  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit])] = {
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit], Homekit[F])] = {
     type G[A] = Kleisli[F, Span[F], A]
 
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
@@ -134,8 +158,8 @@ object Module {
     val liftedConfig: () => G[Either[ValidationErrors, Configuration.Config]] = () => lift(getConfig())
 
     eitherTComponents[G, F](liftedConfig, ep.lowerT(client), registry).mapK(liftLower.lower).map {
-      case (config, routes, registry, stats) =>
-        (config, ep.liftT(routes), registry, stats)
+      case (config, routes, registry, stats, homekit) =>
+        (config, ep.liftT(routes), registry, stats, homekit)
     }
   }
 
@@ -147,7 +171,7 @@ object Module {
     implicit F: Concurrent[F],
     trace: Trace[F],
     invk: ContextualLiftLower[M, F, String]
-  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[M, Unit])] = {
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[M, Unit], Homekit[M])] = {
     type G[A] = EitherT[F, ControlError, A]
 
     val lift = λ[F ~> G](EitherT.liftF(_))
@@ -173,12 +197,12 @@ object Module {
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
         tracedComponents[G, M](liftedConfig, eitherTClient(client), registry).map {
-          case (config, routes, registry, stream) =>
+          case (config, routes, registry, stream, homekit) =>
             val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
               OptionT(handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
             }
 
-            (config, r, registry, stream)
+            (config, r, registry, stream, homekit)
         }
       }
       .mapK(lower)
@@ -232,7 +256,7 @@ object Module {
     errors: ErrorInterpreter[F],
     ah: ApplicativeHandle[F, ControlError],
     liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[G, Unit])] = {
+  ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[G, Unit], Homekit[G])] = {
     type ConfigResult[A] = EffectValidation[F, A]
 
     def configOrError(result: F[Either[ValidationErrors, Configuration.Config]]): F[Configuration.Config] =
@@ -246,10 +270,19 @@ object Module {
     def notifyUpdate[A](topic: Topic[F, Boolean], topics: Topic[F, Boolean]*): A => F[Unit] =
       _ => (topic :: topics.toList).parTraverse(_.publish1(true)).void
 
+    def makeBlocker(name: String) =
+      Blocker.fromExecutorService(F.delay(Executors.newCachedThreadPool(new ThreadFactory {
+        def newThread(r: Runnable) = {
+          val t = new Thread(r, s"$name-blocker")
+          t.setDaemon(true)
+          t
+        }
+      })))
+
     for {
       config <- Resource.liftF[F, Configuration.Config](configOrError(getConfig()))
-      discoveryBlocker <- Blocker[F]
-      workBlocker <- Blocker[F]
+      discoveryBlocker <- makeBlocker("discovery")
+      workBlocker <- makeBlocker("work")
       _ <- PrometheusExportService.addDefaults[F](registry)
       activitiesUpdate <- Resource.liftF(Topic[F, Boolean](false))
       buttonsUpdate <- Resource.liftF(Topic[F, Boolean](false))
@@ -257,6 +290,13 @@ object Module {
       roomsUpdate <- Resource.liftF(Topic[F, Boolean](false))
       statsSwitchUpdate <- Resource.liftF(Topic[F, Boolean](false))
       statsConfigUpdate <- Resource.liftF(Topic[F, Boolean](false))
+      switchUpdate <- Resource.liftF(Topic[F, Option[SwitchKey]](None))
+
+      notifySwitchUpdate = (key: SwitchKey) =>
+        Parallel.parMap2(
+          switchUpdate.publish1(Some(key)),
+          notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+        )((_, _) => ())
 
       activityConfigFileSource <- ConfigFileSource
         .polling[F, G](
@@ -331,6 +371,14 @@ object Module {
       currentActivityConfigFileSource <- ConfigFileSource
         .polling[F, G](
           config.config.dir.resolve("current-activity"),
+          config.config.polling.pollInterval,
+          workBlocker,
+          config.config.writeTimeout
+        )
+
+      homekitConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("homekit"),
           config.config.polling.pollInterval,
           workBlocker,
           config.config.writeTimeout
@@ -442,7 +490,7 @@ object Module {
         workBlocker,
         discoveryBlocker,
         () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+        notifySwitchUpdate
       )
 
       tplinkComponents <- TplinkComponents[F, G](
@@ -450,7 +498,7 @@ object Module {
         workBlocker,
         discoveryBlocker,
         () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+        notifySwitchUpdate
       )
 
       sonosComponents <- SonosComponents[F, G](
@@ -458,7 +506,8 @@ object Module {
         () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
         workBlocker,
         discoveryBlocker,
-        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(()),
+        notifySwitchUpdate
       )
 
       kodiComponents <- KodiComponents[F, G](
@@ -467,7 +516,8 @@ object Module {
         config.kodi,
         discoveryMappingStore,
         () => notifyUpdate(buttonsUpdate, remotesUpdate, roomsUpdate, statsConfigUpdate, statsSwitchUpdate)(()),
-        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(())
+        () => notifyUpdate(remotesUpdate, statsSwitchUpdate, statsConfigUpdate)(()),
+        notifySwitchUpdate
       )
 
       components = broadlinkComponents |+| tplinkComponents |+| sonosComponents |+| kodiComponents
@@ -493,7 +543,7 @@ object Module {
 
       multiSwitchProvider = MultiSwitchProvider[F](multiSwitchConfig, Switches[F](combinedSwitchProvider))
 
-      switches = Switches[F](combinedSwitchProvider |+| multiSwitchProvider)
+      switches = Switches[F](combinedSwitchProvider |+| multiSwitchProvider, notifySwitchUpdate)
 
       instrumentation <- StatsStream[F](
         config.stats,
@@ -562,7 +612,29 @@ object Module {
           Stream.eval(logger.error(th)("Stats publish failed")).flatMap(_ => fullStream)
         }
       }
-      (config.server, router, registry, stats)
+
+      val homekit = ControllerHomekitServer
+        .stream[F, G](
+          config.homekit,
+          homekitConfigFileSource,
+          instrumentation.switch,
+          switchUpdate.subscribe(1000).unNone
+        )
+        .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
+          case (fkFuture, fk, signal) =>
+            (
+              fkFuture.compose(liftLower.lower("homekit")),
+              fk.compose(liftLower.lower("homekit")),
+              new Signal[F, Boolean] {
+                override def discrete: Stream[F, Boolean] = signal.discrete.translate(liftLower.lift)
+                override def continuous: Stream[F, Boolean] = signal.continuous.translate(liftLower.lift)
+                override def get: F[Boolean] = liftLower.lift(signal.get)
+              }
+            )
+        }
+        .map(_.translate(liftLower.lower("homekit")))
+
+      (config.server, router, registry, stats, homekit)
     }
   }
 }

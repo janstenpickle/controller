@@ -11,6 +11,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
+import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.tplink.config.{TplinkActivityConfigSource, TplinkRemoteConfigSource}
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 import natchez.Trace
@@ -36,14 +37,14 @@ object TplinkComponents {
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
     onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit]
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] = {
     val emptyComponents = Monoid[Components[F]].empty
 
     if (config.enabled)
       for {
         staticDiscovery <- TplinkDiscovery
-          .static[F, G](config.instances, config.commandTimeout, workBlocker, config.polling, onDeviceUpdate)
+          .static[F, G](config.instances, config.commandTimeout, workBlocker, config.polling, onSwitchUpdate)
         discovery <- if (config.dynamicDiscovery)
           TplinkDiscovery
             .dynamic[F, G](
@@ -54,7 +55,7 @@ object TplinkComponents {
               discoveryBlocker,
               config.polling,
               onUpdate,
-              onDeviceUpdate
+              onSwitchUpdate
             )
             .map(_ |+| staticDiscovery)
         else Resource.pure[F, TplinkDiscovery[F]](staticDiscovery)

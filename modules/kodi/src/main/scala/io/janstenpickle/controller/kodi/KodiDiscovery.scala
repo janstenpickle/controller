@@ -31,6 +31,7 @@ import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceV
 import org.http4s.circe.CirceEntityDecoder._
 import MetadataConstants._
 import io.circe.Json
+import io.janstenpickle.controller.switch.model.SwitchKey
 import org.http4s.Uri
 
 import scala.collection.JavaConverters._
@@ -47,8 +48,10 @@ object KodiDiscovery {
   def static[F[_]: Parallel: Trace: KodiErrors, G[_]: Timer: Concurrent](
     client: Client[F],
     kodis: List[KodiInstance],
+    switchDevice: NonEmptyString,
     config: Discovery.Polling,
-    onDeviceUpdate: () => F[Unit]
+    onDeviceUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(implicit F: Sync[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, KodiDiscovery[F]] =
     Resource
       .liftF(
@@ -60,8 +63,9 @@ object KodiDiscovery {
                 kodiClient,
                 instance.name,
                 instance.room,
+                switchDevice,
                 DiscoveredDeviceKey(s"${instance.name}_${instance.host}", DeviceName),
-                onDeviceUpdate
+                onSwitchUpdate
               )
             } yield (instance.name, device)
           }
@@ -90,12 +94,14 @@ object KodiDiscovery {
 
   def dynamic[F[_]: Parallel: ContextShift: KodiErrors, G[_]: Timer: Concurrent](
     client: Client[F],
+    switchDevice: NonEmptyString,
     blocker: Blocker,
     bindAddress: Option[InetAddress],
     config: Discovery.Polling,
     nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit]
+    onDeviceUpdate: () => F[Unit],
+    onSwitchUpdate: SwitchKey => F[Unit]
   )(
     implicit F: Sync[F],
     timer: Timer[F],
@@ -186,7 +192,7 @@ object KodiDiscovery {
           serviceDeviceKey(service).traverse { deviceId =>
             for {
               kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
-              device <- KodiDevice[F](kodiClient, instance.name, instance.room, deviceId, onDeviceUpdate)
+              device <- KodiDevice[F](kodiClient, instance.name, instance.room, switchDevice, deviceId, onSwitchUpdate)
             } yield Right((instance.name, device))
           }
         case None => F.pure(None)
