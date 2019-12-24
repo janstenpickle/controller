@@ -6,8 +6,9 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.trace.TracedSwitch
-import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchProvider}
 import natchez.Trace
+import natchez.TraceValue.StringValue
 
 object KodiSwitchProvider {
   def apply[F[_]: FlatMap: Trace](deviceName: NonEmptyString, discovery: KodiDiscovery[F]): SwitchProvider[F] =
@@ -15,6 +16,9 @@ object KodiSwitchProvider {
       override def getSwitches: F[Map[SwitchKey, Switch[F]]] =
         discovery.devices.map(_.devices.flatMap {
           case (_, dev) =>
+            val meta =
+              Metadata(room = Some(dev.room.value), manufacturer = Some("Kodi"), id = Some(dev.key.deviceId))
+            val labels = meta.values.mapValues(StringValue).toSeq
             Map(
               SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_playpause")) ->
                 TracedSwitch(new Switch[F] {
@@ -23,7 +27,8 @@ object KodiSwitchProvider {
                   override def getState: F[State] = dev.isPlaying.map(if (_) State.On else State.Off)
                   override def switchOn: F[Unit] = dev.setPlaying(true)
                   override def switchOff: F[Unit] = dev.setPlaying(false)
-                }, "manufacturer" -> "kodi"),
+                  override def metadata: Metadata = meta
+                }, labels: _*),
               SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")) ->
                 TracedSwitch(new Switch[F] {
                   override def name: NonEmptyString = dev.name
@@ -31,7 +36,8 @@ object KodiSwitchProvider {
                   override def getState: F[State] = dev.isMuted.map(if (_) State.On else State.Off)
                   override def switchOn: F[Unit] = dev.setMuted(true)
                   override def switchOff: F[Unit] = dev.setMuted(false)
-                }, "manufacturer" -> "kodi")
+                  override def metadata: Metadata = meta
+                }, labels: _*)
             )
         })
     }

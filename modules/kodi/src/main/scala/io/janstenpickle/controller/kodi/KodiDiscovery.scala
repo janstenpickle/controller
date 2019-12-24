@@ -63,6 +63,7 @@ object KodiDiscovery {
                 kodiClient,
                 instance.name,
                 instance.room,
+                instance.host.value,
                 switchDevice,
                 DiscoveredDeviceKey(s"${instance.name}_${instance.host}", DeviceName),
                 onSwitchUpdate
@@ -192,7 +193,15 @@ object KodiDiscovery {
           serviceDeviceKey(service).traverse { deviceId =>
             for {
               kodiClient <- KodiClient[F](client, instance.name, instance.host, instance.port)
-              device <- KodiDevice[F](kodiClient, instance.name, instance.room, switchDevice, deviceId, onSwitchUpdate)
+              device <- KodiDevice[F](
+                kodiClient,
+                instance.name,
+                instance.room,
+                instance.host.value,
+                switchDevice,
+                deviceId,
+                onSwitchUpdate
+              )
             } yield Right((instance.name, device))
           }
         case None => F.pure(None)

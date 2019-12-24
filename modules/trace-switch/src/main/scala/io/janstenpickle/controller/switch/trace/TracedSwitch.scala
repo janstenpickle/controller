@@ -4,7 +4,8 @@ import cats.{Apply, FlatMap}
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
-import io.janstenpickle.controller.switch.Switch
+import io.janstenpickle.controller.switch.{Metadata, Switch}
+import natchez.TraceValue.StringValue
 import natchez.{Trace, TraceValue}
 
 object TracedSwitch {
@@ -13,10 +14,10 @@ object TracedSwitch {
       override val name: NonEmptyString = switch.name
       override val device: NonEmptyString = switch.device
 
-      private val fields: Seq[(String, TraceValue)] = extraFields ++ Seq[(String, TraceValue)](
-        "switch.name" -> name.value,
-        "switch.device" -> device.value
-      )
+      private val fields: Seq[(String, TraceValue)] = extraFields ++ metadata.values.mapValues(StringValue) ++ Seq[
+        (String, TraceValue)
+      ]("switch.name" -> name.value, "switch.device" -> device.value)
+
       private def span[A](name: String)(k: F[A]): F[A] =
         trace.span[A](name) { trace.put(fields: _*) *> k }
 
@@ -24,5 +25,6 @@ object TracedSwitch {
       override def switchOn: F[Unit] = span("switch.on") { switch.switchOn }
       override def switchOff: F[Unit] = span("switch.off") { switch.switchOff }
       override def toggle(implicit F: FlatMap[F]): F[Unit] = span("switch.toggle") { switch.toggle }
+      override def metadata: Metadata = switch.metadata
     }
 }

@@ -4,7 +4,7 @@ import cats.Apply
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
-import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.switch.{Metadata, Switches}
 import io.janstenpickle.controller.switch.model.SwitchKey
 
 object SwitchesStats {
@@ -22,6 +22,9 @@ object SwitchesStats {
         underlying.toggle(device, name) *> stats.recordToggle(device, name)
 
       override def getState(device: NonEmptyString, name: NonEmptyString): F[State] = underlying.getState(device, name)
+
+      override def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[Metadata]] =
+        underlying.getMetadata(device, name)
 
       override def list: F[Set[SwitchKey]] = underlying.list
     }

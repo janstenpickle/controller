@@ -13,7 +13,7 @@ object SpSwitchProvider {
     override def getSwitches: F[Map[SwitchKey, Switch[F]]] =
       discovery.devices.map(_.devices.collect {
         case (_, Left(switch)) =>
-          SwitchKey(switch.device, switch.name) -> TracedSwitch(switch, SpSwitch.manufacturerField)
+          SwitchKey(switch.device, switch.name) -> TracedSwitch(switch)
       })
   }
 }

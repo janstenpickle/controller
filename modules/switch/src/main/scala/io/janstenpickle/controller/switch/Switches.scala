@@ -11,12 +11,15 @@ import natchez.Trace
 
 trait Switches[F[_]] { outer =>
   def getState(device: NonEmptyString, name: NonEmptyString): F[State]
+  def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[Metadata]]
   def switchOn(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def switchOff(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def toggle(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def list: F[Set[SwitchKey]]
   def mapK[G[_]](fk: F ~> G): Switches[G] = new Switches[G] {
     override def getState(device: NonEmptyString, name: NonEmptyString): G[State] = fk(outer.getState(device, name))
+    override def getMetadata(device: NonEmptyString, name: NonEmptyString): G[Option[Metadata]] =
+      fk(outer.getMetadata(device, name))
     override def switchOn(device: NonEmptyString, name: NonEmptyString): G[Unit] = fk(outer.switchOn(device, name))
     override def switchOff(device: NonEmptyString, name: NonEmptyString): G[Unit] = fk(outer.switchOff(device, name))
     override def toggle(device: NonEmptyString, name: NonEmptyString): G[Unit] = fk(outer.toggle(device, name))
@@ -52,6 +55,9 @@ object Switches {
               )
           )
         }
+
+      override def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[Metadata]] =
+        switches.getSwitches.map(_.get(SwitchKey(device, name)).map(_.metadata))
 
       override def switchOn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
         span("switches.switch.on", device, name) {

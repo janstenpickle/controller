@@ -1,30 +1,26 @@
 package io.janstenpickle.controller.tplink.device
 
 import cats.effect._
-import cats.syntax.applicative._
-import cats.syntax.flatMap._
-import eu.timepit.refined.refineMV
-import cats.{Applicative, Eq, Monad}
 import cats.effect.concurrent.Ref
+import cats.instances.string._
+import cats.syntax.applicative._
+import cats.syntax.applicativeError._
+import cats.syntax.apply._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import cats.{Applicative, Eq}
+import eu.timepit.refined.refineMV
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.{ACursor, Decoder, Json}
-import io.janstenpickle.control.switch.polling.{PollingSwitch, PollingSwitchErrors}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model.{Room, State}
-import io.janstenpickle.controller.switch.Switch
-import io.janstenpickle.controller.switch.trace.TracedSwitch
+import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchType}
 import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.TplinkClient
-import natchez.Trace
-import cats.syntax.apply._
-import cats.syntax.functor._
-import cats.instances.string._
 
 import scala.concurrent.duration._
-import cats.syntax.applicativeError._
-import io.janstenpickle.controller.switch.model.SwitchKey
 
 sealed trait TplinkDevice[F[_]] extends Switch[F] {
   def room: Option[Room]
@@ -55,6 +51,8 @@ object TplinkDevice {
     case 1 => State.On
     case _ => State.Off
   }
+
+  private final val manufacturer = "TP Link"
 
   private final val SetRelayState = "set_relay_state"
 
@@ -112,6 +110,7 @@ object TplinkDevice {
   def plug[F[_]: Sync](
     tplink: TplinkClient[F],
     model: NonEmptyString,
+    id: String,
     discovered: Json,
     onUpdate: SwitchKey => F[Unit]
   )(implicit errors: TplinkDeviceErrors[F]): F[SmartPlug[F]] = {
@@ -151,15 +150,27 @@ object TplinkDevice {
             State.Off
           ) *> onUpdate(switchKey)
         override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] = tplink.rename(name, room)
+
+        override def metadata: Metadata =
+          Metadata(
+            room = room.map(_.value),
+            manufacturer = Some(manufacturer),
+            model = Some(model.value),
+            id = Some(id),
+            `type` = SwitchType.Plug
+          )
       }
   }
 
   case class BulbState(power: State, brightness: Int, hue: Int, saturation: Int, temp: Int)
 
-  def bulb[F[_]](tplink: TplinkClient[F], model: NonEmptyString, discovered: Json, onUpdate: SwitchKey => F[Unit])(
-    implicit F: Sync[F],
-    errors: TplinkDeviceErrors[F]
-  ): F[SmartBulb[F]] = {
+  def bulb[F[_]](
+    tplink: TplinkClient[F],
+    model: NonEmptyString,
+    id: String,
+    discovered: Json,
+    onUpdate: SwitchKey => F[Unit]
+  )(implicit F: Sync[F], errors: TplinkDeviceErrors[F]): F[SmartBulb[F]] = {
     val switchKey = SwitchKey(model, tplink.deviceName)
 
     def getBulbInfo: F[Json] = tplink.sendCommand(BulbInfoCommand)
@@ -318,6 +329,15 @@ object TplinkDevice {
           stepUp(colour, "temp", _.temp, (s, v) => s.copy(temp = v), maxTemp, tempStep)
         override def tempDown: F[Unit] =
           stepDown(colour, "temp", _.temp, (s, v) => s.copy(temp = v), minTemp, tempStep)
+
+        override def metadata: Metadata =
+          Metadata(
+            room = room.map(_.value),
+            manufacturer = Some(manufacturer),
+            model = Some(model.value),
+            id = Some(id),
+            `type` = SwitchType.Bulb
+          )
       }
   }
 }

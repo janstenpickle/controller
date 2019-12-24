@@ -8,7 +8,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model.{MultiSwitch, State, SwitchAction}
 import io.janstenpickle.controller.switch.model.SwitchKey
-import io.janstenpickle.controller.switch.{Switch, SwitchProvider, Switches}
+import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchProvider, SwitchType, Switches}
 
 object MultiSwitchProvider {
   private val deviceName: NonEmptyString = NonEmptyString("multi")
@@ -49,8 +49,10 @@ object MultiSwitchProvider {
                     case SwitchAction.Opposite => switches.switchOn(ref.device, ref.name)
                   }
                 }.void
+
+              override def metadata: Metadata = Metadata(room = switch.room.map(_.value), `type` = SwitchType.Multi)
             }
-        }.toMap
+        }
       }
     }
 }

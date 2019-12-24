@@ -6,8 +6,9 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.trace.TracedSwitch
-import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchProvider}
 import natchez.Trace
+import natchez.TraceValue.StringValue
 
 object SonosSwitchProvider {
   def apply[F[_]: Async](deviceName: NonEmptyString, discovery: SonosDiscovery[F])(
@@ -17,25 +18,32 @@ object SonosSwitchProvider {
       override def getSwitches: F[Map[SwitchKey, Switch[F]]] = trace.span("sonos.get.switches") {
         discovery.devices.map(_.devices.flatMap {
           case (_, dev) =>
+            val meta =
+              Metadata(manufacturer = Some("Sonos"), id = Some(dev.id))
+            val labels = meta.values.mapValues(StringValue).toSeq
+
             Map((SwitchKey(deviceName, dev.name), TracedSwitch(new Switch[F] {
               override def name: NonEmptyString = dev.name
               override def device: NonEmptyString = deviceName
               override def getState: F[State] = dev.isPlaying.map(if (_) State.On else State.Off)
               override def switchOn: F[Unit] = dev.play
               override def switchOff: F[Unit] = dev.pause
-            }, "manufacturer" -> "sonos")), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_group")), TracedSwitch(new Switch[F] {
+              override def metadata: Metadata = meta
+            }, labels: _*)), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_group")), TracedSwitch(new Switch[F] {
               override def name: NonEmptyString = dev.name
               override def device: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_group")
               override def getState: F[State] = dev.isGrouped.map(if (_) State.On else State.Off)
               override def switchOn: F[Unit] = dev.group
               override def switchOff: F[Unit] = dev.unGroup
-            }, "manufacturer" -> "sonos")), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")), TracedSwitch(new Switch[F] {
+              override def metadata: Metadata = meta
+            }, labels: _*)), (SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")), TracedSwitch(new Switch[F] {
               override def name: NonEmptyString = dev.name
               override def device: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")
               override def getState: F[State] = dev.isMuted.map(if (_) State.On else State.Off)
               override def switchOn: F[Unit] = dev.mute
               override def switchOff: F[Unit] = dev.unMute
-            }, "manufacturer" -> "sonos")))
+              override def metadata: Metadata = meta
+            }, labels: _*)))
         })
       }
     }

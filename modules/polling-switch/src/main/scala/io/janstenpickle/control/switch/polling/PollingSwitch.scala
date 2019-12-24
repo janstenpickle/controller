@@ -9,7 +9,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import io.janstenpickle.controller.switch.Switch
+import io.janstenpickle.controller.switch.{Metadata, Switch}
 import natchez.Trace
 
 import scala.concurrent.duration.FiniteDuration
@@ -41,6 +41,7 @@ object PollingSwitch {
           override def getState: F[State] = get()
           override def switchOn: F[Unit] = underlying.switchOn *> update(State.On)
           override def switchOff: F[Unit] = underlying.switchOff *> update(State.Off)
+          override def metadata: Metadata = underlying.metadata
         }
       }
     }

@@ -44,7 +44,12 @@ object SwitchRef {
   implicit val eq: Eq[SwitchRef] = semi.eq
 }
 
-case class MultiSwitch(name: NonEmptyString, primary: SwitchRef, secondaries: NonEmptyList[SwitchRef])
+case class MultiSwitch(
+  name: NonEmptyString,
+  primary: SwitchRef,
+  secondaries: NonEmptyList[SwitchRef],
+  room: Option[NonEmptyString] = None
+)
 
 object MultiSwitch {
   implicit val eq: Eq[MultiSwitch] = semi.eq

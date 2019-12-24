@@ -497,6 +497,7 @@ lazy val homekit = (project in file("modules/homekit"))
       "io.chrisdavenport"      %% "log4cats-slf4j"       % log4catsVer,
       "io.extruder"            %% "extruder-cats-effect" % extruderVer,
       "io.extruder"            %% "extruder-typesafe"    % extruderVer,
+      "org.apache.commons"     % "commons-text"          % "1.8",
       "org.typelevel"          %% "cats-effect"          % catsEffectVer,
       "org.tpolecat"           %% "natchez-core"         % natchezVer,
       "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0"

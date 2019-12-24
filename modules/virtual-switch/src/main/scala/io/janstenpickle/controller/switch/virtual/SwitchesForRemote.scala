@@ -19,7 +19,7 @@ import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.switch.model.SwitchKey
-import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchProvider, SwitchType}
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -59,6 +59,8 @@ object SwitchesForRemote {
                     .setOff(virtual.remote, device, name)
                 case State.Off => ().pure
               }
+
+            override def metadata: Metadata = Metadata(room = virtual.room.map(_.value), `type` = SwitchType.Virtual)
           }
     }.toMap)
 

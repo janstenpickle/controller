@@ -3,20 +3,20 @@ package io.janstenpickle.controller.broadlink.switch
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.instances.string._
+import cats.syntax.applicativeError._
+import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{Applicative, Eq}
 import com.github.mob41.blapi.{BLDevice, SP1Device, SP2Device}
-import eu.timepit.refined.types.string.NonEmptyString
 import eu.timepit.refined.auto._
+import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.switch.SpSwitchConfig.{SP1, SP2, SP3}
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.store.SwitchStateStore
-import io.janstenpickle.controller.switch.Switch
-import natchez.{Trace, TraceValue}
-import cats.syntax.applicativeError._
-import cats.syntax.apply._
 import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchType}
+import natchez.Trace
 
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
@@ -33,7 +33,7 @@ object SpSwitch {
       extends RuntimeException(s"Command timed out on '$device' after $message")
       with NoStackTrace
 
-  val manufacturerField: (String, TraceValue) = "manufacturer" -> "broadlink"
+  private final val manufacturer = "Broadlink"
 
   implicit def spSwitchEq[F[_]]: Eq[SpSwitch[F]] = Eq.by { dev =>
     s"${dev.host}_${dev.mac}"
@@ -86,6 +86,15 @@ object SpSwitch {
       } yield (), timeout, deviceName)
 
     override def refresh: F[Unit] = Applicative[F].unit
+
+    override val metadata: Metadata =
+      Metadata(
+        manufacturer = Some(manufacturer),
+        model = Some("SP1"),
+        host = Some(host),
+        id = Some(mac),
+        `type` = SwitchType.Plug
+      )
   }
 
   def makeSp23[F[_]: Concurrent: Timer: ContextShift](
@@ -149,6 +158,15 @@ object SpSwitch {
             newState <- _getState
             _ <- if (current != newState) state.set(newState) *> onSwitchUpdate(switchKey) else Applicative[F].unit
           } yield ()
+
+        override val metadata: Metadata =
+          Metadata(
+            manufacturer = Some(manufacturer),
+            model = Some("SP2"),
+            host = Some(host),
+            id = Some(mac),
+            `type` = SwitchType.Plug
+          )
       }
   }
 

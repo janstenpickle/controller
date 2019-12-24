@@ -17,12 +17,13 @@ import cats.syntax.applicativeError._
 import eu.timepit.refined.auto._
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.github.hapjava.accessories.Switch
-import io.github.hapjava.{HomekitCharacteristicChangeCallback, HomekitRoot}
+import io.github.hapjava.accessories.{Lightbulb, Outlet, Switch}
+import io.github.hapjava.{HomekitAccessory, HomekitCharacteristicChangeCallback, HomekitRoot}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.switch.{Metadata, SwitchType, Switches}
 import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.{Trace, TraceValue}
+import org.apache.commons.text.WordUtils
 
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.Future
@@ -31,9 +32,9 @@ import scala.util.hashing.MurmurHash3
 
 object ControllerAccessories {
   case class SwitchState(
-    state: Map[SwitchKey, Switch with Closeable],
-    toAdd: Iterable[Switch with Closeable],
-    toRemove: Iterable[Switch with Closeable]
+    state: Map[SwitchKey, HomekitAccessory with Closeable],
+    toAdd: Iterable[HomekitAccessory with Closeable],
+    toRemove: Iterable[HomekitAccessory with Closeable]
   )
 
   def apply[F[_]: Timer: ContextShift, G[_]](
@@ -45,32 +46,35 @@ object ControllerAccessories {
     fk: F ~> Id
   )(implicit F: Concurrent[F], trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
-      def rootSpan[A](fa: F[A]): F[A] = liftLower.lift(liftLower.lower("homekit")(fa))
+      def rootSpan[A](fa: F[A]): F[A] = liftLower.lift(liftLower.lower("homekit.accessories")(fa))
 
-      def switchToService(key: SwitchKey): Switch with Closeable = new Switch with Closeable {
+      def switchToService(key: SwitchKey): HomekitAccessory with Closeable = {
+        val metadata: Option[Metadata] = fk(switches.getMetadata(key.device, key.name))
+        val model = metadata.flatMap(_.model).getOrElse(key.device.value)
+        val label = WordUtils.capitalizeFully(
+          metadata
+            .flatMap(_.room)
+            .fold(s"${key.name.value} $model")(r => s"$r ${key.name.value}")
+            .replace('_', ' ')
+            .replace('-', ' ')
+        )
+        val id = math.abs(MurmurHash3.stringHash(metadata.flatMap(_.id).getOrElse(s"${key.name}${key.device}")) + 1)
+        val manufacturer = metadata.flatMap(_.manufacturer).orNull
 
-        override lazy val getLabel: String = s"${key.name} ${key.device}".replace('_', ' ').replace('-', ' ')
-        override lazy val getId: Int = math.abs(MurmurHash3.stringHash(getLabel) + 1)
-        override lazy val getSerialNumber: String = null
-        override lazy val getModel: String = key.device
-        override lazy val getManufacturer: String = null
-
-        private def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
+        def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
           trace.span(s"homekit.switch.$name") {
             trace.put(
               Seq[(String, TraceValue)](
-                "device.id" -> getId,
-                "device.label" -> getLabel,
-                "device.model" -> getModel,
+                "device.id" -> id,
+                "device.label" -> label,
+                "device.model" -> model,
                 "device.name" -> key.name.value,
                 "device.type" -> key.device.value
               ) ++ extraFields: _*
             ) *> k
           }
 
-        private var switchChanges: Fiber[F, Unit] = null
-
-        override def getSwitchState: CompletableFuture[lang.Boolean] =
+        def switchState: CompletableFuture[lang.Boolean] =
           fkFuture(span("get.state") {
             switches.getState(key.device, key.name)
           }).map { state =>
@@ -79,44 +83,120 @@ object ControllerAccessories {
             .toJava
             .toCompletableFuture
 
-        override def setSwitchState(state: Boolean): CompletableFuture[Void] =
+        def setState(state: Boolean): CompletableFuture[Void] =
           fkFuture(span("set.state") {
             if (state) switches.switchOn(key.device, key.name) else switches.switchOff(key.device, key.name)
           }).map(_ => null.asInstanceOf[Void])(blocker.blockingContext).toJava.toCompletableFuture
 
-        override def subscribeSwitchState(callback: HomekitCharacteristicChangeCallback): Unit =
-          if (switchChanges == null)
-            switchChanges = fk(span("subscribe") {
-              blocker.blockOn(
-                switchUpdate
-                  .evalMap { k =>
-                    if (k == key) rootSpan(span("update.subscriber") {
-                      Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
-                        logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
-                          .put("error" -> true, "error.message" -> th.getMessage)
-                      }
-                    })
-                    else F.unit
-                  }
-                  .compile
-                  .drain
-                  .start
-              )
+        def subscribeUpdates(callback: HomekitCharacteristicChangeCallback) =
+          span("subscribe") {
+            blocker.blockOn(
+              switchUpdate
+                .evalMap { k =>
+                  if (k == key) rootSpan(span("update.subscriber") {
+                    Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
+                      logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
+                        .put("error" -> true, "error.message" -> th.getMessage)
+                    }
+                  })
+                  else F.unit
+                }
+                .compile
+                .drain
+                .start
+            )
+          }
+
+        def switch = new Switch with Closeable {
+          private var switchChanges: Fiber[F, Unit] = _
+
+          override lazy val getLabel: String = label
+          override lazy val getId: Int = id
+          override lazy val getSerialNumber: String = metadata.flatMap(_.id).orNull
+          override lazy val getModel: String = model
+          override lazy val getManufacturer: String = manufacturer
+
+          override def getSwitchState: CompletableFuture[lang.Boolean] = switchState
+          override def setSwitchState(state: Boolean): CompletableFuture[Void] = setState(state)
+          override def subscribeSwitchState(callback: HomekitCharacteristicChangeCallback): Unit =
+            if (switchChanges == null) switchChanges = fk(subscribeUpdates(callback)) else ()
+          override def unsubscribeSwitchState(): Unit =
+            if (switchChanges != null) fk(span("unsubscribe") {
+              switchChanges.cancel
             })
-          else ()
+            else ()
+          override def identify(): Unit = ()
+          override def close(): Unit = unsubscribeSwitchState()
+        }
 
-        override def unsubscribeSwitchState(): Unit =
-          if (switchChanges != null) fk(span("unsubscribe") {
-            switchChanges.cancel
-          })
-          else ()
+        def bulb = new Lightbulb with Closeable {
+          private var switchChanges: Fiber[F, Unit] = _
 
-        override def identify(): Unit = ()
+          override lazy val getLabel: String = label
+          override lazy val getId: Int = id
+          override lazy val getSerialNumber: String = metadata.flatMap(_.id).orNull
+          override lazy val getModel: String = model
+          override lazy val getManufacturer: String = manufacturer
 
-        override def close(): Unit = unsubscribeSwitchState()
+          override def getLightbulbPowerState: CompletableFuture[lang.Boolean] = switchState
+
+          override def setLightbulbPowerState(powerState: Boolean): CompletableFuture[Void] = setState(powerState)
+
+          override def subscribeLightbulbPowerState(callback: HomekitCharacteristicChangeCallback): Unit =
+            if (switchChanges == null) switchChanges = fk(subscribeUpdates(callback)) else ()
+
+          override def unsubscribeLightbulbPowerState(): Unit =
+            if (switchChanges != null) fk(span("unsubscribe") {
+              switchChanges.cancel
+            })
+            else ()
+
+          override def identify(): Unit = ()
+          override def close(): Unit = unsubscribeLightbulbPowerState()
+
+        }
+
+        def plug = new Outlet with Closeable {
+          private var switchChanges: Fiber[F, Unit] = _
+
+          override lazy val getLabel: String = label
+          override lazy val getId: Int = id
+          override lazy val getSerialNumber: String = metadata.flatMap(_.id).orNull
+          override lazy val getModel: String = model
+          override lazy val getManufacturer: String = manufacturer
+
+          override def getPowerState: CompletableFuture[lang.Boolean] = switchState
+
+          override def getOutletInUse: CompletableFuture[lang.Boolean] =
+            Future.successful(lang.Boolean.TRUE).toJava.toCompletableFuture
+
+          override def setPowerState(state: Boolean): CompletableFuture[Void] = setState(state)
+
+          override def subscribePowerState(callback: HomekitCharacteristicChangeCallback): Unit =
+            if (switchChanges == null) switchChanges = fk(subscribeUpdates(callback)) else ()
+
+          override def subscribeOutletInUse(callback: HomekitCharacteristicChangeCallback): Unit = ()
+
+          override def unsubscribePowerState(): Unit =
+            if (switchChanges != null) fk(span("unsubscribe") {
+              switchChanges.cancel
+            })
+            else ()
+
+          override def unsubscribeOutletInUse(): Unit = ()
+
+          override def identify(): Unit = ()
+          override def close(): Unit = unsubscribePowerState()
+        }
+
+        metadata.map(_.`type`) match {
+          case Some(SwitchType.Bulb) => bulb
+          case Some(SwitchType.Plug) => plug
+          case _ => switch
+        }
       }
 
-      def diffSwitches(map: Map[SwitchKey, Switch with Closeable]): F[SwitchState] =
+      def diffSwitches(map: Map[SwitchKey, HomekitAccessory with Closeable]): F[SwitchState] =
         switches.list.map { sws =>
           val newSwitches = sws
             .filterNot(map.contains)
@@ -132,7 +212,7 @@ object ControllerAccessories {
           )
         }
 
-      def stream(ref: Ref[F, Map[SwitchKey, Switch with Closeable]]): Stream[F, Unit] =
+      def stream(ref: Ref[F, Map[SwitchKey, HomekitAccessory with Closeable]]): Stream[F, Unit] =
         Stream
           .fixedRate(30.seconds)
           .evalMap(

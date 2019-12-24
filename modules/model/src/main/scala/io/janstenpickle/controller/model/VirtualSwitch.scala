@@ -9,7 +9,8 @@ case class VirtualSwitch(
   remote: NonEmptyString,
   commandSource: Option[RemoteCommandSource],
   device: NonEmptyString,
-  command: NonEmptyString
+  command: NonEmptyString,
+  room: Option[NonEmptyString]
 )
 
 object VirtualSwitch {

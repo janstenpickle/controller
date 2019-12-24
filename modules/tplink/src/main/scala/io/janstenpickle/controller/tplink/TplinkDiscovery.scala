@@ -52,6 +52,7 @@ object TplinkDiscovery {
     room: Option[NonEmptyString],
     host: NonEmptyString,
     port: PortNumber,
+    id: String,
     `type`: DeviceType
   )
 
@@ -70,11 +71,12 @@ object TplinkDiscovery {
       .liftF(
         tplinks
           .parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
-            case TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)) =>
+            case TplinkInstance(name, room, host, port, mac, t @ DeviceType.SmartPlug(model)) =>
               TplinkDevice
                 .plug[F](
                   TplinkClient[F](name, room, host, port, commandTimeout, blocker),
                   model,
+                  mac,
                   Json.Null,
                   onSwitchUpdate
                 )
@@ -149,6 +151,12 @@ object TplinkDiscovery {
         alias <- sysInfo.hcursor.get[String]("alias").toOption
       } yield alias
 
+    def deviceId(json: Json): Option[String] =
+      for {
+        sysInfo <- jsonInfo(json)
+        id <- sysInfo.hcursor.get[String]("deviceId").toOption
+      } yield id
+
     def deviceNameRoom(str: String): Option[(NonEmptyString, Option[Room])] = str.split('|').toList match {
       case n :: r :: Nil =>
         for {
@@ -213,18 +221,31 @@ object TplinkDiscovery {
                   dt <- deviceType(v)
                   str <- deviceName(v)
                   (name, room) <- deviceNameRoom(str)
-                } yield (TplinkInstance(name, room, host, port, dt), v)
+                  id <- deviceId(v)
+                } yield (TplinkInstance(name, room, host, port, id, dt), v)
             }.toList
             devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
-              case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartPlug(model)), json) =>
+              case (TplinkInstance(name, room, host, port, id, t @ DeviceType.SmartPlug(model)), json) =>
                 TplinkDevice
-                  .plug(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onSwitchUpdate)
+                  .plug(
+                    TplinkClient(name, room, host, port, commandTimeout, workBlocker),
+                    model,
+                    id,
+                    json,
+                    onSwitchUpdate
+                  )
                   .map { dev =>
                     List(((name, t), dev))
                   }
-              case (TplinkInstance(name, room, host, port, t @ DeviceType.SmartBulb(model)), json) =>
+              case (TplinkInstance(name, room, host, port, id, t @ DeviceType.SmartBulb(model)), json) =>
                 TplinkDevice
-                  .bulb(TplinkClient(name, room, host, port, commandTimeout, workBlocker), model, json, onSwitchUpdate)
+                  .bulb(
+                    TplinkClient(name, room, host, port, commandTimeout, workBlocker),
+                    model,
+                    id,
+                    json,
+                    onSwitchUpdate
+                  )
                   .map { dev =>
                     List(((name, t), dev))
                   }

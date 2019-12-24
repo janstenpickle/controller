@@ -18,6 +18,7 @@ import natchez.Trace
 trait KodiDevice[F[_]] {
   def name: NonEmptyString
   def room: NonEmptyString
+  def host: String
   def key: DiscoveredDeviceKey
   def isPlaying: F[Boolean]
   def setPlaying(playing: Boolean): F[Unit]
@@ -42,6 +43,7 @@ object KodiDevice {
     client: KodiClient[F],
     deviceName: NonEmptyString,
     deviceRoom: NonEmptyString,
+    deviceHost: String,
     switchDevice: NonEmptyString,
     deviceKey: DiscoveredDeviceKey,
     onSwitchUpdate: SwitchKey => F[Unit]
@@ -163,6 +165,8 @@ object KodiDevice {
         }
 
         override def key: DiscoveredDeviceKey = deviceKey
+
+        override def host: String = deviceHost
       }
   }
 }
