@@ -1,5 +1,9 @@
 package io.janstenpickle.controller.tplink.device
 
+import java.time.{Instant, ZoneOffset}
+import java.time.temporal.ChronoField
+import java.util.concurrent.TimeUnit
+
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.instances.string._
@@ -113,7 +117,7 @@ object TplinkDevice {
     id: String,
     discovered: Json,
     onUpdate: SwitchKey => F[Unit]
-  )(implicit errors: TplinkDeviceErrors[F]): F[SmartPlug[F]] = {
+  )(implicit errors: TplinkDeviceErrors[F], timer: Timer[F]): F[SmartPlug[F]] = {
     val switchKey = SwitchKey(model, tplink.deviceName)
 
     def parseState(json: Json): F[State] = decodeOrError[F, State](
@@ -124,9 +128,18 @@ object TplinkDevice {
       tplink.deviceName
     )
 
+    def setTime =
+      for {
+        millis <- timer.clock.realTime(TimeUnit.MILLISECONDS)
+        time = Instant.ofEpochMilli(millis).atOffset(ZoneOffset.UTC)
+        timeCommand = s"""{"time":{"set_timezone":{"year":${time.getYear},"month":${time.getMonthValue},"mday":${time.getDayOfMonth},"hour":${time.getHour},"min":${time.getMinute},"sec":${time.getSecond},"index":0}}}"""
+        _ <- tplink.sendCommand(timeCommand)
+      } yield ()
+
     def _getState: F[State] = tplink.getInfo.flatMap(parseState)
 
     for {
+      _ <- setTime
       initialState <- parseState(discovered).handleErrorWith(_ => _getState)
       state <- Ref.of(initialState)
     } yield
