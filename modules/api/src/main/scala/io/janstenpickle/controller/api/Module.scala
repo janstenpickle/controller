@@ -541,9 +541,12 @@ object Module {
 
       combinedSwitchProvider = components.switches |+| virtualSwitches
 
-      multiSwitchProvider = MultiSwitchProvider[F](multiSwitchConfig, Switches[F](combinedSwitchProvider))
+      multiSwitchProvider = MultiSwitchProvider[F](
+        multiSwitchConfig,
+        Switches[F](combinedSwitchProvider, notifySwitchUpdate)
+      )
 
-      switches = Switches[F](combinedSwitchProvider |+| multiSwitchProvider, notifySwitchUpdate)
+      switches = Switches[F](combinedSwitchProvider |+| multiSwitchProvider)
 
       instrumentation <- StatsStream[F](
         config.stats,

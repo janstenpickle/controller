@@ -6,6 +6,7 @@ import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Activity
 import io.janstenpickle.controller.tplink.TplinkDiscovery
+import io.janstenpickle.controller.tplink.device.TplinkDevice.SmartBulb
 import natchez.Trace
 
 object TplinkActivityConfigSource {
@@ -16,7 +17,7 @@ object TplinkActivityConfigSource {
           discovery.devices.map(
             devices =>
               ConfigResult(devices.devices.flatMap {
-                case (_, dev) =>
+                case (_, dev: SmartBulb[F]) =>
                   dev.room.map { room =>
                     dev.roomName.value -> Activity(
                       name = dev.roomName,
@@ -27,6 +28,7 @@ object TplinkActivityConfigSource {
                       room
                     )
                   }
+                case _ => None
               }, List.empty)
           )
         override def getValue(key: String): F[Option[Activity]] = getConfig.map(_.values.get(key))
