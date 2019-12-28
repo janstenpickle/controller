@@ -19,6 +19,7 @@ import cats.effect.{
 import cats.effect.syntax.concurrent._
 import cats.instances.list._
 import cats.instances.parallel._
+import cats.kernel.Monoid
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.apply._
@@ -46,6 +47,7 @@ import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.cache.monitoring.CacheCollector
+import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.extruder.ConfigFileSource
@@ -53,6 +55,7 @@ import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.multiswitch.MultiSwitchProvider
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
+import io.janstenpickle.controller.schedule.cron.CronScheduler
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
@@ -384,6 +387,16 @@ object Module {
           config.config.writeTimeout
         )
 
+      scheduleConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("schedule"),
+          config.config.polling.pollInterval,
+          workBlocker,
+          config.config.writeTimeout
+        )
+
+      scheduleConfig <- ExtruderScheduleConfigSource[F, G](scheduleConfigFileSource, config.config.polling, _ => F.unit)
+
       activityStore <- ExtruderCurrentActivityConfigSource[F, G](
         currentActivityConfigFileSource,
         config.config.polling,
@@ -520,7 +533,8 @@ object Module {
         notifySwitchUpdate
       )
 
-      components = broadlinkComponents |+| tplinkComponents |+| sonosComponents |+| kodiComponents
+      components = Monoid[Components[F]]
+        .combineAll(List(broadlinkComponents, tplinkComponents, sonosComponents, kodiComponents))
 
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
       combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)
@@ -582,6 +596,8 @@ object Module {
           new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, instrumentation.switch)
         )
       )
+
+      cronScheduler <- CronScheduler[F, G](instrumentation.`macro`, scheduleConfig)
     } yield {
       val router =
         Router(
@@ -601,6 +617,7 @@ object Module {
             UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)
           ).routes,
           "/discovery" -> new RenameApi[F](components.rename).routes,
+          "/schedule" -> new ScheduleApi[F](components.scheduler |+| cronScheduler).routes,
           "/" -> new ControllerUi[F](workBlocker).routes,
           "/" -> PrometheusExportService.service[F](registry)
         )

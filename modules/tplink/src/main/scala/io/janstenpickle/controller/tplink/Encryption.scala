@@ -32,7 +32,7 @@ object Encryption {
     buffer.array()
   }
 
-  def decrypt[F[_]](inputStream: InputStream, substringBeginIndex: Int = 5)(implicit F: Sync[F]): F[String] =
+  def decrypt[F[_]](inputStream: InputStream)(implicit F: Sync[F]): F[String] =
     F.delay {
       @tailrec
       def loop(buffer: ArrayBuffer[Byte]): ArrayBuffer[Byte] = {
@@ -57,7 +57,7 @@ object Encryption {
         ._2
         .toString()
 
-      "{" + response.substring(substringBeginIndex)
+      """{"""" + response.split("\"", 2)(1)
     }
 
 }

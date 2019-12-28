@@ -17,6 +17,7 @@ import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
 import io.janstenpickle.controller.model.{Activity, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote, Room}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
+import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.switch.SwitchProvider
 import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
@@ -79,6 +80,7 @@ object KodiComponents {
           rename =
             if (config.dynamicDiscovery) KodiDeviceRename[F](discovery, discoveryNameMapping)
             else DeviceRename.empty[F],
+          Monoid[Scheduler[F]].empty,
           KodiActivityConfigSource(config.activityConfig, discovery),
           KodiRemoteConfigSource(config.remote, config.activityConfig.name, discovery, remotesCache),
           ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]],

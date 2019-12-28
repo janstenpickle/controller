@@ -93,6 +93,8 @@ lazy val root = (project in file("."))
     sonosClientSubmodule,
     virtualSwitch,
     stats,
+    schedule,
+    cronScheduler,
     prometheusStats,
     gitRemoteStore,
     homekit,
@@ -154,7 +156,8 @@ lazy val api = (project in file("modules/api"))
     prometheusStats,
     prometheusTrace,
     trace,
-    homekit
+    homekit,
+    cronScheduler
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
@@ -172,7 +175,7 @@ lazy val model = (project in file("modules/model"))
 lazy val components = (project in file("modules/components"))
   .settings(commonSettings)
   .settings(name := "controller-components")
-  .dependsOn(model, configSource, remoteControl, switch, dynamicDiscovery)
+  .dependsOn(model, configSource, remoteControl, schedule, switch, dynamicDiscovery)
 
 lazy val configSource = (project in file("modules/config-source"))
   .settings(commonSettings)
@@ -214,7 +217,7 @@ lazy val extruderConfigSource = (project in file("modules/extruder-config-source
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
-  .dependsOn(configSource, extruder, tracedConfigSource)
+  .dependsOn(configSource, extruder, schedule, tracedConfigSource)
 
 lazy val remote = (project in file("modules/remote"))
   .settings(commonSettings)
@@ -287,7 +290,7 @@ lazy val tplink = (project in file("modules/tplink"))
       "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
-  .dependsOn(components, dynamicDiscovery, pollingSwitch, tracedSwitch, tracedConfigSource, tracedRemote)
+  .dependsOn(components, dynamicDiscovery, pollingSwitch, schedule, tracedSwitch, tracedConfigSource, tracedRemote)
 
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
@@ -306,6 +309,30 @@ lazy val tracedSwitch = (project in file("modules/trace-switch"))
     libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
   )
   .dependsOn(switch)
+
+lazy val cronScheduler = (project in file("modules/cron-scheduler"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-cron-scheduler",
+    libraryDependencies ++= Seq(
+      "eu.timepit"        %% "fs2-cron-core"  % "0.2.2",
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "io.chrisdavenport" %% "fuuid"          % "0.1.2"
+    )
+  )
+  .dependsOn(arrow, schedule, `macro`, configSource)
+
+lazy val schedule = (project in file("modules/schedule"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-schedule",
+    libraryDependencies ++= Seq(
+      "eu.timepit"    %% "refined"      % refinedVer,
+      "eu.timepit"    %% "refined-cats" % refinedVer,
+      "org.typelevel" %% "kittens"      % kittensVer
+    )
+  )
+  .dependsOn(model)
 
 lazy val store = (project in file("modules/store"))
   .settings(commonSettings)
@@ -373,7 +400,7 @@ lazy val stats = (project in file("modules/stats"))
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
-  .dependsOn(remoteControl, activity, `macro`, switch, configSource)
+  .dependsOn(remoteControl, activity, `macro`, switch, configSource, schedule)
 
 lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   .settings(commonSettings)

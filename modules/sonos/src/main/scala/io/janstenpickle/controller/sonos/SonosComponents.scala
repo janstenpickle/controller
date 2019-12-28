@@ -12,6 +12,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.model.{Activity, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
+import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
 import io.janstenpickle.controller.switch.SwitchProvider
 import io.janstenpickle.controller.switch.model.SwitchKey
@@ -71,6 +72,7 @@ object SonosComponents {
           remote,
           switches,
           DeviceRename.empty[F],
+          Monoid[Scheduler[F]].empty,
           activityConfig,
           remoteConfig,
           ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]

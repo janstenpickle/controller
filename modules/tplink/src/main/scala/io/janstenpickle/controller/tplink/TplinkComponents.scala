@@ -14,6 +14,7 @@ import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteCon
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.tplink.config.{TplinkActivityConfigSource, TplinkRemoteConfigSource}
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
+import io.janstenpickle.controller.tplink.schedule.TplinkScheduler
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -64,6 +65,7 @@ object TplinkComponents {
         emptyComponents.copy(
           switches = TplinkSwitchProvider(discovery),
           remotes = RemoteControls(TplinkRemoteControl(config.remoteName, discovery)),
+          scheduler = TplinkScheduler(discovery),
           activityConfig = TplinkActivityConfigSource(discovery),
           remoteConfig = TplinkRemoteConfigSource(config.remoteName, discovery),
           rename = if (config.dynamicDiscovery) TplinkDeviceRename[F](discovery) else DeviceRename.empty[F]

@@ -200,7 +200,7 @@ object TplinkDiscovery {
 
             val ret: F[Either[Map[(NonEmptyString, PortNumber), Json], Map[(NonEmptyString, PortNumber), Json]]] = for {
               _ <- F.delay(socket.receive(inPacket))
-              in <- Encryption.decrypt[F](new ByteArrayInputStream(inBuffer), 1)
+              in <- Encryption.decrypt[F](new ByteArrayInputStream(inBuffer))
               host <- refineF(NonEmptyString.from(inPacket.getAddress.getHostAddress))
               port <- refineF(PortNumber.from(inPacket.getPort))
               json <- parse(in).fold(errors.decodingFailure(host, _), _.pure[F])

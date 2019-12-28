@@ -1,9 +1,9 @@
 package io.janstenpickle.controller.tplink.device
 
-import java.time.{Instant, ZoneOffset}
-import java.time.temporal.ChronoField
+import java.time.{DayOfWeek, Instant, ZoneOffset}
 import java.util.concurrent.TimeUnit
 
+import cats.data.NonEmptySet
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.instances.string._
@@ -14,16 +14,24 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{Applicative, Eq}
 import eu.timepit.refined.refineMV
+import eu.timepit.refined.auto._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
-import io.circe.{ACursor, Decoder, Json}
+import io.circe.{ACursor, Decoder, DecodingFailure, Json}
+import io.circe.syntax._
 import io.janstenpickle.controller.model.{Room, State}
+import io.janstenpickle.controller.schedule.model.{dayOfWeekOrdering, Days, Time}
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchType}
 import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.TplinkClient
+import cats.syntax.traverse._
+import cats.instances.list._
+import cats.instances.either._
+import eu.timepit.refined.types.time.{Hour, Minute}
 
+import scala.collection.immutable.SortedSet
 import scala.concurrent.duration._
 
 sealed trait TplinkDevice[F[_]] extends Switch[F] {
@@ -35,7 +43,13 @@ sealed trait TplinkDevice[F[_]] extends Switch[F] {
 
 object TplinkDevice {
 
-  trait SmartPlug[F[_]] extends TplinkDevice[F]
+  trait SmartPlug[F[_]] extends TplinkDevice[F] {
+    def scheduleAction(time: Time, state: State): F[String]
+    def updateAction(id: String, time: Time, state: State): F[Unit]
+    def scheduleInfo(id: String): F[Option[(NonEmptyString, NonEmptyString, Time, State)]]
+    def deleteSchedule(id: String): F[Option[Unit]]
+    def listSchedules: F[List[String]]
+  }
 
   trait SmartBulb[F[_]] extends TplinkDevice[F] {
     def dimmable: Boolean
@@ -56,6 +70,28 @@ object TplinkDevice {
     case _ => State.Off
   }
 
+  implicit final val decodeHour: Decoder[(Hour, Minute)] = Decoder.decodeInt.emap { int =>
+    for {
+      hour <- Hour.from(int / 60)
+      minute <- Minute.from(int % 60)
+    } yield (hour, minute)
+  }
+
+  implicit final val decodeDay: Decoder[Days] = Decoder[List[Int]].emap {
+    case sun :: mon :: tue :: wed :: thur :: fri :: sat :: Nil =>
+      def intToDay(v: Int, day: DayOfWeek): SortedSet[DayOfWeek] = if (v == 1) SortedSet(day) else SortedSet.empty
+
+      NonEmptySet
+        .fromSet(
+          intToDay(sun, DayOfWeek.SUNDAY) ++ intToDay(mon, DayOfWeek.MONDAY) ++ intToDay(tue, DayOfWeek.TUESDAY) ++ intToDay(
+            wed,
+            DayOfWeek.WEDNESDAY
+          ) ++ intToDay(thur, DayOfWeek.THURSDAY) ++ intToDay(fri, DayOfWeek.FRIDAY) ++ intToDay(sat, DayOfWeek.FRIDAY)
+        )
+        .fold[Either[String, NonEmptySet[DayOfWeek]]](Left("No days scheduled"))(Right(_))
+    case _ => Left("Invalid day of week pattern")
+  }
+
   private final val manufacturer = "TP Link"
 
   private final val SetRelayState = "set_relay_state"
@@ -74,6 +110,9 @@ object TplinkDevice {
   final val BulbTemp = "color_temp"
   final val BulbSwitchOnCommand = s"""{"$BulbCommandKey":{"$SetBulbState":{"$BulbOnOff":1}}}}"""
   final val BulbSwitchOffCommand = s"""{"$BulbCommandKey":{"$SetBulbState":{"$BulbOnOff":0}}}}"""
+  final val Schedule = "schedule"
+  final val AddRule = "add_rule"
+  final val EditRule = "edit_rule"
 
   private final val maxBrightness = 100
   private final val minBrightness = 0
@@ -172,6 +211,93 @@ object TplinkDevice {
             id = Some(id),
             `type` = SwitchType.Plug
           )
+
+        private val dayOfWeekPattern: DayOfWeek => List[Int] = {
+          case DayOfWeek.SUNDAY => List(1, 0, 0, 0, 0, 0, 0)
+          case DayOfWeek.MONDAY => List(0, 1, 0, 0, 0, 0, 0)
+          case DayOfWeek.TUESDAY => List(0, 0, 1, 0, 0, 0, 0)
+          case DayOfWeek.WEDNESDAY => List(0, 0, 0, 1, 0, 0, 0)
+          case DayOfWeek.THURSDAY => List(0, 0, 0, 0, 1, 0, 0)
+          case DayOfWeek.FRIDAY => List(0, 0, 0, 0, 0, 1, 0)
+          case DayOfWeek.SATURDAY => List(0, 0, 0, 0, 0, 0, 1)
+        }
+
+        private def daysPattern(days: Days) =
+          days.toSortedSet.foldLeft(List.fill(7)(0)) {
+            case (acc, day) =>
+              acc.zip(dayOfWeekPattern(day)).map { case (x, y) => x + y }
+          }
+
+        private def hourMinute(hour: Hour, minute: Minute) = (hour * 60) + minute
+
+        override def scheduleAction(time: Time, state: State): F[String] =
+          tplink
+            .sendCommand(
+              s"""{"$Schedule":{"$AddRule":{"stime_opt":0,"wday":${daysPattern(time.days).asJson},"smin":${hourMinute(
+                time.hourOfDay,
+                time.minuteOfHour
+              )},"enable":1,"repeat":1,"etime_opt":-1,"name":"controller","eact":-1,"month":0,"sact":${state.intValue},"year":0,"longitude":0,"day":0,"force":0,"latitude":0,"emin":0},"set_overall_enable":{"enable":1}}}"""
+            )
+            .flatMap { response =>
+              val cursor = response.hcursor.downField(Schedule).downField(AddRule).downField("id")
+              cursor.focus match {
+                case None =>
+                  tplink.parseSetResponse(Schedule, AddRule)(response) *> errors.missingJson(name, cursor.history)
+                case Some(id) => id.as[String].fold(errors.decodingFailure(name, _), Applicative[F].pure)
+              }
+            }
+
+        override def updateAction(id: String, time: Time, state: State): F[Unit] =
+          tplink
+            .sendCommand(
+              s"""{"$Schedule":{"$EditRule":{"stime_opt":0,"wday":${daysPattern(time.days).asJson},"smin":${hourMinute(
+                time.hourOfDay,
+                time.minuteOfHour
+              )},"enable":1,"repeat":1,"etime_opt":-1,"id":"$id","name":"lights on","eact":-1,"month":0,"sact":${state.intValue},"year":0,"longitude":0,"day":0,"force":0,"latitude":0,"emin":0}}}"""
+            )
+            .flatMap(tplink.parseSetResponse(Schedule, EditRule))
+
+        override def deleteSchedule(id: String): F[Option[Unit]] =
+          tplink
+            .sendCommand(s"""{"$Schedule":{"delete_rule":{"id":"$id"}}}""")
+            .map(
+              _.hcursor
+                .downField(Schedule)
+                .downField("delete_rule")
+                .get[Int]("err_code")
+                .fold[Option[Unit]](_ => Some(()), code => if (code == -14) None else Some(()))
+            )
+
+        private def schedules: F[List[(String, Json)]] =
+          tplink
+            .sendCommand(s"""{"$Schedule":{"get_rules":null}}""")
+            .flatMap { json =>
+              json.hcursor
+                .downField(Schedule)
+                .downField("get_rules")
+                .downField("rule_list")
+                .as[List[Json]]
+                .flatMap(_.traverse[Either[DecodingFailure, *], (String, Json)] { json =>
+                  json.hcursor.get[String]("id").map(_ -> json)
+
+                })
+                .fold(errors.decodingFailure(name, _), Applicative[F].pure(_))
+            }
+
+        override def scheduleInfo(id: String): F[Option[(NonEmptyString, NonEmptyString, Time, State)]] =
+          schedules.flatMap(_.collectFirst { case (i, json) if i == id => json } match {
+            case None => Applicative[F].pure(None)
+            case Some(json) =>
+              val cursor = json.hcursor
+              (for {
+                day <- cursor.downField("wday").as[Days]
+                (hour, minute) <- cursor.downField("smin").as[(Hour, Minute)]
+                state <- cursor.downField("sact").as[State]
+              } yield Some((device, name, Time(day, hour, minute), state)))
+                .fold(errors.decodingFailure(name, _), Applicative[F].pure)
+          })
+
+        override def listSchedules: F[List[String]] = schedules.map(_.map(_._1))
       }
   }
 
