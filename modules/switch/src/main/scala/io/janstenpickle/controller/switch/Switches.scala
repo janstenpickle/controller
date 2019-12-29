@@ -4,6 +4,7 @@ import cats.{~>, Applicative, Monad}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.semigroup._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.model.SwitchKey
@@ -27,15 +28,19 @@ trait Switches[F[_]] { outer =>
   }
 }
 
+trait AppendableSwitches[F[_]] extends Switches[F] {
+  def addProvider(switchProvider: SwitchProvider[F]): AppendableSwitches[F]
+}
+
 object Switches {
-  def apply[F[_]: Monad: SwitchErrors: Trace](switches: SwitchProvider[F]): Switches[F] =
+  def apply[F[_]: Monad: SwitchErrors: Trace](switches: SwitchProvider[F]): AppendableSwitches[F] =
     apply(switches, (_: SwitchKey) => Applicative[F].unit)
 
   def apply[F[_]: Monad](
     switches: SwitchProvider[F],
     onSwitchUpdate: SwitchKey => F[Unit]
-  )(implicit errors: SwitchErrors[F], trace: Trace[F]): Switches[F] =
-    new Switches[F] {
+  )(implicit errors: SwitchErrors[F], trace: Trace[F]): AppendableSwitches[F] =
+    new AppendableSwitches[F] {
       private def span[A](name: String, device: NonEmptyString, switch: NonEmptyString)(fa: F[A]): F[A] =
         trace.span(name)(trace.put("device" -> device.value, "switch" -> switch.value) *> fa)
 
@@ -78,5 +83,8 @@ object Switches {
         trace.span("switches.list") {
           switches.getSwitches.map(_.keySet).flatTap(sw => trace.put("count" -> sw.size))
         }
+
+      override def addProvider(switchProvider: SwitchProvider[F]): AppendableSwitches[F] =
+        apply(switches |+| switchProvider, onSwitchUpdate)
     }
 }

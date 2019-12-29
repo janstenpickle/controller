@@ -8,7 +8,7 @@ import fs2.concurrent.Topic
 import io.janstenpickle.controller.`macro`.{Macro, MacroErrors}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.{Activity => ActivityModel, Button, Remote}
+import io.janstenpickle.controller.model.{Button, Remote, Activity => ActivityModel}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.stats.`macro`.{MacroPoller, MacroStats, MacroStatsRecorder}
 import io.janstenpickle.controller.stats.activity.{ActivityPoller, ActivityStats, ActivityStatsRecorder}
@@ -16,7 +16,7 @@ import io.janstenpickle.controller.stats.button.ButtonPoller
 import io.janstenpickle.controller.stats.remote.{RemoteControlsStats, RemoteStatsRecorder, RemotesPoller}
 import io.janstenpickle.controller.stats.switch.{SwitchStatsRecorder, SwitchesPoller, SwitchesStats}
 import io.janstenpickle.controller.store.MacroStore
-import io.janstenpickle.controller.switch.{SwitchProvider, Switches}
+import io.janstenpickle.controller.switch.{AppendableSwitches, SwitchProvider, Switches}
 
 import scala.concurrent.duration._
 
@@ -38,14 +38,14 @@ object StatsStream {
     activity: Activity[F],
     `macro`: Macro[F],
     remote: RemoteControls[F],
-    switch: Switches[F],
+    switch: AppendableSwitches[F],
     statsStream: Stream[F, Stats]
   )
 
   def apply[F[_]: Concurrent: Timer: MacroErrors](
     config: Config,
     remote: RemoteControls[F],
-    switch: Switches[F],
+    switch: AppendableSwitches[F],
     activities: ConfigSource[F, String, ActivityModel],
     buttons: ConfigSource[F, String, Button],
     macros: MacroStore[F],
@@ -60,7 +60,7 @@ object StatsStream {
       mr: MacroStatsRecorder[F],
       rr: RemoteStatsRecorder[F],
       switchStatsRecorder: SwitchStatsRecorder[F]
-    ): (Activity[F], Macro[F], RemoteControls[F], Switches[F]) = {
+    ): (Activity[F], Macro[F], RemoteControls[F], AppendableSwitches[F]) = {
       val instrumentedRemotes = RemoteControlsStats(remote)
       val instrumentedSwitches = SwitchesStats(switch)
       val instrumentedMacro = MacroStats(makeMacro(instrumentedRemotes, instrumentedSwitches))

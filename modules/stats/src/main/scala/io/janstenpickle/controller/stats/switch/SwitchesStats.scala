@@ -4,13 +4,15 @@ import cats.Apply
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
-import io.janstenpickle.controller.switch.{Metadata, Switches}
+import io.janstenpickle.controller.switch.{AppendableSwitches, Metadata, SwitchProvider, Switches}
 import io.janstenpickle.controller.switch.model.SwitchKey
 
 object SwitchesStats {
 
-  def apply[F[_]: Apply](underlying: Switches[F])(implicit stats: SwitchStatsRecorder[F]): Switches[F] =
-    new Switches[F] {
+  def apply[F[_]: Apply](
+    underlying: AppendableSwitches[F]
+  )(implicit stats: SwitchStatsRecorder[F]): AppendableSwitches[F] =
+    new AppendableSwitches[F] {
 
       override def switchOn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
         underlying.switchOn(device, name) *> stats.recordSwitchOn(device, name)
@@ -27,5 +29,8 @@ object SwitchesStats {
         underlying.getMetadata(device, name)
 
       override def list: F[Set[SwitchKey]] = underlying.list
+
+      override def addProvider(switchProvider: SwitchProvider[F]): AppendableSwitches[F] =
+        underlying.addProvider(switchProvider)
     }
 }

@@ -37,7 +37,7 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
 import io.janstenpickle.controller.`macro`.Macro
-import io.janstenpickle.controller.activity.Activity
+import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
 import io.janstenpickle.controller.api.config.Configuration
 import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter}
@@ -584,6 +584,15 @@ object Module {
         (r, s) => Macro[F](macroStore, r, s)
       )(statsConfigUpdate, statsSwitchUpdate)
 
+      (activity, activitySwitchProvider) = ActivitySwitchProvider[F](
+        instrumentation.activity,
+        combinedActivityConfig,
+        instrumentation.`macro`,
+        notifySwitchUpdate
+      )
+
+      allSwitches = instrumentation.switch.addProvider(activitySwitchProvider)
+
       l <- Resource.liftF(Slf4jLogger.fromName[F]("stats"))
       configService <- Resource.liftF(
         ConfigService(
@@ -592,8 +601,8 @@ object Module {
           combinedRemoteConfig,
           macroStore,
           activityStore,
-          switches,
-          new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, instrumentation.switch)
+          allSwitches,
+          new ConfigValidation(combinedActivityConfig, instrumentation.remote, macroStore, allSwitches)
         )
       )
 
@@ -602,9 +611,9 @@ object Module {
       val router =
         Router(
           "/control/remote" -> new RemoteApi[F](instrumentation.remote).routes,
-          "/control/switch" -> new SwitchApi[F](instrumentation.switch).routes,
+          "/control/switch" -> new SwitchApi[F](allSwitches).routes,
           "/control/macro" -> new MacroApi[F](instrumentation.`macro`).routes,
-          "/control/activity" -> new ActivityApi[F](instrumentation.activity, combinedActivityConfig).routes,
+          "/control/activity" -> new ActivityApi[F](activity, combinedActivityConfig).routes,
           "/control/context" -> new ContextApi[F](
             instrumentation.activity,
             instrumentation.`macro`,
@@ -634,12 +643,7 @@ object Module {
       }
 
       val homekit = ControllerHomekitServer
-        .stream[F, G](
-          config.homekit,
-          homekitConfigFileSource,
-          instrumentation.switch,
-          switchUpdate.subscribe(1000).unNone
-        )
+        .stream[F, G](config.homekit, homekitConfigFileSource, allSwitches, switchUpdate.subscribe(1000).unNone)
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
             (
