@@ -33,9 +33,15 @@ export const buttonSubmit = (
     return acc;
   };
 
-  const buttons = remote.buttons.reduce(reducer, []);
+  const buttons = () => {
+    if (remote.buttons.length === 0) {
+     return [button]
+    } else {
+     return remote.buttons.reduce(reducer, []);
+    }
+  }
 
-  remote.buttons = buttons;
+  remote.buttons = buttons();
 
   updateRemote(remote, onSuccess);
 };

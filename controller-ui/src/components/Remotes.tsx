@@ -13,7 +13,7 @@ import { TSMap } from "typescript-map";
 import { macrosAPI } from "../api/macros";
 import { remoteCommandsAPI } from "../api/remotecontrol";
 import { switchesApi } from "../api/switch";
-// import AddButtonDialog from "./AddButtonDialog";
+import AddButtonDialog from "./AddButtonDialog";
 import EditButtonDialog from "./EditButtonDialog";
 import Alert from "./Alert";
 import Confirmation from "./Confirmation";
@@ -68,6 +68,7 @@ interface RemotesState {
   alertOpen: boolean;
   alertMessage?: string;
   confirmOpen: boolean;
+  remoteName?: string;
 }
 
 export default class Remotes extends React.Component<Props, RemotesState> {
@@ -85,7 +86,8 @@ export default class Remotes extends React.Component<Props, RemotesState> {
     buttonIndex: -1,
     button: undefined,
     alertOpen: false,
-    confirmOpen: false
+    confirmOpen: false,
+    remoteName: undefined
   };
 
   state = this.defaultState;
@@ -103,6 +105,21 @@ export default class Remotes extends React.Component<Props, RemotesState> {
                 .then(remoteCommands => [macros, remoteCommands, switches])
             )
         );
+
+      const deleteRemote = () => {
+          const remote = this.state.remoteName;
+          this.setState(this.defaultState);
+          if (remote) {
+            fetch(
+              `${baseURL}/config/remote/${remote}`,
+              { method: "DELETE" }
+            ).then(res => {
+              if (!res.ok) {
+                res.text().then(text => alert(`Failed to delete remote: ${text}`));
+              }
+            });
+          }
+        };
 
     const alert = (message: string) =>
       this.setState({ alertMessage: message, alertOpen: true });
@@ -205,7 +222,8 @@ export default class Remotes extends React.Component<Props, RemotesState> {
                 className="icon material-icons button-delete"
                 onClick={() =>
                   this.setState({
-                    confirmOpen: true
+                    confirmOpen: true,
+                    remoteName: data.name
                   })
                 }
                 hidden={!(this.props.editMode && data.editable)}
@@ -414,30 +432,29 @@ export default class Remotes extends React.Component<Props, RemotesState> {
     };
 
     const addButton = () => {
-      // const remote = this.state.buttonRemote;
+      const remote = this.state.buttonRemote;
 
-      // if (remote) {
-      //   return (
-      //     <AddButtonDialog
-      //       isOpen={this.state.buttonAddMode}
-      //       onRequestClose={() => this.setState(this.defaultState)}
-      //       buttons={remote.buttons.map(button => button.name)}
-      //       onSuccess={(button: RemoteButtons, index: number) => {
-      //         this.setState(this.defaultState);
-      //         buttonSubmit(
-      //           remote,
-      //           button,
-      //           index,
-      //           this.props.updateRemote,
-      //           false
-      //         );
-      //       }}
-      //     ></AddButtonDialog>
-      //   );
-      // } else {
-      //   return <React.Fragment></React.Fragment>;
-      // }
-      return <React.Fragment></React.Fragment>
+      if (remote) {
+        return (
+          <AddButtonDialog
+            isOpen={this.state.buttonAddMode}
+            onRequestClose={() => this.setState(this.defaultState)}
+            buttons={remote.buttons.map(button => button.name)}
+            onSuccess={(button: RemoteButtons, index: number) => {
+              this.setState(this.defaultState);
+              buttonSubmit(
+                remote,
+                button,
+                index,
+                this.props.updateRemote,
+                false
+              );
+            }}
+          ></AddButtonDialog>
+        );
+      } else {
+        return <React.Fragment></React.Fragment>;
+      }
     };
 
     const modalContent = () => {
@@ -460,8 +477,14 @@ export default class Remotes extends React.Component<Props, RemotesState> {
         <Confirmation
           isOpen={this.state.confirmOpen}
           message="Are you sure you want to delete this remote?"
-          onCancel={() => this.setState({ confirmOpen: false })}
-          onOk={() => this.setState({ confirmOpen: false })}
+          onCancel={() => this.setState({ 
+            confirmOpen: false,
+            remoteName: undefined
+          })}
+          onOk={() => {
+            this.setState({ confirmOpen: false });
+            deleteRemote();
+          }}
         ></Confirmation>
         <ResponsiveReactGridLayout
           className="layout"
