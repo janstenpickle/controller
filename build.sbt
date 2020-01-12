@@ -1,6 +1,6 @@
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
-val catsVer = "2.0.0"
+val catsVer = "2.1.0"
 val catsEffectVer = "2.0.0"
 val circeVer = "0.12.1"
 val collectionCompatVer = "2.1.2"
