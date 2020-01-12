@@ -49,7 +49,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     val stream = Stream
       .fixedRate[F](interval)
       .map(_ => true)
-      .mergeHaltBoth(topic.subscribe(1))
+      .mergeHaltBoth(topic.subscribe(0))
       .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op())(errorMap))
       .map(as => Text(encode(as).noSpaces))
       .translate(lowerName)
