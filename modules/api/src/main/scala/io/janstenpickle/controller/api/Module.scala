@@ -50,6 +50,7 @@ import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.configsource.extruder._
+import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
@@ -73,6 +74,9 @@ import io.janstenpickle.controller.tplink.TplinkComponents
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
 import io.janstenpickle.controller.trace.instances._
+import io.janstenpickle.deconz.DeconzBridge
+import io.janstenpickle.deconz.action.{LogActionProcessor, MacroActionProcessor}
+import io.janstenpickle.deconz.config.ExtruderButtonMappingConfigSource
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
@@ -147,7 +151,7 @@ object Module {
     client: Client[F],
     registry: CollectorRegistry
   )(
-    implicit F: Concurrent[F]
+    implicit F: ConcurrentEffect[F]
   ): Resource[F, (Configuration.Server, HttpRoutes[F], CollectorRegistry, Stream[F, Unit], Homekit[F])] = {
     type G[A] = Kleisli[F, Span[F], A]
 
@@ -166,7 +170,7 @@ object Module {
     }
   }
 
-  private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: Concurrent: ContextShift: Timer](
+  private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: ConcurrentEffect: ContextShift: Timer](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
     client: Client[F],
     registry: CollectorRegistry
@@ -249,7 +253,7 @@ object Module {
     }
   }
 
-  private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: Concurrent: ContextShift: Timer](
+  private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: ConcurrentEffect: ContextShift: Timer](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
     client: Client[F],
     registry: CollectorRegistry
@@ -396,6 +400,20 @@ object Module {
         )
 
       scheduleConfig <- ExtruderScheduleConfigSource[F, G](scheduleConfigFileSource, config.config.polling, _ => F.unit)
+
+      deconzConfigFileSource <- ConfigFileSource
+        .polling[F, G](
+          config.config.dir.resolve("deconz"),
+          config.config.polling.pollInterval,
+          workBlocker,
+          config.config.writeTimeout
+        )
+
+      deconzConfig <- ExtruderButtonMappingConfigSource[F, G](
+        deconzConfigFileSource,
+        config.config.polling,
+        _ => F.unit
+      )
 
       activityStore <- ExtruderCurrentActivityConfigSource[F, G](
         currentActivityConfigFileSource,
@@ -607,6 +625,16 @@ object Module {
       )
 
       cronScheduler <- CronScheduler[F, G](instrumentation.`macro`, scheduleConfig)
+
+      context = Context[F](
+        instrumentation.activity,
+        instrumentation.`macro`,
+        instrumentation.remote,
+        instrumentation.switch,
+        combinedActivityConfig
+      )
+      actionProcessor <- Resource.liftF(MacroActionProcessor[F](deconzConfig, instrumentation.`macro`, context))
+      _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
     } yield {
       val router =
         Router(
@@ -614,13 +642,7 @@ object Module {
           "/control/switch" -> new SwitchApi[F](allSwitches).routes,
           "/control/macro" -> new MacroApi[F](instrumentation.`macro`).routes,
           "/control/activity" -> new ActivityApi[F](activity, combinedActivityConfig).routes,
-          "/control/context" -> new ContextApi[F](
-            instrumentation.activity,
-            instrumentation.`macro`,
-            instrumentation.remote,
-            instrumentation.switch,
-            combinedActivityConfig
-          ).routes,
+          "/control/context" -> new ContextApi[F](context).routes,
           "/config" -> new ConfigApi[F, G](
             configService,
             UpdateTopics(activitiesUpdate, buttonsUpdate, remotesUpdate, roomsUpdate)

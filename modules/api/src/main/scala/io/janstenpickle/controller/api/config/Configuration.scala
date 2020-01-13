@@ -25,6 +25,7 @@ import io.janstenpickle.controller.stats.StatsStream
 import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
 import io.janstenpickle.controller.tplink.TplinkComponents
+import io.janstenpickle.deconz.DeconzBridge
 
 import scala.concurrent.duration._
 import scala.util.Try
@@ -41,7 +42,8 @@ object Configuration {
     activity: Activity,
     stats: StatsStream.Config,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
-    homekit: ControllerHomekitServer.Config
+    homekit: ControllerHomekitServer.Config,
+    deconz: Option[DeconzBridge.Config],
   )
 
   case class Activity(dependentSwitches: Map[Room, SwitchKey] = Map.empty)

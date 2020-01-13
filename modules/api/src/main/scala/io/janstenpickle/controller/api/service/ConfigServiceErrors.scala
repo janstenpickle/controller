@@ -3,8 +3,9 @@ package io.janstenpickle.controller.api.service
 import cats.data.NonEmptyList
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.api.validation
+import io.janstenpickle.controller.errors.ErrorHandler
 
-trait ConfigServiceErrors[F[_]] {
+trait ConfigServiceErrors[F[_]] { self: ErrorHandler[F] =>
   def configValidationFailed[A](failures: NonEmptyList[validation.ConfigValidation.ValidationFailure]): F[A]
   def remoteAlreadyExists[A](remote: NonEmptyString): F[A]
   def remoteMissing[A](remote: NonEmptyString): F[A]
