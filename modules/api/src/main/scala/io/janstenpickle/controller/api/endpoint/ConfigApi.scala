@@ -1,20 +1,19 @@
 package io.janstenpickle.controller.api.endpoint
 
 import cats.data.ValidatedNel
-import cats.effect.{Concurrent, Timer}
+import cats.effect.{Concurrent, Resource, Timer}
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.apply._
+import cats.effect.syntax.concurrent._
 import cats.~>
-import eu.timepit.refined.collection.NonEmpty
-import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe._
 import extruder.refined._
 import fs2.Stream
-import fs2.concurrent.Topic
+import fs2.concurrent.{Queue, Topic}
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.api.trace.Http4sUtils
 import io.janstenpickle.controller.api.service.ConfigService
@@ -38,30 +37,29 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
 ) extends Common[F] {
   import ConfigApi._
 
-  private def stream[A: DSEncoder](
-    req: Request[F],
-    topic: Topic[F, Boolean],
-    op: () => F[A],
-    errorMap: ControlError => A
-  )(interval: FiniteDuration): F[Response[F]] = {
+  private def stream[A: DSEncoder](req: Request[F], topic: Topic[F, Boolean], op: F[A], errorMap: ControlError => A)(
+    interval: FiniteDuration
+  ): F[Response[F]] = {
     val lowerName: F ~> G = liftLower.lower(req.uri.path)
 
-    val stream = Stream
-      .fixedRate[F](interval)
-      .map(_ => true)
-      .mergeHaltBoth(topic.subscribe(0))
-      .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op())(errorMap))
-      .map(as => Text(encode(as).noSpaces))
-      .translate(lowerName)
-
     // create a websocket which reads from the queue and stops the fiber when the connection is closed
+    val stream = (for {
+      q <- Stream.eval(Queue.circularBuffer[F, Boolean](10))
+      _ <- Stream.resource(Resource.make(topic.subscribe(1).through(q.enqueue).compile.drain.start)(_.cancel))
+      data <- Stream
+        .fixedRate[F](interval)
+        .map(_ => true)
+        .mergeHaltBoth(q.dequeue)
+        .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
+        .map(as => Text(encode(as).noSpaces))
+    } yield data).translate(lowerName)
 
     liftLower
       .lift(
         WebSocketBuilder[G]
           .build(
             stream,
-            _.map(_ => ()) // throw away input from listener and stop the stream after a defined duration
+            _.map(_ => ()) // throw away input from listener
           )
       )
       .map(_.mapK(liftLower.lift))
@@ -88,7 +86,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
         stream(
           req,
           updateTopics.activities,
-          () => service.getActivities,
+          service.getActivities,
           err => ConfigResult[String, Activity](Map.empty, List(err.message))
         )
       )
@@ -109,7 +107,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
         stream(
           req,
           updateTopics.remotes,
-          () => service.getRemotes,
+          service.getRemotes,
           err => ConfigResult[NonEmptyString, Remote](Map.empty, List(err.message))
         )
       )
@@ -129,7 +127,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
         stream(
           req,
           updateTopics.buttons,
-          () => service.getCommonButtons,
+          service.getCommonButtons,
           err => ConfigResult[String, Button](Map.empty, List(err.message))
         )
       )
@@ -137,7 +135,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     case req @ GET -> Root / "rooms" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(req, updateTopics.rooms, () => service.getRooms, err => Rooms(List.empty, List(err.message)))
+        stream(req, updateTopics.rooms, service.getRooms, err => Rooms(List.empty, List(err.message)))
       )
   }
 }

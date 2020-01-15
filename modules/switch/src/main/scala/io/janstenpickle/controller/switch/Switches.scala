@@ -76,7 +76,7 @@ object Switches {
 
       override def toggle(device: NonEmptyString, name: NonEmptyString): F[Unit] =
         span("switches.toggle", device, name) {
-          exec(device, name)(_.toggle) *> onSwitchUpdate(SwitchKey(device, name))
+          exec(device, name)(_.toggle) //*> onSwitchUpdate(SwitchKey(device, name))
         }
 
       override def list: F[Set[SwitchKey]] =

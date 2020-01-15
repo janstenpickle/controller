@@ -16,8 +16,10 @@ import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.`macro`.MacroErrors
 import io.janstenpickle.controller.api.service.ConfigServiceErrors
 import io.janstenpickle.controller.api.validation.ConfigValidation
+import io.janstenpickle.controller.context.ContextErrors
+import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.kodi.KodiErrors
-import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.model.{Room, State}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.switch.SwitchErrors
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
@@ -30,11 +32,13 @@ class ErrorInterpreter[F[_]: Apply](
 ) extends MacroErrors[F]
     with SwitchErrors[F]
     with RemoteControlErrors[F]
+    with ContextErrors[F]
     with TplinkDeviceErrors[F]
     with PollingSwitchErrors[F]
     with ExtruderErrors[F]
     with ConfigServiceErrors[F]
-    with KodiErrors[F] {
+    with KodiErrors[F]
+    with ErrorHandler[F] {
 
   private def raise[A](error: ControlError): F[A] =
     error match {
@@ -44,6 +48,9 @@ class ErrorInterpreter[F[_]: Apply](
       case e @ ControlError.Combined(_, _) if e.isSevere => logger.warn(e.message) *> fr.raise(error)
       case ControlError.Combined(_, _) => fr.raise(error)
     }
+
+  override def handle[A](fa: F[A])(f: Throwable => A): F[A] = ah.handle(fa)(f)
+  override def handleWith[A](fa: F[A])(f: Throwable => F[A]): F[A] = ah.handleWith(fa)(f)
 
   override def missingMacro[A](name: NonEmptyString): F[A] =
     raise(ControlError.Missing(s"Macro '$name' not found"))
@@ -137,6 +144,12 @@ class ErrorInterpreter[F[_]: Apply](
 
   override def tpLinkCommandTimedOut[A](device: NonEmptyString): F[A] =
     raise(ControlError.Internal(s"TP Link command timed out to device '${device.value}''"))
+
+  override def activityNotSet[A](room: Room): F[A] =
+    raise(ControlError.Missing(s"Activity not currently set in room '$room"))
+
+  override def activityNotPresent[A](room: Room, activity: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Current activity '$activity' in room '$room' is not present in configuration"))
 }
 
 object ErrorInterpreter {

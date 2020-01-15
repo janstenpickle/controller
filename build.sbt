@@ -76,6 +76,7 @@ lazy val root = (project in file("."))
   .aggregate(
     api,
     model,
+    errors,
     components,
     remote,
     broadlink,
@@ -83,6 +84,7 @@ lazy val root = (project in file("."))
     remoteControl,
     extruderConfigSource,
     `macro`,
+    context,
     activity,
     tplink,
     poller,
@@ -98,6 +100,7 @@ lazy val root = (project in file("."))
     prometheusStats,
     gitRemoteStore,
     homekit,
+    deconzBridge,
     hapJavaSubmodule
   )
 
@@ -147,6 +150,7 @@ lazy val api = (project in file("modules/api"))
     extruderConfigSource,
     gitRemoteStore,
     `macro`,
+    context,
     activity,
     sonos,
     kodi,
@@ -157,7 +161,8 @@ lazy val api = (project in file("modules/api"))
     prometheusTrace,
     trace,
     homekit,
-    cronScheduler
+    cronScheduler,
+    deconzBridge
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
@@ -171,6 +176,10 @@ lazy val model = (project in file("modules/model"))
       "org.typelevel" %% "kittens"   % kittensVer
     )
   )
+
+lazy val errors = (project in file("modules/errors"))
+  .settings(commonSettings)
+  .settings(name := "controller-errors")
 
 lazy val components = (project in file("modules/components"))
   .settings(commonSettings)
@@ -222,7 +231,7 @@ lazy val extruderConfigSource = (project in file("modules/extruder-config-source
 lazy val remote = (project in file("modules/remote"))
   .settings(commonSettings)
   .settings(name := "controller-remote")
-  .dependsOn(model)
+  .dependsOn(model, errors)
 
 lazy val arrow = (project in file("modules/arrow"))
   .settings(commonSettings)
@@ -271,7 +280,7 @@ lazy val switch = (project in file("modules/switch"))
       "org.tpolecat"  %% "natchez-core" % natchezVer
     )
   )
-  .dependsOn(model)
+  .dependsOn(model, errors)
 
 lazy val pollingSwitch = (project in file("modules/polling-switch"))
   .settings(commonSettings)
@@ -301,6 +310,23 @@ lazy val multiSwitch = (project in file("modules/multi-switch"))
   .settings(commonSettings)
   .settings(name := "controller-multi-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
   .dependsOn(configSource, switch, tracedSwitch)
+
+lazy val deconzBridge = (project in file("modules/deconz-bridge"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-deconz-bridge",
+    libraryDependencies ++= Seq(
+      "eu.timepit"                   %% "refined"                       % refinedVer,
+      "eu.timepit"                   %% "refined-cats"                  % refinedVer,
+      "org.typelevel"                %% "kittens"                       % kittensVer,
+      "io.chrisdavenport"            %% "log4cats-slf4j"                % log4catsVer,
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % "2.0.0-RC6",
+      "io.circe"                     %% "circe-parser"                  % circeVer,
+      "io.circe"                     %% "circe-generic"                 % circeVer,
+      "org.tpolecat"                 %% "natchez-core"                  % natchezVer
+    )
+  )
+  .dependsOn(arrow, model, context, `macro`, extruderConfigSource)
 
 lazy val tracedSwitch = (project in file("modules/trace-switch"))
   .settings(commonSettings)
@@ -368,7 +394,12 @@ lazy val `macro` = (project in file("modules/macro"))
       "org.tpolecat"  %% "natchez-core" % natchezVer
     )
   )
-  .dependsOn(remoteControl, switch, store, configSource)
+  .dependsOn(remoteControl, switch, store, configSource, errors)
+
+lazy val context = (project in file("modules/context"))
+  .settings(commonSettings)
+  .settings(name := "controller-context")
+  .dependsOn(activity, `macro`)
 
 lazy val activity = (project in file("modules/activity"))
   .settings(commonSettings)
