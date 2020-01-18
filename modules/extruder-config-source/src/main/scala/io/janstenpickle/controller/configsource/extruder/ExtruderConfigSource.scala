@@ -29,6 +29,8 @@ import scala.collection.compat._
 object ExtruderConfigSource {
   case class PollingConfig(pollInterval: FiniteDuration = 10.seconds)
 
+  case class Diff[K, V](removed: List[(K, V)], added: List[(K, V)], updated: List[(K, V)])
+
   private def decode[F[_], K, V](
     configFile: ConfigFileSource[F],
     decoder: Decoder[EffectValidation[F, *], Settings, ConfigResult[K, V], TConfig],
@@ -73,11 +75,11 @@ object ExtruderConfigSource {
       }
   }
 
-  def polling[F[_]: Trace, G[_]: Concurrent: Timer, K, V](
+  def polling[F[_]: Trace, G[_]: Concurrent: Timer, K, V: Eq](
     name: String,
     config: PollingConfig,
     configFileSource: ConfigFileSource[F],
-    onUpdate: ConfigResult[K, V] => F[Unit],
+    onUpdate: Diff[K, V] => F[Unit],
     decoder: Decoder[EffectValidation[F, *], Settings, ConfigResult[K, V], TConfig],
     encoder: Encoder[F, Settings, ConfigResult[K, V], Config]
   )(
@@ -87,48 +89,67 @@ object ExtruderConfigSource {
     monoid: Monoid[ConfigResult[K, V]],
     setEditable: SetEditable[V]
   ): Resource[F, WritableConfigSource[F, K, V]] =
-    Resource.liftF(Slf4jLogger.fromName[F](s"${name}ConfigSource")).flatMap { implicit logger =>
-      val source = decode[F, K, V](configFileSource, decoder, logger)
-      val sink = encode[F, K, V](configFileSource, encoder)
+    Resource
+      .liftF(Slf4jLogger.fromName[F](s"${name}ConfigSource"))
+      .flatMap { implicit logger =>
+        val source = decode[F, K, V](configFileSource, decoder, logger)
+        val sink = encode[F, K, V](configFileSource, encoder)
 
-      DataPoller.traced[F, G, ConfigResult[K, V], WritableConfigSource[F, K, V]](name, "type" -> "extruder.config")(
-        (data: Data[ConfigResult[K, V]]) => source(data.value),
-        config.pollInterval,
-        PosInt(1),
-        (data: Data[ConfigResult[K, V]], th: Throwable) => F.pure(data.value.copy(errors = List(th.getMessage))),
-        onUpdate
-      ) { (getData, update) =>
-        TracedConfigSource.writable(
-          new WritableConfigSource[F, K, V] {
-            override def functor: Functor[F] = F
+        DataPoller.traced[F, G, ConfigResult[K, V], WritableConfigSource[F, K, V]](name, "type" -> "extruder.config")(
+          (data: Data[ConfigResult[K, V]]) => source(data.value),
+          config.pollInterval,
+          PosInt(1),
+          (data: Data[ConfigResult[K, V]], th: Throwable) => F.pure(data.value.copy(errors = List(th.getMessage))),
+          (o: ConfigResult[K, V], n: ConfigResult[K, V]) => {
+            val oldList = o.values.toList
+            val newList = n.values.toList
+            val updatedList =
+              o.values.filter { case (k, v) => n.values.contains(k) && Eq[V].neqv(v, n.values(k)) }.toList
 
-            override def getConfig: F[ConfigResult[K, V]] = getData().map { cr =>
-              ConfigResult(cr.values.view.mapValues(setEditable.set(_)(editable = true)).toMap, cr.errors)
-            }
-            override def setConfig(a: Map[K, V]): F[Unit] = {
-              val newConfig = ConfigResult(a, List.empty)
-              sink(newConfig) *> update(newConfig)
-            }
-            override def mergeConfig(a: Map[K, V]): F[ConfigResult[K, V]] = getData().flatMap { current =>
-              val updated = monoid.combine(ConfigResult(a, List.empty), current)
-              sink(updated).as(updated)
-            }
-            override def deleteItem(key: K): F[ConfigResult[K, V]] = getData().flatMap { a =>
-              val updated = a.copy(values = a.values - key)
-              sink(updated).as(updated)
-            }
+            onUpdate(Diff(oldList.diff(newList), newList.diff(oldList), updatedList))
+          }
+        ) { (getData, update) =>
+          TracedConfigSource.writable(
+            new WritableConfigSource[F, K, V] {
+              override def functor: Functor[F] = F
 
-            override def upsert(key: K, value: V): F[ConfigResult[K, V]] = getData().flatMap { a =>
-              val updated = a.copy(values = a.values.updated(key, value))
-              sink(updated) *> update(updated).as(updated)
-            }
+              override def getConfig: F[ConfigResult[K, V]] = getData().map { cr =>
+                ConfigResult(cr.values.view.mapValues(setEditable.set(_)(editable = true)).toMap, cr.errors)
+              }
+              override def setConfig(a: Map[K, V]): F[Unit] = {
+                val newConfig = ConfigResult(a, List.empty)
+                sink(newConfig) *> update(newConfig)
+              }
+              override def mergeConfig(a: Map[K, V]): F[ConfigResult[K, V]] = getData().flatMap { current =>
+                val updated = monoid.combine(ConfigResult(a, List.empty), current)
+                sink(updated).as(updated)
+              }
+              override def deleteItem(key: K): F[ConfigResult[K, V]] = getData().flatMap { a =>
+                val updated = a.copy(values = a.values - key)
+                sink(updated).as(updated)
+              }
 
-            override def getValue(key: K): F[Option[V]] = getData().map(_.values.get(key))
-          },
-          name,
-          "extruder"
-        )
+              override def upsert(key: K, value: V): F[ConfigResult[K, V]] = getData().flatMap { a =>
+                val updated = a.copy(values = a.values.updated(key, value))
+                sink(updated) *> update(updated).as(updated)
+              }
+
+              override def getValue(key: K): F[Option[V]] = getData().map(_.values.get(key))
+            },
+            name,
+            "extruder"
+          )
+        }
       }
-    }
+      .flatMap { cs =>
+        Resource
+          .make(F.unit)(
+            _ =>
+              cs.getConfig.flatMap { result =>
+                onUpdate(Diff(result.values.toList, List.empty, List.empty))
+            }
+          )
+          .map(_ => cs)
+      }
 
 }

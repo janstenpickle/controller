@@ -1,12 +1,15 @@
 package io.janstenpickle.controller.discovery
 
+import cats.effect.Clock
 import cats.instances.option._
 import cats.instances.unit._
 import cats.kernel.Monoid
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.semigroup._
-import cats.{Applicative, FlatMap, Parallel}
+import cats.{Applicative, Apply, FlatMap, Parallel}
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import natchez.TraceValue.StringValue
 import natchez.{Trace, TraceValue}
@@ -22,6 +25,17 @@ object DeviceRename {
     override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] = F.pure(None)
     override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = F.pure(Map.empty)
     override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] = F.pure(Map.empty)
+  }
+
+  def evented[F[_]: FlatMap: Clock](
+    underlying: DeviceRename[F],
+    discoveryEventProducer: EventPublisher[F, DeviceDiscoveryEvent]
+  ): DeviceRename[F] = new DeviceRename[F] {
+    override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
+      underlying.rename(k, v).flatTap(_ => discoveryEventProducer.publish1(DeviceDiscoveryEvent.DeviceDiscovered(k, v)))
+
+    override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = underlying.unassigned
+    override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] = underlying.assigned
   }
 
   def traced[F[_]: FlatMap](underlying: DeviceRename[F], source: String, extraFields: (String, TraceValue)*)(

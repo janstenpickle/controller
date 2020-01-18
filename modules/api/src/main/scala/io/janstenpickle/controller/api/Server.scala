@@ -5,6 +5,7 @@ import cats.effect.concurrent.Ref
 import cats.{~>, Id, Parallel}
 import extruder.data.ValidationErrors
 import fs2.Stream
+import io.janstenpickle.controller.api.environment.Module
 import io.janstenpickle.controller.api.Reloader.ExitSignal
 import io.janstenpickle.controller.api.config.{ConfigPoller, Configuration}
 import org.http4s.metrics.prometheus.Prometheus
@@ -31,7 +32,7 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
 ) {
   val run: Stream[F, ExitCode] = Reloader[F] { (reload, signal) =>
     for {
-      getConfig <- Stream.resource(ConfigPoller[F](configFile, _ => Sync[F].suspend(reload.set(true))))
+      getConfig <- Stream.resource(ConfigPoller[F](configFile, (_, _) => Sync[F].suspend(reload.set(true))))
       exitCode <- server(getConfig, signal)
     } yield exitCode
   }
@@ -42,7 +43,7 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
   ): Stream[F, ExitCode] =
     for {
       components <- Stream.resource(Module.components(getConfig))
-      (config, routes, registry, stats, homekit) = components
+      (config, routes, registry, homekit) = components
       prometheus <- Stream.resource(Prometheus.metricsOps(registry))
       instrumentedRoutes = Metrics(prometheus)(routes)
       exit <- Stream.eval(Ref[F].of(ExitCode.Success))
@@ -58,7 +59,6 @@ class Server[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
         .withIdleTimeout(config.idleTimeout)
         .withHttpApp(CORS(GZip(instrumentedRoutes.orNotFound), corsConfig))
         .serveWhile(signal, exit)
-        .concurrently(stats)
         .concurrently(homekit(fkFuture, fk, signal))
     } yield exitCode
 

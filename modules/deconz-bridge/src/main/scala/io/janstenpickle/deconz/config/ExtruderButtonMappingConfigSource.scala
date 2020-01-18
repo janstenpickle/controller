@@ -11,11 +11,10 @@ import extruder.typesafe.instances._
 import extruder.refined._
 import extruder.typesafe.IntermediateTypes.Config
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.configsource.extruder.{ExtruderConfigSource, KeySeparator}
-import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.PollingConfig
+import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.{Diff, PollingConfig}
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
 import io.janstenpickle.controller.extruder.ConfigFileSource
-import io.janstenpickle.deconz.model.{ButtonAction, ButtonMappingKey}
 import natchez.Trace
 
 object ExtruderButtonMappingConfigSource {
@@ -23,7 +22,7 @@ object ExtruderButtonMappingConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    onUpdate: ConfigResult[String, Set[ActionMapping]] => F[Unit]
+    onUpdate: Diff[String, Set[ActionMapping]] => F[Unit]
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, WritableConfigSource[F, String, Set[ActionMapping]]] = {

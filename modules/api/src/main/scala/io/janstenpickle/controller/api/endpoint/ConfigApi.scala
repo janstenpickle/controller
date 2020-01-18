@@ -8,7 +8,9 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.apply._
 import cats.effect.syntax.concurrent._
-import cats.~>
+import cats.{~>, Semigroupal}
+import eu.timepit.refined.collection.NonEmpty
+import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe._
 import extruder.refined._
@@ -17,10 +19,13 @@ import fs2.concurrent.{Queue, Topic}
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.api.trace.Http4sUtils
 import io.janstenpickle.controller.api.service.ConfigService
-import io.janstenpickle.controller.api.{UpdateTopics, ValidatingOptionalQueryParamDecoderMatcher}
+import io.janstenpickle.controller.api.ValidatingOptionalQueryParamDecoderMatcher
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.ConfigResult
+import io.janstenpickle.controller.events.{EventPubSub, EventSubscriber}
 import io.janstenpickle.controller.model._
+import io.janstenpickle.controller.model.event.ConfigEvent._
+import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, ConfigEvent, SwitchEvent}
 import natchez.Trace
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
@@ -28,7 +33,12 @@ import org.http4s.{HttpRoutes, ParseFailure, QueryParamDecoder, QueryParameterVa
 
 import scala.concurrent.duration._
 
-class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F], updateTopics: UpdateTopics[F])(
+class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
+  service: ConfigService[F],
+  activityPubSub: EventPubSub[F, ActivityUpdateEvent],
+  configEventPubSub: EventPubSub[F, ConfigEvent],
+  switchEventPubSub: EventPubSub[F, SwitchEvent]
+)(
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
@@ -37,22 +47,21 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
 ) extends Common[F] {
   import ConfigApi._
 
-  private def stream[A: DSEncoder](req: Request[F], topic: Topic[F, Boolean], op: F[A], errorMap: ControlError => A)(
-    interval: FiniteDuration
-  ): F[Response[F]] = {
+  private def subscriber[A: DSEncoder](
+    req: Request[F],
+    subscriptionStream: Stream[F, Boolean],
+    op: F[A],
+    errorMap: ControlError => A
+  )(interval: FiniteDuration) = {
     val lowerName: F ~> G = liftLower.lower(req.uri.path)
 
-    // create a websocket which reads from the queue and stops the fiber when the connection is closed
-    val stream = (for {
-      q <- Stream.eval(Queue.circularBuffer[F, Boolean](10))
-      _ <- Stream.resource(Resource.make(topic.subscribe(1).through(q.enqueue).compile.drain.start)(_.cancel))
-      data <- Stream
-        .fixedRate[F](interval)
-        .map(_ => true)
-        .mergeHaltBoth(q.dequeue)
-        .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
-        .map(as => Text(encode(as).noSpaces))
-    } yield data).translate(lowerName)
+    val stream = Stream
+      .fixedRate[F](interval)
+      .map(_ => true)
+      .mergeHaltBoth(subscriptionStream.groupWithin(1000, 50.millis).map(_ => true))
+      .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
+      .map(as => Text(encode(as).noSpaces))
+      .translate(lowerName)
 
     liftLower
       .lift(
@@ -72,20 +81,37 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     validated
       .fold(failures => BadRequest(failures.map(_.message).toList.mkString(",")), i => op(i.getOrElse(20.seconds)))
 
+  def refineOrBadReq(room: String, name: String)(
+    f: (NonEmptyString, NonEmptyString) => F[Response[F]]
+  ): F[Response[F]] =
+    Semigroupal
+      .map2[ValidatedNel[String, *], NonEmptyString, NonEmptyString, F[Response[F]]](
+        refineV[NonEmpty](room).toValidatedNel,
+        refineV[NonEmpty](name).toValidatedNel
+      )(f)
+      .leftMap(errs => BadRequest(errs.toList.mkString(",")))
+      .merge
+
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case req @ PUT -> Root / "activity" / a => Ok(req.as[Activity].flatMap(service.updateActivity(a, _)))
     case req @ POST -> Root / "activity" => Ok(req.as[Activity].flatMap(service.addActivity))
-    case DELETE -> Root / "activity" / a =>
-      refineOrBadReq(a) { activity =>
-        Ok(service.deleteActivity(activity))
+    case DELETE -> Root / "activity" / r / a =>
+      refineOrBadReq(r, a) { (room, activity) =>
+        Ok(service.deleteActivity(room, activity))
       }
     case GET -> Root / "activities" => Ok(service.getActivities)
     case req @ GET -> Root / "activities" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(
+        subscriber(
           req,
-          updateTopics.activities,
+          configEventPubSub.subscriberStream
+            .collect {
+              case ActivityAddedEvent(_, _) => true
+              case ActivityRemovedEvent(_, _, _) => true
+            }
+            .subscribe
+            .mergeHaltBoth(activityPubSub.subscriberStream.subscribe.map(_ => true)),
           service.getActivities,
           err => ConfigResult[String, Activity](Map.empty, List(err.message))
         )
@@ -104,9 +130,15 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     case req @ GET -> Root / "remotes" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(
+        subscriber(
           req,
-          updateTopics.remotes,
+          configEventPubSub.subscriberStream
+            .collect {
+              case ConfigEvent.RemoteAddedEvent(_, _) => true
+              case ConfigEvent.RemoteRemovedEvent(_, _) => true
+            }
+            .subscribe
+            .mergeHaltBoth(switchEventPubSub.subscriberStream.subscribe.map(_ => true)),
           service.getRemotes,
           err => ConfigResult[NonEmptyString, Remote](Map.empty, List(err.message))
         )
@@ -118,15 +150,21 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     case req @ POST -> Root / "button" => Ok(req.as[Button].flatMap(service.addCommonButton))
     case DELETE -> Root / "button" / b =>
       refineOrBadReq(b) { button =>
-        Ok(service.deleteCommonButton(button.value))
+        Ok(service.deleteCommonButton(button))
       }
     case GET -> Root / "buttons" => Ok(service.getCommonButtons)
     case req @ GET -> Root / "buttons" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(
+        subscriber(
           req,
-          updateTopics.buttons,
+          configEventPubSub.subscriberStream
+            .collect {
+              case ButtonAddedEvent(_, _) => true
+              case ButtonRemovedEvent(_, _, _) => true
+            }
+            .subscribe
+            .mergeHaltBoth(switchEventPubSub.subscriberStream.subscribe.map(_ => true)),
           service.getCommonButtons,
           err => ConfigResult[String, Button](Map.empty, List(err.message))
         )
@@ -135,7 +173,22 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](service: ConfigService[F],
     case req @ GET -> Root / "rooms" / "ws" :? OptionalDurationParamMatcher(interval) =>
       intervalOrBadRequest(
         interval,
-        stream(req, updateTopics.rooms, service.getRooms, err => Rooms(List.empty, List(err.message)))
+        subscriber(
+          req,
+          configEventPubSub.subscriberStream
+            .collect {
+              case ButtonAddedEvent(_, _) => true
+              case ButtonRemovedEvent(_, _, _) => true
+              case ActivityAddedEvent(_, _) => true
+              case ActivityRemovedEvent(_, _, _) => true
+              case RemoteAddedEvent(_, _) => true
+              case RemoteRemovedEvent(_, _) => true
+            }
+            .subscribe
+            .mergeHaltBoth(switchEventPubSub.subscriberStream.subscribe.map(_ => true)),
+          service.getRooms,
+          err => Rooms(List.empty, List(err.message))
+        )
       )
   }
 }

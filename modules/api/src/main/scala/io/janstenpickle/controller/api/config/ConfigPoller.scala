@@ -28,7 +28,10 @@ object ConfigPoller {
 
   def apply[F[_]: ContextShift: Timer: ExtruderErrors](
     config: Option[String],
-    onUpdate: Either[ValidationErrors, Configuration.Config] => F[Unit]
+    onUpdate: (
+      Either[ValidationErrors, Configuration.Config],
+      Either[ValidationErrors, Configuration.Config]
+    ) => F[Unit]
   )(implicit F: Concurrent[F]): Resource[F, () => F[Either[ValidationErrors, Configuration.Config]]] = {
     type ConfigResult[A] = EffectValidation[F, A]
 

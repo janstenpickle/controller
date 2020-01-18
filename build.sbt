@@ -1,12 +1,12 @@
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
 val catsVer = "2.1.0"
-val catsEffectVer = "2.0.0"
+val catsEffectVer = "2.1.0"
 val circeVer = "0.12.1"
 val collectionCompatVer = "2.1.2"
 val extruderVer = "0.11.0"
-val fs2Ver = "2.1.0"
-val http4sVer = "0.21.0-M6"
+val fs2Ver = "2.2.2"
+val http4sVer = "0.21.0-RC2"
 val kittensVer = "2.0.0"
 val log4catsVer = "1.0.1"
 val natchezVer = "0.0.10"
@@ -78,6 +78,7 @@ lazy val root = (project in file("."))
     model,
     errors,
     components,
+    eventCommands,
     remote,
     broadlink,
     store,
@@ -100,6 +101,8 @@ lazy val root = (project in file("."))
     prometheusStats,
     gitRemoteStore,
     homekit,
+    mqttClient,
+    mqttEvents,
     deconzBridge,
     hapJavaSubmodule
   )
@@ -145,6 +148,7 @@ lazy val api = (project in file("modules/api"))
     arrow,
     tplink,
     broadlink,
+    eventCommands,
     tracedStore,
     remoteControl,
     extruderConfigSource,
@@ -161,6 +165,8 @@ lazy val api = (project in file("modules/api"))
     prometheusTrace,
     trace,
     homekit,
+    mqttClient,
+    mqttEvents,
     cronScheduler,
     deconzBridge
   )
@@ -226,7 +232,7 @@ lazy val extruderConfigSource = (project in file("modules/extruder-config-source
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
-  .dependsOn(configSource, extruder, schedule, tracedConfigSource)
+  .dependsOn(configSource, events, extruder, schedule, tracedConfigSource)
 
 lazy val remote = (project in file("modules/remote"))
   .settings(commonSettings)
@@ -237,6 +243,11 @@ lazy val arrow = (project in file("modules/arrow"))
   .settings(commonSettings)
   .settings(name := "controller-arrow", libraryDependencies ++= Seq("org.typelevel" %% "cats-core" % catsVer))
   .dependsOn(model)
+
+lazy val events = (project in file("modules/events"))
+  .settings(commonSettings)
+  .settings(name := "controller-events", libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver))
+  .dependsOn(model, errors)
 
 lazy val tracedRemote = (project in file("modules/trace-remote"))
   .settings(commonSettings)
@@ -263,6 +274,7 @@ lazy val broadlink = (project in file("modules/broadlink"))
     remote,
     tracedRemote,
     switch,
+    eventsSwitch,
     tracedSwitch,
     remoteControl,
     pollingSwitch,
@@ -299,17 +311,26 @@ lazy val tplink = (project in file("modules/tplink"))
       "org.typelevel" %% "cats-effect"  % catsEffectVer
     )
   )
-  .dependsOn(components, dynamicDiscovery, pollingSwitch, schedule, tracedSwitch, tracedConfigSource, tracedRemote)
+  .dependsOn(
+    components,
+    dynamicDiscovery,
+    pollingSwitch,
+    schedule,
+    eventsSwitch,
+    tracedSwitch,
+    tracedConfigSource,
+    tracedRemote
+  )
 
 lazy val virtualSwitch = (project in file("modules/virtual-switch"))
   .settings(commonSettings)
   .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(store, configSource, pollingSwitch, remoteControl)
+  .dependsOn(store, configSource, pollingSwitch, tracedSwitch, eventsSwitch, remoteControl)
 
 lazy val multiSwitch = (project in file("modules/multi-switch"))
   .settings(commonSettings)
   .settings(name := "controller-multi-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(configSource, switch, tracedSwitch)
+  .dependsOn(configSource, switch, tracedSwitch, eventsSwitch)
 
 lazy val deconzBridge = (project in file("modules/deconz-bridge"))
   .settings(commonSettings)
@@ -326,7 +347,7 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
       "org.tpolecat"                 %% "natchez-core"                  % natchezVer
     )
   )
-  .dependsOn(arrow, model, context, `macro`, extruderConfigSource)
+  .dependsOn(arrow, events, model, extruderConfigSource)
 
 lazy val tracedSwitch = (project in file("modules/trace-switch"))
   .settings(commonSettings)
@@ -335,6 +356,11 @@ lazy val tracedSwitch = (project in file("modules/trace-switch"))
     libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
   )
   .dependsOn(switch)
+
+lazy val eventsSwitch = (project in file("modules/events-switch"))
+  .settings(commonSettings)
+  .settings(name := "controller-events-switch")
+  .dependsOn(events, switch)
 
 lazy val cronScheduler = (project in file("modules/cron-scheduler"))
   .settings(commonSettings)
@@ -383,7 +409,7 @@ lazy val remoteControl = (project in file("modules/remote-control"))
       "org.tpolecat"  %% "natchez-core" % natchezVer
     )
   )
-  .dependsOn(remote, store)
+  .dependsOn(events, remote, store)
 
 lazy val `macro` = (project in file("modules/macro"))
   .settings(commonSettings)
@@ -401,10 +427,18 @@ lazy val context = (project in file("modules/context"))
   .settings(name := "controller-context")
   .dependsOn(activity, `macro`)
 
+lazy val eventCommands = (project in file("modules/event-commands"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-event-commands",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+  )
+  .dependsOn(context, events)
+
 lazy val activity = (project in file("modules/activity"))
   .settings(commonSettings)
   .settings(name := "controller-activity", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
-  .dependsOn(`macro`)
+  .dependsOn(`macro`, tracedSwitch, eventsSwitch)
 
 lazy val poller = (project in file("modules/poller"))
   .settings(commonSettings)
@@ -428,6 +462,7 @@ lazy val stats = (project in file("modules/stats"))
     libraryDependencies ++= Seq(
       "co.fs2"                 %% "fs2-core"                % fs2Ver,
       "eu.timepit"             %% "refined"                 % refinedVer,
+      "io.chrisdavenport"      %% "log4cats-slf4j"          % log4catsVer,
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
@@ -501,6 +536,7 @@ lazy val sonos = (project in file("modules/sonos"))
     remoteControl,
     tracedRemote,
     switch,
+    eventsSwitch,
     tracedSwitch,
     configSource,
     tracedConfigSource,
@@ -524,6 +560,7 @@ lazy val kodi = (project in file("modules/kodi"))
     components,
     remoteControl,
     cache,
+    eventsSwitch,
     tracedRemote,
     switch,
     pollingSwitch,
@@ -539,7 +576,7 @@ lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
     name := "controller-dynamic-discovery",
     libraryDependencies ++= Seq("org.typelevel" %% "kittens" % kittensVer)
   )
-  .dependsOn(poller)
+  .dependsOn(events, poller)
 
 lazy val trace = (project in file("modules/trace"))
   .settings(commonSettings)
@@ -561,7 +598,30 @@ lazy val homekit = (project in file("modules/homekit"))
       "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0"
     )
   )
-  .dependsOn(extruder, poller, switch, hapJavaSubmodule)
+  .dependsOn(events, extruder, poller, switch, hapJavaSubmodule)
+
+lazy val mqttClient = (project in file("modules/mqtt-client"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-mqtt-client",
+    libraryDependencies ++= Seq(
+      "co.fs2"                 %% "fs2-reactive-streams" % fs2Ver,
+      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0",
+      "com.hivemq"             % "hivemq-mqtt-client"    % "1.1.3"
+    )
+  )
+
+lazy val mqttEvents = (project in file("modules/mqtt-events"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-mqtt-events",
+    libraryDependencies ++= Seq(
+      "io.circe" %% "circe-parser"         % circeVer,
+      "io.circe" %% "circe-generic-extras" % circeVer,
+      "io.circe" %% "circe-refined"        % circeVer
+    )
+  )
+  .dependsOn(events, mqttClient, model)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

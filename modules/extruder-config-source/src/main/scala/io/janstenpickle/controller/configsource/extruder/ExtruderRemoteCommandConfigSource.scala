@@ -1,5 +1,6 @@
 package io.janstenpickle.controller.configsource.extruder
 
+import cats.Applicative
 import cats.data.NonEmptyList
 import cats.effect._
 import cats.instances.string._
@@ -37,11 +38,7 @@ object ExtruderRemoteCommandConfigSource {
   implicit val commandPayloadParser: Parser[CommandPayload] = Parser[String].map(CommandPayload(_))
   implicit val commandPayloadShow: Show[CommandPayload] = Show(_.hexValue)
 
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
-    config: ConfigFileSource[F],
-    pollingConfig: PollingConfig,
-    onUpdate: ConfigResult[RemoteCommandKey, CommandPayload] => F[Unit]
-  )(
+  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](config: ConfigFileSource[F], pollingConfig: PollingConfig)(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, WritableConfigSource[F, RemoteCommandKey, CommandPayload]] = {
     type EV[A] = EffectValidation[F, A]
@@ -55,7 +52,7 @@ object ExtruderRemoteCommandConfigSource {
         "remoteCommand",
         pollingConfig,
         config,
-        onUpdate,
+        _ => Applicative[F].unit,
         decoder,
         encoder
       )

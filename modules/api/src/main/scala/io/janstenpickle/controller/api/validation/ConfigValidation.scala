@@ -7,11 +7,10 @@ import cats.{Monad, NonEmptyParallel, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.model
-import io.janstenpickle.controller.model.{Activity, Button, ContextButtonMapping, Remote, RemoteCommand}
+import io.janstenpickle.controller.model.{Activity, Button, ContextButtonMapping, Remote, RemoteCommand, SwitchKey}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.store.MacroStore
 import io.janstenpickle.controller.switch.Switches
-import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.{Trace, TraceValue}
 
 class ConfigValidation[F[_]: Monad: NonEmptyParallel](

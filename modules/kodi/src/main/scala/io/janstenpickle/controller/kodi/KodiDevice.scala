@@ -1,30 +1,33 @@
 package io.janstenpickle.controller.kodi
 
 import cats.{Eq, Parallel}
-import cats.effect.Sync
+import cats.effect.{Clock, ExitCase, Sync}
 import cats.effect.concurrent.Ref
+import cats.instances.list._
 import cats.instances.string._
 import cats.instances.tuple._
 import cats.syntax.apply._
+import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.parallel._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
+import io.janstenpickle.controller.discovery.DiscoveredDevice
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.KodiDevice.DeviceState
-import io.janstenpickle.controller.model.DiscoveredDeviceKey
-import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey, SwitchMetadata}
+import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import natchez.Trace
 
-trait KodiDevice[F[_]] {
+trait KodiDevice[F[_]] extends DiscoveredDevice[F] {
   def name: NonEmptyString
   def room: NonEmptyString
   def host: String
-  def key: DiscoveredDeviceKey
   def isPlaying: F[Boolean]
   def setPlaying(playing: Boolean): F[Unit]
   def isMuted: F[Boolean]
   def setMuted(muted: Boolean): F[Unit]
-  def refresh: F[Unit]
   def getState: F[DeviceState]
   def sendInputAction(action: NonEmptyString): F[Unit]
   def scanVideoLibrary: F[Unit]
@@ -39,14 +42,14 @@ object KodiDevice {
 
   implicit def kodiDeviceEq[F[_]]: Eq[KodiDevice[F]] = Eq.by(d => (d.name.value, d.room.value))
 
-  def apply[F[_]: Parallel](
+  def apply[F[_]: Parallel: Clock](
     client: KodiClient[F],
     deviceName: NonEmptyString,
     deviceRoom: NonEmptyString,
     deviceHost: String,
     switchDevice: NonEmptyString,
     deviceKey: DiscoveredDeviceKey,
-    onSwitchUpdate: SwitchKey => F[Unit]
+    switchEventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit F: Sync[F], trace: Trace[F]): F[KodiDevice[F]] = {
     def playInfo: F[Option[Json]] =
       client
@@ -113,6 +116,17 @@ object KodiDevice {
         private val playPauseSwitchKey =
           SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${deviceName.value}_playpause"))
 
+        private def updateSwitches(action: F[Unit], switches: List[(SwitchKey, State, String)]) = {
+          def publish(exitCase: Option[Throwable]) = switches.parTraverse_ {
+            case (switchKey, state, switchType) =>
+              switchEventPublisher.publish1(SwitchStateUpdateEvent(switchKey, state, exitCase))
+          }
+
+          (action *> publish(None)).handleErrorWith { th =>
+            publish(Some(th))
+          }
+        }
+
         override def sendInputAction(action: NonEmptyString): F[Unit] =
           client.send("Input.ExecuteAction", Json.fromFields(Map("action" -> Json.fromString(action.value)))).void
 
@@ -125,9 +139,16 @@ object KodiDevice {
           for {
             current <- state.get
             newState <- refreshState
-            _ <- state.set(newState)
-            _ <- if (newState.isMuted != current.isMuted) onSwitchUpdate(mutedSwitchKey) else F.unit
-            _ <- if (newState.isPlaying != current.isPlaying) onSwitchUpdate(playPauseSwitchKey) else F.unit
+            ops = {
+              if (newState.isPlaying != current.isPlaying)
+                List((playPauseSwitchKey, State.fromBoolean(current.isPlaying), "playpause"))
+              else List.empty
+            } ++ {
+              if (newState.isMuted != current.isMuted)
+                List((mutedSwitchKey, State.fromBoolean(current.isMuted), "mute"))
+              else List.empty
+            }
+            _ <- updateSwitches(state.set(newState), ops)
           } yield ()
 
         override def name: NonEmptyString = deviceName
@@ -165,6 +186,12 @@ object KodiDevice {
         }
 
         override def key: DiscoveredDeviceKey = deviceKey
+
+        override def value: DiscoveredDeviceValue = DiscoveredDeviceValue(name, Some(room))
+
+        override def updatedKey: F[String] = getState.map { state =>
+          s"${name}${room}${state.isPlaying}${state.isMuted}"
+        }
 
         override def host: String = deviceHost
       }

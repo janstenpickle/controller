@@ -12,10 +12,12 @@ import com.github.mob41.blapi.{BLDevice, SP1Device, SP2Device}
 import eu.timepit.refined.auto._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.switch.SpSwitchConfig.{SP1, SP2, SP3}
-import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model
+import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
 import io.janstenpickle.controller.store.SwitchStateStore
-import io.janstenpickle.controller.switch.model.SwitchKey
-import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchType}
+import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
+import io.janstenpickle.controller.switch.Switch
 import natchez.Trace
 
 import scala.concurrent.TimeoutException
@@ -87,8 +89,8 @@ object SpSwitch {
 
     override def refresh: F[Unit] = Applicative[F].unit
 
-    override val metadata: Metadata =
-      Metadata(
+    override val metadata: SwitchMetadata =
+      model.SwitchMetadata(
         manufacturer = Some(manufacturer),
         model = Some("SP1"),
         host = Some(host),
@@ -102,7 +104,7 @@ object SpSwitch {
     timeout: FiniteDuration,
     sp: SP2Device,
     blocker: Blocker,
-    onSwitchUpdate: SwitchKey => F[Unit]
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit trace: Trace[F]): F[SpSwitch[F]] = {
 
     def _getState: F[State] =
@@ -156,11 +158,15 @@ object SpSwitch {
           for {
             current <- state.get
             newState <- _getState
-            _ <- if (current != newState) state.set(newState) *> onSwitchUpdate(switchKey) else Applicative[F].unit
+            _ <- if (current != newState)
+              (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState)))
+                .handleErrorWith { th =>
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState, Some(th))) *> th.raiseError
+                } else Applicative[F].unit
           } yield ()
 
-        override val metadata: Metadata =
-          Metadata(
+        override val metadata: SwitchMetadata =
+          model.SwitchMetadata(
             manufacturer = Some(manufacturer),
             model = Some("SP2"),
             host = Some(host),
@@ -173,32 +179,32 @@ object SpSwitch {
   private def makeSp2[F[_]: Concurrent: Timer: ContextShift: Trace](
     config: SP2,
     blocker: Blocker,
-    onSwitchUpdate: SwitchKey => F[Unit]
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): F[SpSwitch[F]] =
     Sync[F].delay(new SP2Device(config.host, config.mac)).flatMap { sp2 =>
-      makeSp23(config.name, config.timeout, sp2, blocker, onSwitchUpdate)
+      makeSp23(config.name, config.timeout, sp2, blocker, eventPublisher)
     }
 
   private def makeSp3[F[_]: Concurrent: Timer: ContextShift: Trace](
     config: SP3,
     blocker: Blocker,
-    onSwitchUpdate: SwitchKey => F[Unit]
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): F[SpSwitch[F]] =
     Sync[F]
       .delay(BLDevice.createInstance(BLDevice.DEV_SP3, config.host, config.mac).asInstanceOf[SP2Device])
       .flatMap { sp2 =>
-        makeSp23(config.name, config.timeout, sp2, blocker, onSwitchUpdate)
+        makeSp23(config.name, config.timeout, sp2, blocker, eventPublisher)
       }
 
   def apply[F[_]: Concurrent: Timer: ContextShift: Trace](
     config: SpSwitchConfig,
     store: SwitchStateStore[F],
     blocker: Blocker,
-    onSwitchUpdate: SwitchKey => F[Unit]
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): F[SpSwitch[F]] =
     config match {
       case conf: SP1 => makeSp1[F](conf, store, blocker)
-      case conf: SP2 => makeSp2[F](conf, blocker, onSwitchUpdate)
-      case conf: SP3 => makeSp3[F](conf, blocker, onSwitchUpdate)
+      case conf: SP2 => makeSp2[F](conf, blocker, eventPublisher)
+      case conf: SP3 => makeSp3[F](conf, blocker, eventPublisher)
     }
 }

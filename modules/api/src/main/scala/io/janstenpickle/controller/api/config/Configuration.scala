@@ -16,13 +16,13 @@ import extruder.typesafe._
 import extruder.refined._
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
-import io.janstenpickle.controller.model.Room
+import io.janstenpickle.controller.model.{Room, SwitchKey}
+import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.sonos.SonosComponents
-import io.janstenpickle.controller.stats.StatsStream
-import io.janstenpickle.controller.switch.model.SwitchKey
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
 import io.janstenpickle.controller.tplink.TplinkComponents
 import io.janstenpickle.deconz.DeconzBridge
@@ -40,11 +40,13 @@ object Configuration {
     config: ConfigData,
     server: Server,
     activity: Activity,
-    stats: StatsStream.Config,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
     homekit: ControllerHomekitServer.Config,
     deconz: Option[DeconzBridge.Config],
+    mqtt: Mqtt
   )
+
+  case class Mqtt(client: Option[Fs2MqttClient.Config], events: MqttEvents.Config)
 
   case class Activity(dependentSwitches: Map[Room, SwitchKey] = Map.empty)
 

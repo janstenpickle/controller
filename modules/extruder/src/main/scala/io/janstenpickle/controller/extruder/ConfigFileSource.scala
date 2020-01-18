@@ -117,7 +117,7 @@ object ConfigFileSource {
             pollInterval,
             PosInt(1),
             (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
-            (_: ConfigFiles) => F.unit
+            (_: ConfigFiles, _: ConfigFiles) => F.unit
           ) { (get, set) =>
             new ConfigFileSource[F] {
               override def configs: F[ConfigFiles] = get()

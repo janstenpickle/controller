@@ -40,7 +40,7 @@ object LocalCache {
     path: Path,
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
-    onUpdate: Map[Key, CommandPayload] => F[Unit]
+    onUpdate: (Map[Key, CommandPayload], Map[Key, CommandPayload]) => F[Unit]
   )(implicit F: Sync[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, LocalCache[F]] = {
     implicit val valueOrder: Ordering[Long] = Ordering.Long.reverse
 

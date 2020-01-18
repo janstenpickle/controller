@@ -13,13 +13,13 @@ import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource, WritableConfigSource}
 import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
-import io.janstenpickle.controller.model.{Activity, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote, Room}
-import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote}
+import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.schedule.Scheduler
-import io.janstenpickle.controller.switch.SwitchProvider
-import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 import org.http4s.client.Client
 
@@ -48,37 +48,44 @@ object KodiComponents {
     discoveryBlocker: Blocker,
     config: Config,
     discoveryNameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
-    onUpdate: () => F[Unit],
-    onDeviceUpdate: () => F[Unit],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    remoteEventPublisher: EventPublisher[F, RemoteEvent],
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    configEventPublisher: EventPublisher[F, ConfigEvent],
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
         staticDiscovery <- KodiDiscovery
-          .static[F, G](client, config.instances, config.switchDevice, config.polling, onDeviceUpdate, onSwitchUpdate)
+          .static[F, G](
+            client,
+            config,
+            remoteEventPublisher,
+            switchEventPublisher,
+            configEventPublisher,
+            discoveryEventPublisher
+          )
         discovery <- if (config.dynamicDiscovery)
           KodiDiscovery
             .dynamic[F, G](
               client,
-              config.switchDevice,
               discoveryBlocker,
-              config.discoveryBindAddress,
-              config.polling,
+              config,
               discoveryNameMapping,
-              onUpdate,
-              onDeviceUpdate,
-              onSwitchUpdate
+              remoteEventPublisher,
+              switchEventPublisher,
+              configEventPublisher,
+              discoveryEventPublisher
             )
             .map(_ |+| staticDiscovery)
         else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)
 
       } yield
         Components[F](
-          KodiRemoteControl(discovery),
-          KodiSwitchProvider(config.switchDevice, discovery),
+          KodiRemoteControl(discovery, remoteEventPublisher),
+          KodiSwitchProvider(config.switchDevice, discovery, switchEventPublisher.narrow),
           rename =
-            if (config.dynamicDiscovery) KodiDeviceRename[F](discovery, discoveryNameMapping)
+            if (config.dynamicDiscovery) KodiDeviceRename[F](discovery, discoveryNameMapping, discoveryEventPublisher)
             else DeviceRename.empty[F],
           Monoid[Scheduler[F]].empty,
           KodiActivityConfigSource(config.activityConfig, discovery),

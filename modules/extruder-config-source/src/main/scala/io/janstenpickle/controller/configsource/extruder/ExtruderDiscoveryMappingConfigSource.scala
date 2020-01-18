@@ -10,7 +10,9 @@ import extruder.typesafe.IntermediateTypes.Config
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.PollingConfig
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import natchez.Trace
 
@@ -29,7 +31,7 @@ object ExtruderDiscoveryMappingConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    onUpdate: ConfigResult[DiscoveredDeviceKey, DiscoveredDeviceValue] => F[Unit]
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue]] = {
@@ -44,7 +46,11 @@ object ExtruderDiscoveryMappingConfigSource {
         "discovered.devices",
         pollingConfig,
         config,
-        onUpdate,
+        Events.fromDiff(
+          discoveryEventPublisher,
+          DeviceDiscoveryEvent.DeviceDiscovered,
+          (k, _) => DeviceDiscoveryEvent.DeviceRemoved(k)
+        ),
         decoder,
         encoder
       )

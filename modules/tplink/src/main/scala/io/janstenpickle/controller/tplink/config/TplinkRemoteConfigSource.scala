@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.tplink.config
 
-import cats.{Functor, Monad, Parallel}
+import cats.{Applicative, Functor, Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, SwitchIcon}
@@ -15,10 +15,7 @@ import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.tplink.device.TplinkDevice
 
 object TplinkRemoteConfigSource {
-  def apply[F[_]: Parallel: Trace](remoteName: NonEmptyString, discovery: TplinkDiscovery[F])(
-    implicit F: Monad[F]
-  ): ConfigSource[F, NonEmptyString, Remote] = {
-
+  def deviceToRemote[F[_]: Applicative](remoteName: NonEmptyString, device: TplinkDevice[F]): F[Option[Remote]] = {
     def remoteIcon(
       device: NonEmptyString,
       command: NonEmptyString,
@@ -26,14 +23,6 @@ object TplinkRemoteConfigSource {
       newRow: Boolean = false,
       colored: Boolean = false
     ) = RemoteIcon(remoteName, CommandSource, device, command, icon, Some(newRow), Some(colored), None, None)
-
-    def remoteLabel(
-      device: NonEmptyString,
-      command: NonEmptyString,
-      label: NonEmptyString,
-      newRow: Boolean = false,
-      colored: Boolean = false
-    ) = RemoteLabel(remoteName, CommandSource, device, command, label, Some(newRow), Some(colored), None, None)
 
     def switchIcon(
       name: NonEmptyString,
@@ -56,29 +45,38 @@ object TplinkRemoteConfigSource {
       remoteIcon(roomName, Commands.BrightnessDown, NonEmptyString("remove"))
     )
 
+    device match {
+      case dev: TplinkDevice.SmartBulb[F] if dev.room.isDefined =>
+        dev.getState.map { state =>
+          Some(
+            Remote(
+              dev.roomName,
+              dev.name,
+              template(dev.name, dev.device, dev.roomName, state.isOn, dev.dimmable),
+              Set(dev.roomName),
+              dev.room.toList
+            )
+          )
+        }
+      case _ => Applicative[F].pure(None)
+    }
+  }
+
+  def apply[F[_]: Parallel: Trace](remoteName: NonEmptyString, discovery: TplinkDiscovery[F])(
+    implicit F: Monad[F]
+  ): ConfigSource[F, NonEmptyString, Remote] = {
+
     TracedConfigSource(
       new ConfigSource[F, NonEmptyString, Remote] {
         override def functor: Functor[F] = F
 
         override def getConfig: F[ConfigResult[NonEmptyString, Remote]] =
           discovery.devices
-            .flatMap(_.devices.toList.parFlatTraverse {
-              case (_, dev: TplinkDevice.SmartBulb[F]) if dev.room.isDefined =>
-                dev.getState.map { state =>
-                  List(
-                    dev.name -> Remote(
-                      dev.roomName,
-                      dev.name,
-                      template(dev.name, dev.device, dev.roomName, state.isOn, dev.dimmable),
-                      Set(dev.roomName),
-                      dev.room.toList
-                    )
-                  )
-                }
-              case _ => F.pure(List.empty[(NonEmptyString, Remote)])
-            })
+            .flatMap(
+              _.devices.toList.parFlatTraverse { case (_, dev) => deviceToRemote(remoteName, dev).map(_.toList) }
+            )
             .map { remotes =>
-              ConfigResult(remotes.toMap)
+              ConfigResult(remotes.map(r => r.name -> r).toMap)
             }
 
         override def getValue(key: NonEmptyString): F[Option[Remote]] = getConfig.map(_.values.get(key))

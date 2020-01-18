@@ -1,15 +1,18 @@
 package io.janstenpickle.controller.activity
 
+import cats.effect.{Clock, ExitCase}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
-import cats.{Apply, Monad, MonadError, Parallel}
+import cats.{Apply, MonadError, Parallel}
+import cats.syntax.applicativeError._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.configsource.ConfigSource
-import io.janstenpickle.controller.model.{Room, State, Activity => ActivityModel}
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.ActivityUpdateEvent
+import io.janstenpickle.controller.model.{Room, State, SwitchKey, Activity => ActivityModel}
 import io.janstenpickle.controller.store.ActivityStore
 import io.janstenpickle.controller.switch.SwitchProvider
-import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.TraceValue.StringValue
 import natchez.{Trace, TraceValue}
 
@@ -25,22 +28,25 @@ object Activity {
     trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
   }
 
-  def apply[F[_]](
+  def apply[F[_]: Clock](
     config: ConfigSource[F, String, ActivityModel],
     activities: ActivityStore[F],
     macros: Macro[F],
-    onUpdate: ((Room, NonEmptyString)) => F[Unit]
-  )(implicit F: Monad[F], trace: Trace[F]): Activity[F] = new Activity[F] {
+    activityEventPublisher: EventPublisher[F, ActivityUpdateEvent]
+  )(implicit F: MonadError[F, Throwable], trace: Trace[F]): Activity[F] = new Activity[F] {
     override def setActivity(room: Room, name: NonEmptyString): F[Unit] =
       span("set.activity", room, "activity" -> name.value) {
-        config
+        (config
           .getValue(name.value)
           .flatMap(
             _.flatMap(_.action).fold(
               macros.maybeExecuteMacro(NonEmptyString.unsafeFrom(s"${room.value}-${name.value}"))
             )(macros.executeCommand)
           ) *> activities
-          .storeActivity(room, name) *> onUpdate(room -> name)
+          .storeActivity(room, name) *> activityEventPublisher.publish1(ActivityUpdateEvent(room, name)))
+          .handleErrorWith { th =>
+            activityEventPublisher.publish1(ActivityUpdateEvent(room, name, Some(th))) *> th.raiseError
+          }
       }
 
     override def getActivity(room: Room): F[Option[NonEmptyString]] = span("get.activity", room) {
@@ -48,15 +54,15 @@ object Activity {
     }
   }
 
-  def dependsOnSwitch[F[_]: Parallel](
+  def dependsOnSwitch[F[_]: Parallel: Clock](
     switches: Map[Room, SwitchKey],
     switchProvider: SwitchProvider[F],
     config: ConfigSource[F, String, ActivityModel],
     activities: ActivityStore[F],
     macros: Macro[F],
-    onUpdate: ((Room, NonEmptyString)) => F[Unit]
+    activityEventPublisher: EventPublisher[F, ActivityUpdateEvent]
   )(implicit F: MonadError[F, Throwable], trace: Trace[F]): Activity[F] = {
-    val underlying = apply[F](config, activities, macros, onUpdate)
+    val underlying = apply[F](config, activities, macros, activityEventPublisher)
 
     new Activity[F] {
       override def setActivity(room: Room, name: NonEmptyString): F[Unit] =

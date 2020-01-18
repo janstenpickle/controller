@@ -5,12 +5,12 @@ import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
-import cats.{Functor, Parallel}
+import cats.{Functor, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.kodi.KodiRemoteControl._
-import io.janstenpickle.controller.kodi.{Commands, KodiDiscovery}
+import io.janstenpickle.controller.kodi.{Commands, KodiDevice, KodiDiscovery}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
 import natchez.Trace
@@ -18,12 +18,9 @@ import scalacache.Cache
 import scalacache.CatsEffect.modes._
 
 object KodiRemoteConfigSource {
-  def apply[F[_]: Parallel: Trace](
-    remoteName: NonEmptyString,
-    activityName: NonEmptyString,
-    discovery: KodiDiscovery[F],
-    cache: Cache[ConfigResult[NonEmptyString, Remote]]
-  )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] = {
+  def deviceToRemotes[F[_]](remoteName: NonEmptyString, activityName: NonEmptyString, device: KodiDevice[F])(
+    implicit F: MonadError[F, Throwable]
+  ): F[List[Remote]] = {
 
     def remoteIcon(
       device: NonEmptyString,
@@ -75,45 +72,53 @@ object KodiRemoteConfigSource {
       remoteIcon(device, Commands.VolUp, NonEmptyString("volume_up"))
     )
 
+    for {
+      playing <- device.isPlaying
+      muted <- device.isMuted
+      metadata <- device.playerDetails
+    } yield
+      List(
+        Remote(
+          NonEmptyString.unsafeFrom(s"kodi-${remoteName.value.toLowerCase}-1"),
+          remoteName,
+          mainTemplate(device.name, playing),
+          Set(activityName),
+          List(device.room),
+          None,
+          metadata
+        ),
+        Remote(
+          NonEmptyString.unsafeFrom(s"kodi-${remoteName.value.toLowerCase}-2"),
+          remoteName,
+          secondaryTemplate(device.name, muted),
+          Set(activityName),
+          List(device.room),
+          None,
+          metadata
+        )
+      )
+  }
+
+  def apply[F[_]: Parallel: Trace](
+    remoteName: NonEmptyString,
+    activityName: NonEmptyString,
+    discovery: KodiDiscovery[F],
+    cache: Cache[ConfigResult[NonEmptyString, Remote]]
+  )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] =
     TracedConfigSource(
       new ConfigSource[F, NonEmptyString, Remote] {
         override def getConfig: F[ConfigResult[NonEmptyString, Remote]] =
           cache.cachingForMemoizeF(s"${remoteName.value}_remotes")(None)(
             discovery.devices
-              .flatMap(_.devices.values.toList.parFlatTraverse {
-                device =>
-                  for {
-                    playing <- device.isPlaying
-                    muted <- device.isMuted
-                    metadata <- device.playerDetails
-                  } yield
-                    List(
-                      NonEmptyString.unsafeFrom(s"${device.name.value}-1") ->
-                        Remote(
-                          NonEmptyString.unsafeFrom(s"kodi-${remoteName.value.toLowerCase}-1"),
-                          remoteName,
-                          mainTemplate(device.name, playing),
-                          Set(activityName),
-                          List(device.room),
-                          None,
-                          metadata
-                        ),
-                      NonEmptyString.unsafeFrom(s"${device.name.value}-2") -> Remote(
-                        NonEmptyString.unsafeFrom(s"kodi-${remoteName.value.toLowerCase}-2"),
-                        remoteName,
-                        secondaryTemplate(device.name, muted),
-                        Set(activityName),
-                        List(device.room),
-                        None,
-                        metadata
-                      )
-                    )
-              })
+              .flatMap(_.devices.values.toList.parFlatTraverse(deviceToRemotes(remoteName, activityName, _)))
               .map(
                 remotes =>
                   ConfigResult(
                     remotes
-                      .sortBy(_._1.value)
+                      .sortBy(_.name.value)
+                      .map { r =>
+                        r.name -> r
+                      }
                       .toMap,
                     List.empty
                 )
@@ -127,5 +132,4 @@ object KodiRemoteConfigSource {
       "remotes",
       "kodi"
     )
-  }
 }

@@ -17,14 +17,17 @@ import io.circe.Json
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.PollingConfig
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.model.event.ConfigEvent
+import io.janstenpickle.controller.model.event.ConfigEvent.{RemoteAddedEvent, RemoteRemovedEvent}
 import natchez.Trace
 
 object ExtruderRemoteConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    onUpdate: ConfigResult[NonEmptyString, Remote] => F[Unit]
+    configEventPublisher: EventPublisher[F, ConfigEvent]
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, WritableConfigSource[F, NonEmptyString, Remote]] = {
@@ -35,6 +38,17 @@ object ExtruderRemoteConfigSource {
       Encoder[F, Settings, ConfigResult[NonEmptyString, Remote], Config]
 
     ExtruderConfigSource
-      .polling[F, G, NonEmptyString, Remote]("remotes", pollingConfig, config, onUpdate, decoder, encoder)
+      .polling[F, G, NonEmptyString, Remote](
+        "remotes",
+        pollingConfig,
+        config,
+        Events.fromDiffValues(
+          configEventPublisher,
+          RemoteAddedEvent(_, eventSource),
+          r => RemoteRemovedEvent(r.name, eventSource)
+        ),
+        decoder,
+        encoder
+      )
   }
 }

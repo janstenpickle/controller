@@ -4,7 +4,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.{CursorOp, Error}
 import io.janstenpickle.controller.errors.ErrorHandler
 
-trait TplinkErrors[F[_]] { self: ErrorHandler[F] =>
+trait TplinkErrors[F[_]] extends ErrorHandler[F] {
   def decodingFailure[A](device: NonEmptyString, error: Error): F[A]
   def tpLinkCommandTimedOut[A](device: NonEmptyString): F[A]
   def missingJson[A](name: NonEmptyString, history: List[CursorOp]): F[A]

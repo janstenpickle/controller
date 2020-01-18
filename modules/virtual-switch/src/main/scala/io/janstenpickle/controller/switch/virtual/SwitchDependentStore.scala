@@ -3,10 +3,9 @@ package io.janstenpickle.controller.switch.virtual
 import cats.MonadError
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.model.{State, SwitchKey}
 import io.janstenpickle.controller.store.SwitchStateStore
 import io.janstenpickle.controller.switch.SwitchProvider
-import io.janstenpickle.controller.switch.model.SwitchKey
 
 object SwitchDependentStore {
   def apply[F[_]](remotes: Map[NonEmptyString, SwitchKey], state: SwitchStateStore[F], provider: SwitchProvider[F])(

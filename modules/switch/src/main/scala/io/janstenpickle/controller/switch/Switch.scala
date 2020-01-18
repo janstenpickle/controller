@@ -3,12 +3,12 @@ package io.janstenpickle.controller.switch
 import cats.FlatMap
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.model.{State, SwitchMetadata}
 
 trait Switch[F[_]] {
   def name: NonEmptyString
   def device: NonEmptyString
-  def metadata: Metadata
+  def metadata: SwitchMetadata
   def getState: F[State]
   def switchOn: F[Unit]
   def switchOff: F[Unit]
