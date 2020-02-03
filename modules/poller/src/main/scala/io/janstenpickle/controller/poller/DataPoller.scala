@@ -28,7 +28,7 @@ object DataPoller {
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     dataRef: Ref[F, Data[A]],
-    onUpdate: A => F[Unit]
+    onUpdate: (A, A) => F[Unit]
   )(implicit F: Concurrent[F], timer: Timer[F], logger: Logger[F], trace: Trace[F]): F[Fiber[F, Unit]] = {
 
     def update(now: Long): F[Unit] =
@@ -40,7 +40,7 @@ object DataPoller {
             _ <- dataRef.set(Data(data, now))
             updated = current.value.neqv(data)
             _ <- trace.put("updated" -> updated)
-            _ <- if (updated) onUpdate(data) else F.unit
+            _ <- if (updated) onUpdate(current.value, data) else F.unit
           } yield ()
         }
         .handleErrorWith(
@@ -90,7 +90,7 @@ object DataPoller {
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     read: Ref[F, Data[A]] => F[A],
-    onUpdate: A => F[Unit]
+    onUpdate: (A, A) => F[Unit]
   )(
     create: (() => F[A], A => F[Unit]) => B
   )(implicit F: Concurrent[F], empty: Empty[A], logger: Logger[F], trace: Trace[F]): Resource[F, B] = {
@@ -99,7 +99,7 @@ object DataPoller {
         current <- dataRef.get
         time <- timeNow
         _ <- dataRef.update(_.copy(value = a, updated = time))
-        _ <- if (current.value.neqv(a)) onUpdate(a) else F.unit
+        _ <- if (current.value.neqv(a)) onUpdate(current.value, a) else F.unit
       } yield ()
     }
 
@@ -110,6 +110,8 @@ object DataPoller {
         data <- getData(Data(empty.empty, initialTime)).handleError(_ => empty.empty)
         updatedTime <- timeNow
         dataRef <- Ref.of(Data(data, updatedTime))
+        _ <- if (empty.empty.neqv(data)) onUpdate(empty.empty, data)
+        else F.unit
         p <- poller(getData, pollInterval, dataRef, onUpdate)
         _ <- logger.info("Finished initialising poller")
       } yield
@@ -130,7 +132,7 @@ object DataPoller {
         getData: Data[A] => F[A],
         pollInterval: FiniteDuration,
         errorThreshold: PosInt,
-        onUpdate: A => F[Unit]
+        onUpdate: (A, A) => F[Unit]
       )(create: (() => F[A], A => F[Unit]) => B)(
         implicit F: Sync[F],
         trace: Trace[F],
@@ -147,7 +149,7 @@ object DataPoller {
 
         DataPoller[G, A, B](getData.andThen { read =>
           low(span("poll")(read))
-        }, pollInterval, errorThreshold, onUpdate.andThen(low.apply)) { (get, update) =>
+        }, pollInterval, errorThreshold, (o: A, n: A) => low(onUpdate(o, n))) { (get, update) =>
           create(
             () => span("poller.read.state") { liftLower.lift(get()) },
             a => span("poller.update.state") { liftLower.lift(update(a)) }
@@ -160,7 +162,7 @@ object DataPoller {
         pollInterval: FiniteDuration,
         errorThreshold: PosInt,
         handleError: (Data[A], Throwable) => F[A],
-        onUpdate: A => F[Unit]
+        onUpdate: (A, A) => F[Unit]
       )(create: (() => F[A], A => F[Unit]) => B)(
         implicit F: Sync[F],
         trace: Trace[F],
@@ -182,7 +184,7 @@ object DataPoller {
           pollInterval,
           errorThreshold,
           (data: Data[A], th: Throwable) => low(span("handle.error")(handleError(data, th))),
-          onUpdate.andThen(low.apply)
+          (o: A, n: A) => low(onUpdate(o, n))
         ) { (get, update) =>
           create(
             () =>
@@ -199,9 +201,12 @@ object DataPoller {
     }
 
   trait TracedPollerPartiallyApplied[F[_], G[_], A, B] {
-    def apply(getData: Data[A] => F[A], pollInterval: FiniteDuration, errorThreshold: PosInt, onUpdate: A => F[Unit])(
-      create: (() => F[A], A => F[Unit]) => B
-    )(
+    def apply(
+      getData: Data[A] => F[A],
+      pollInterval: FiniteDuration,
+      errorThreshold: PosInt,
+      onUpdate: (A, A) => F[Unit]
+    )(create: (() => F[A], A => F[Unit]) => B)(
       implicit F: Sync[F],
       trace: Trace[F],
       G: Concurrent[G],
@@ -217,7 +222,7 @@ object DataPoller {
       pollInterval: FiniteDuration,
       errorThreshold: PosInt,
       handleError: (Data[A], Throwable) => F[A],
-      onUpdate: A => F[Unit]
+      onUpdate: (A, A) => F[Unit]
     )(create: (() => F[A], A => F[Unit]) => B)(
       implicit F: Sync[F],
       trace: Trace[F],
@@ -234,7 +239,7 @@ object DataPoller {
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
-    onUpdate: A => F[Unit]
+    onUpdate: (A, A) => F[Unit]
   )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Concurrent[F], logger: Logger[F]): Resource[F, B] = {
     import Trace.Implicits.noop
 
@@ -258,7 +263,7 @@ object DataPoller {
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
     handleError: (Data[A], Throwable) => F[A],
-    onUpdate: A => F[Unit]
+    onUpdate: (A, A) => F[Unit]
   )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Concurrent[F]): Resource[F, B] = {
     import Trace.Implicits.noop
 

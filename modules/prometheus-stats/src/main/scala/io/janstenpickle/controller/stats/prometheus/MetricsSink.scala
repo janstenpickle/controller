@@ -12,6 +12,7 @@ import cats.syntax.flatMap._
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Pipe
+import io.janstenpickle.controller.model.SwitchType
 import io.janstenpickle.controller.stats.Stats
 import io.janstenpickle.controller.stats.Stats._
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge}
@@ -20,6 +21,14 @@ import scala.concurrent.duration._
 import scala.util.Try
 
 object MetricsSink {
+
+  private val switchType: SwitchType => NonEmptyString = {
+    case SwitchType.Switch => NonEmptyString("switch")
+    case SwitchType.Plug => NonEmptyString("plug")
+    case SwitchType.Bulb => NonEmptyString("bulb")
+    case SwitchType.Multi => NonEmptyString("multi")
+    case SwitchType.Virtual => NonEmptyString("virtual")
+  }
 
   def apply[F[_]: Concurrent: ContextShift: Timer](
     registry: CollectorRegistry,
@@ -41,6 +50,13 @@ object MetricsSink {
           }
         )
 
+      def setManyString[A](labels: String*)(values: Map[String, A])(implicit num: Numeric[A]): F[Unit] =
+        gauge.flatMap(
+          g =>
+            blocker.delay {
+              values.foreach { case (k, v) => g.labels(labels :+ k: _*).set(num.toDouble(v)) }
+          }
+        )
       def setManyNested[A](
         labels: String*
       )(values: Map[NonEmptyString, Map[NonEmptyString, A]])(implicit num: Numeric[A]): F[Unit] =
@@ -89,28 +105,27 @@ object MetricsSink {
 
     def getOrCreateCounter(name: String, help: String, labels: String*): F[Counter] =
       blocker.delay {
-        val key = makeKey(name, labels: _*)
-        val counter = counters.getOrDefault(key, Counter.build(name, help).labelNames(labels: _*).create())
+        val n = s"${name}_total"
+        val key = makeKey(n, labels: _*)
+        val counter = counters.getOrDefault(key, Counter.build(n, help).labelNames(labels: _*).create())
         // doesn't matter if it throws an error saying already registered
         Try(counter.register(registry))
         counters.put(key, counter)
         counter
       }
 
-    def errorCounter(errors: Int, configSource: String): F[Unit] =
-      getOrCreateCounter("config_source_errors", "Errors encountered when reading from config source", "config_source")
-        .incBy(configSource)(errors)
-
     val statsToRegistry: Stats => F[Unit] = {
       case Empty => ().pure[F]
 
       // Activity stats
       case SetActivity(room, activity) =>
-        getOrCreateCounter("set_activty", "Set current activity for a room", "room", "activity")
+        getOrCreateCounter("set_activity", "Set current activity for a room", "room", "activity")
           .inc(room.value, activity.value)
-      case Activities(errorCount, activityCount, contextButtons) =>
-        errorCounter(errorCount, "activities") *>
-          getOrCreateGauge("activities", "Number of activities broken down by room", "room").setMany()(activityCount) *>
+      case ActivityError(room, activity) =>
+        getOrCreateCounter("activity_error", "Errors encountered when setting activity", "room", "activity")
+          .inc(room.value, activity.value)
+      case Activities(activityCount, contextButtons) =>
+        getOrCreateGauge("activities", "Number of activities broken down by room", "room").setMany()(activityCount) *>
           getOrCreateGauge(
             "activity_context_buttons",
             "Number of context buttons for an activity broken down by room and activity",
@@ -119,15 +134,15 @@ object MetricsSink {
           ).setManyNested()(contextButtons)
 
       // Button stats
-      case Buttons(errorCount, buttons) =>
-        errorCounter(errorCount, "buttons") *>
-          getOrCreateGauge("buttons", "Number of common buttons by room and button type", "room", "button_type")
-            .setManyNested()(buttons)
+      case Buttons(buttons) =>
+        getOrCreateGauge("buttons", "Number of common buttons by room and button type", "room", "button_type")
+          .setManyNested()(buttons)
 
       // Macro stats
-      case Macro(name, commands) =>
-        getOrCreateGauge("macros", "Macro commands breakdown", "macro_name", "command_type")
-          .setMany(name.value)(commands)
+      case Macros(count, commands) =>
+        getOrCreateGauge("macros", "Total macros breakdown")
+          .set()(count) *>
+          getOrCreateGauge("macros_commands", "Macro command breakdown", "macro_name").setMany()(commands)
       case StoreMacro(name, commands) =>
         getOrCreateCounter("store_macro", "Macros stored with command break down", "macro_name", "command_type")
           .incByMany(name.value)(commands)
@@ -163,9 +178,10 @@ object MetricsSink {
           "device_name",
           "command"
         ).inc(remote.value, device.value, name.value)
-      case Remotes(errorCount, remoteCount, remoteRoomActivityCount, remoteButtons) =>
-        errorCounter(errorCount, "remotes") *>
-          getOrCreateGauge("remotes", "Total number of configured remotes").set()(remoteCount) *>
+      case RemoteDevices(deviceCount) =>
+        getOrCreateGauge("remote_devices", "Total number of remote controls").set()(deviceCount)
+      case Remotes(remoteCount, remoteRoomActivityCount, remoteButtons) =>
+        getOrCreateGauge("remotes", "Total number of configured remotes").set()(remoteCount) *>
           getOrCreateGauge(
             "remotes_room_activity",
             "Number of remotes broken down by room and activity, note that a remote can belong to more than one room and activity",
@@ -185,9 +201,20 @@ object MetricsSink {
       case SwitchOff(device, name) =>
         getOrCreateCounter("switch_off", "Records switch being turned off", "device", "switch_name")
           .inc(device.value, name.value)
-      case SwitchToggle(device, name) =>
-        getOrCreateCounter("switch_toggle", "Records switch being toggled", "device", "switch_name")
+      case SwitchError(device, name) =>
+        getOrCreateCounter("switch_error", "Records an error with a switch", "device", "switch_name")
           .inc(device.value, name.value)
+      case Switches(switchCount, switchTypes, switchRoom, switchDevice) =>
+        getOrCreateGauge("switches", "Number of switches").set()(switchCount) *> getOrCreateGauge(
+          "switch_rooms",
+          "Number of switches by room",
+          "room"
+        ).setManyString()(switchRoom) *> getOrCreateGauge("switch_types", "Number of switches by type", "type")
+          .setMany()(switchTypes.map { case (t, v) => switchType(t) -> v }) *> getOrCreateGauge(
+          "switch_device",
+          "Number of switches by device",
+          "device"
+        ).setMany()(switchDevice)
     }
 
     def recordStats(stats: Stats): F[Unit] =

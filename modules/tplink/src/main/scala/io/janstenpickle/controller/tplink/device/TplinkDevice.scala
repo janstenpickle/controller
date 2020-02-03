@@ -20,21 +20,32 @@ import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.{ACursor, Decoder, DecodingFailure, Json}
 import io.circe.syntax._
-import io.janstenpickle.controller.model.{Room, State}
+import io.janstenpickle.controller.model.{
+  DiscoveredDeviceKey,
+  DiscoveredDeviceValue,
+  Room,
+  State,
+  SwitchKey,
+  SwitchMetadata,
+  SwitchType
+}
 import io.janstenpickle.controller.schedule.model.{dayOfWeekOrdering, Days, Time}
-import io.janstenpickle.controller.switch.model.SwitchKey
-import io.janstenpickle.controller.switch.{Metadata, Switch, SwitchType}
+import io.janstenpickle.controller.switch.Switch
 import io.janstenpickle.controller.tplink.Constants._
-import io.janstenpickle.controller.tplink.TplinkClient
+import io.janstenpickle.controller.tplink.{DevName, TplinkClient}
 import cats.syntax.traverse._
 import cats.instances.list._
 import cats.instances.either._
 import eu.timepit.refined.types.time.{Hour, Minute}
+import io.janstenpickle.controller
+import io.janstenpickle.controller.discovery.DiscoveredDevice
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 
 import scala.collection.immutable.SortedSet
 import scala.concurrent.duration._
 
-sealed trait TplinkDevice[F[_]] extends Switch[F] {
+sealed trait TplinkDevice[F[_]] extends Switch[F] with DiscoveredDevice[F] {
   def room: Option[Room]
   def refresh: F[Unit]
   def rename(name: NonEmptyString, room: Option[Room]): F[Unit]
@@ -155,7 +166,7 @@ object TplinkDevice {
     model: NonEmptyString,
     id: String,
     discovered: Json,
-    onUpdate: SwitchKey => F[Unit]
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit errors: TplinkDeviceErrors[F], timer: Timer[F]): F[SmartPlug[F]] = {
     val switchKey = SwitchKey(model, tplink.deviceName)
 
@@ -187,7 +198,11 @@ object TplinkDevice {
           for {
             current <- state.get
             newState <- _getState
-            _ <- if (current != newState) state.set(newState) *> onUpdate(switchKey) else Applicative[F].unit
+            _ <- if (current != newState)
+              (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState)))
+                .handleErrorWith { th =>
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState, Some(th))) *> th.raiseError
+                } else Applicative[F].unit
           } yield ()
         override def name: NonEmptyString = tplink.deviceName
         override def room: Option[Room] = tplink.deviceRoom
@@ -196,15 +211,15 @@ object TplinkDevice {
         override def switchOn: F[Unit] =
           tplink.sendCommand(PlugSwitchOnCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
             State.On
-          ) *> onUpdate(switchKey)
+          )
         override def switchOff: F[Unit] =
           tplink.sendCommand(PlugSwitchOffCommand).flatMap(tplink.parseSetResponse(System, SetRelayState)) *> state.set(
             State.Off
-          ) *> onUpdate(switchKey)
+          )
         override def rename(name: NonEmptyString, room: Option[Room]): F[Unit] = tplink.rename(name, room)
 
-        override def metadata: Metadata =
-          Metadata(
+        override def metadata: SwitchMetadata =
+          controller.model.SwitchMetadata(
             room = room.map(_.value),
             manufacturer = Some(manufacturer),
             model = Some(model.value),
@@ -298,17 +313,23 @@ object TplinkDevice {
           })
 
         override def listSchedules: F[List[String]] = schedules.map(_.map(_._1))
+
+        override def key: DiscoveredDeviceKey = DiscoveredDeviceKey(id, s"$DevName-${model.value}")
+        override def value: DiscoveredDeviceValue = DiscoveredDeviceValue(name, room)
+        override def updatedKey: F[String] = getState.map { state =>
+          s"$name${state.isOn}"
+        }
       }
   }
 
   case class BulbState(power: State, brightness: Int, hue: Int, saturation: Int, temp: Int)
 
-  def bulb[F[_]](
+  def bulb[F[_]: Clock](
     tplink: TplinkClient[F],
     model: NonEmptyString,
     id: String,
     discovered: Json,
-    onUpdate: SwitchKey => F[Unit]
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit F: Sync[F], errors: TplinkDeviceErrors[F]): F[SmartBulb[F]] = {
     val switchKey = SwitchKey(model, tplink.deviceName)
 
@@ -359,8 +380,11 @@ object TplinkDevice {
           for {
             current <- state.get
             newState <- _getState
-            _ <- if (current.power != newState.power) state.set(newState) *> onUpdate(switchKey)
-            else state.set(newState)
+            _ <- if (current.power != newState.power)
+              (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power)))
+                .handleErrorWith { th =>
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power, Some(th))) *> th.raiseError
+                } else state.set(newState)
           } yield ()
 
         override def name: NonEmptyString = tplink.deviceName
@@ -469,14 +493,20 @@ object TplinkDevice {
         override def tempDown: F[Unit] =
           stepDown(colour, "temp", _.temp, (s, v) => s.copy(temp = v), minTemp, tempStep)
 
-        override def metadata: Metadata =
-          Metadata(
+        override def metadata: SwitchMetadata =
+          controller.model.SwitchMetadata(
             room = room.map(_.value),
             manufacturer = Some(manufacturer),
             model = Some(model.value),
             id = Some(id),
             `type` = SwitchType.Bulb
           )
+
+        override def key: DiscoveredDeviceKey = DiscoveredDeviceKey(id, s"$DevName-${model.value}")
+        override def value: DiscoveredDeviceValue = DiscoveredDeviceValue(name, room)
+        override def updatedKey: F[String] = getState.map { state =>
+          s"$name${state.isOn}"
+        }
       }
   }
 }

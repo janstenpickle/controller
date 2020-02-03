@@ -4,7 +4,7 @@ import cats.{Applicative, Parallel}
 import cats.kernel.Monoid
 import cats.syntax.applicative._
 import cats.syntax.apply._
-import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.model.SwitchKey
 
 trait SwitchProvider[F[_]] {
   def getSwitches: F[Map[SwitchKey, Switch[F]]]

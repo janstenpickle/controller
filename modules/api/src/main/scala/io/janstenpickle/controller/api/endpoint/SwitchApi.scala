@@ -12,9 +12,8 @@ import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.instances._
 import extruder.refined._
 import io.janstenpickle.controller.api.error.ControlError
-import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.model.{State, SwitchKey}
 import io.janstenpickle.controller.switch.Switches
-import io.janstenpickle.controller.switch.model.SwitchKey
 import org.http4s.{EntityEncoder, HttpRoutes, Response}
 
 class SwitchApi[F[_]: Sync](switches: Switches[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {

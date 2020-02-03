@@ -1,9 +1,8 @@
 package io.janstenpickle.controller.broadlink
 
 import cats.Parallel
-import cats.effect.{Async, Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
-import cats.syntax.semigroup._
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.remote.{RmRemoteConfig, RmRemoteControls}
@@ -11,11 +10,11 @@ import io.janstenpickle.controller.broadlink.switch.{SpSwitchConfig, SpSwitchPro
 import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.WritableConfigSource
-import io.janstenpickle.controller.discovery.DeviceRename
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, DiscoveredDeviceValue}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.store.{RemoteCommandStore, SwitchStateStore}
-import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -25,7 +24,6 @@ object BroadlinkComponents {
     enabled: Boolean = false,
     rm: List[RmRemoteConfig] = List.empty,
     sp: List[SpSwitchConfig] = List.empty,
-    dynamicDiscovery: Boolean = true,
     discovery: BroadlinkDiscovery.Config,
     remotesCacheTimeout: FiniteDuration = 10.seconds
   )
@@ -37,37 +35,35 @@ object BroadlinkComponents {
     nameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    onUpdate: () => F[Unit],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    remoteEventPublisher: EventPublisher[F, RemoteEvent],
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    configEventPublisher: EventPublisher[F, ConfigEvent],
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, RemoteControls[F]](config.remotesCacheTimeout, classOf)
-        static <- BroadlinkDiscovery
-          .static[F, G](config.rm, config.sp, switchStore, workBlocker, config.discovery.polling, onSwitchUpdate)
-        discovery <- if (config.dynamicDiscovery)
-          BroadlinkDiscovery
-            .dynamic[F, G](
-              config.discovery,
-              workBlocker,
-              discoveryBlocker,
-              switchStore,
-              nameMapping,
-              onUpdate,
-              onSwitchUpdate
-            )
-            .map(static |+| _)
-        else
-          Resource.pure[F, BroadlinkDiscovery[F]](static)
+
+        discovery <- BroadlinkDiscovery
+          .dynamic[F, G](
+            config.discovery,
+            workBlocker,
+            discoveryBlocker,
+            switchStore,
+            nameMapping,
+            remoteEventPublisher,
+            switchEventPublisher,
+            configEventPublisher,
+            discoveryEventPublisher
+          )
       } yield {
         Monoid[Components[F]].empty
           .copy(
-            remotes = RmRemoteControls(discovery, remoteStore, remotesCache),
-            switches = SpSwitchProvider(discovery),
-            rename =
-              if (config.dynamicDiscovery) BroadlinkDeviceRename(discovery, nameMapping) else DeviceRename.empty[F]
+            remotes = RmRemoteControls(discovery, remoteStore, remotesCache, remoteEventPublisher),
+            switches = SpSwitchProvider(discovery, switchEventPublisher.narrow),
+            rename = BroadlinkDeviceRename(discovery, nameMapping, discoveryEventPublisher)
           )
       } else
-      Resource.pure(Monoid[Components[F]].empty)
+      Resource.pure[F, Components[F]](Monoid[Components[F]].empty)
 
 }

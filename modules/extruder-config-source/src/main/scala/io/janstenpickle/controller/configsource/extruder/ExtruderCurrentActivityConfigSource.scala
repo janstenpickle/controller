@@ -14,15 +14,17 @@ import extruder.typesafe.IntermediateTypes.Config
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.PollingConfig
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.Room
+import io.janstenpickle.controller.model.event.ActivityUpdateEvent
 import natchez.Trace
 
 object ExtruderCurrentActivityConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    onUpdate: ConfigResult[Room, NonEmptyString] => F[Unit]
+    activityUpdateEventPublisher: EventPublisher[F, ActivityUpdateEvent]
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, WritableConfigSource[F, Room, NonEmptyString]] = {
@@ -37,7 +39,7 @@ object ExtruderCurrentActivityConfigSource {
         "currentActivity",
         pollingConfig,
         config,
-        onUpdate,
+        Events.fromDiff(activityUpdateEventPublisher, ActivityUpdateEvent(_, _), ActivityUpdateEvent(_, _)),
         decoder,
         encoder
       )

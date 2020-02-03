@@ -4,7 +4,7 @@ import java.io.ByteArrayInputStream
 import java.net.{DatagramPacket, DatagramSocket, InetAddress, SocketTimeoutException}
 
 import cats.derived.auto.eq._
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.{Blocker, Clock, Concurrent, ContextShift, Resource, Timer}
 import cats.instances.list._
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
@@ -14,7 +14,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.traverse._
-import cats.{Functor, Parallel}
+import cats.{Applicative, Functor, Parallel}
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
@@ -29,8 +29,14 @@ import eu.timepit.refined.cats._
 import cats.instances.string._
 import cats.instances.int._
 import cats.instances.option._
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
-import io.janstenpickle.controller.switch.model.SwitchKey
+import fs2.{Pipe, Stream}
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.janstenpickle.controller.errors.ErrorHandler
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room, SwitchKey}
+import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
+import io.janstenpickle.controller.tplink.config.TplinkRemoteConfigSource
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
@@ -47,6 +53,8 @@ object TplinkDiscovery {
 
   private final val broadcastAddress = "255.255.255.255"
 
+  final val eventSource = "tplink"
+
   case class TplinkInstance(
     name: NonEmptyString,
     room: Option[NonEmptyString],
@@ -56,74 +64,21 @@ object TplinkDiscovery {
     `type`: DeviceType
   )
 
-  private def deviceKey[F[_]: Functor](device: TplinkDevice[F]): F[String] = device.getState.map { state =>
-    s"${device.name}${state.isOn}"
-  }
-
-  def static[F[_]: ContextShift: Timer: Parallel: Trace: TplinkDeviceErrors, G[_]: Timer: Concurrent](
-    tplinks: List[TplinkInstance],
-    commandTimeout: FiniteDuration,
-    blocker: Blocker,
-    config: Discovery.Polling,
-    onSwitchUpdate: SwitchKey => F[Unit]
-  )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, TplinkDiscovery[F]] =
-    Resource
-      .liftF(
-        tplinks
-          .parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
-            case TplinkInstance(name, room, host, port, mac, t @ DeviceType.SmartPlug(model)) =>
-              TplinkDevice
-                .plug[F](
-                  TplinkClient[F](name, room, host, port, commandTimeout, blocker),
-                  model,
-                  mac,
-                  Json.Null,
-                  onSwitchUpdate
-                )
-                .map { dev =>
-                  List(((name, t), dev))
-                }
-            case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
-          }
-          .map { devs =>
-            new Discovery[F, (NonEmptyString, DeviceType), TplinkDevice[F]] {
-              override def devices: F[Discovered[(NonEmptyString, DeviceType), TplinkDevice[F]]] =
-                F.pure(Discovered(Map.empty, devs.toMap))
-
-              override def reinit: F[Unit] = F.unit
-            }
-          }
-      )
-      .flatMap { disc =>
-        if (tplinks.nonEmpty)
-          DeviceState[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
-            DevName,
-            config.stateUpdateInterval,
-            config.errorCount,
-            disc,
-            () => F.unit,
-            _.refresh,
-            deviceKey
-          ).map(_ => disc)
-        else Resource.pure(disc)
-      }
-
-  def dynamic[F[_]: Parallel: ContextShift: TplinkDeviceErrors, G[_]: Timer: Concurrent](
-    port: PortNumber,
-    commandTimeout: FiniteDuration,
-    discoveryTimeout: FiniteDuration,
+  def dynamic[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent](
+    config: TplinkComponents.Config,
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    config: Discovery.Polling,
-    onUpdate: () => F[Unit],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    remoteEventPublisher: EventPublisher[F, RemoteEvent],
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    configEventPublisher: EventPublisher[F, ConfigEvent],
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
-    errors: TplinkErrors[F],
+    errors: TplinkDeviceErrors[F] with ErrorHandler[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, TplinkDiscovery[F]] = {
+  ): Resource[F, TplinkDiscovery[F]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
     def refineF[A](refined: Either[String, A]): F[A] =
       F.fromEither(refined.leftMap(new RuntimeException(_) with NoStackTrace))
 
@@ -177,9 +132,9 @@ object TplinkDiscovery {
     def socketResource: Resource[F, DatagramSocket] =
       Resource.make {
         F.delay {
-          val socket = new DatagramSocket(port.value)
+          val socket = new DatagramSocket(config.discoveryPort.value)
           socket.setBroadcast(true)
-          socket.setSoTimeout(discoveryTimeout.toMillis.toInt)
+          socket.setSoTimeout(config.discoveryTimeout.toMillis.toInt)
           socket
         }
       } { s =>
@@ -191,7 +146,8 @@ object TplinkDiscovery {
     ] =
       socketResource.use { socket =>
         val (_, buffer) = Encryption.encryptWithHeader(discoveryQuery).splitAt(4)
-        val packet = new DatagramPacket(buffer, buffer.length, InetAddress.getByName(broadcastAddress), port.value)
+        val packet =
+          new DatagramPacket(buffer, buffer.length, InetAddress.getByName(broadcastAddress), config.discoveryPort.value)
 
         def receiveData: F[Map[(NonEmptyString, PortNumber), Json]] =
           F.tailRecM(Map.empty[(NonEmptyString, PortNumber), Json]) { state =>
@@ -226,29 +182,41 @@ object TplinkDiscovery {
             }.toList
             devices <- filtered.parFlatTraverse[F, ((NonEmptyString, DeviceType), TplinkDevice[F])] {
               case (TplinkInstance(name, room, host, port, id, t @ DeviceType.SmartPlug(model)), json) =>
-                TplinkDevice
-                  .plug(
-                    TplinkClient(name, room, host, port, commandTimeout, workBlocker),
-                    model,
-                    id,
-                    json,
-                    onSwitchUpdate
-                  )
-                  .map { dev =>
-                    List(((name, t), dev))
-                  }
+                errors.handleWith(
+                  TplinkDevice
+                    .plug(
+                      TplinkClient(name, room, host, port, config.commandTimeout, workBlocker),
+                      model,
+                      id,
+                      json,
+                      switchEventPublisher.narrow
+                    )
+                    .map { dev =>
+                      List[((NonEmptyString, DeviceType), TplinkDevice[F])](((name, t), dev))
+                    }
+                )(
+                  logger
+                    .warn(_)(s"Failed to initialise TPLink Plug '$name''")
+                    .as(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
+                )
               case (TplinkInstance(name, room, host, port, id, t @ DeviceType.SmartBulb(model)), json) =>
-                TplinkDevice
-                  .bulb(
-                    TplinkClient(name, room, host, port, commandTimeout, workBlocker),
-                    model,
-                    id,
-                    json,
-                    onSwitchUpdate
-                  )
-                  .map { dev =>
-                    List(((name, t), dev))
-                  }
+                errors.handleWith(
+                  TplinkDevice
+                    .bulb(
+                      TplinkClient(name, room, host, port, config.commandTimeout, workBlocker),
+                      model,
+                      id,
+                      json,
+                      switchEventPublisher.narrow
+                    )
+                    .map { dev =>
+                      List[((NonEmptyString, DeviceType), TplinkDevice[F])](((name, t), dev))
+                    }
+                )(
+                  logger
+                    .warn(_)(s"Failed to initialise TPLink Bulb '$name''")
+                    .as(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
+                )
               case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
             }
             _ <- trace.put("device.count" -> devices.size)
@@ -256,15 +224,55 @@ object TplinkDiscovery {
         }
       }
 
+    val onDeviceUpdate: Pipe[F, TplinkDevice[F], Unit] =
+      _.evalMap { device =>
+        TplinkRemoteConfigSource.deviceToRemote(config.remoteName, device)
+      }.unNone.map(ConfigEvent.RemoteAddedEvent(_, eventSource))
+
+    val switchAdded: Pipe[F, TplinkDevice[F], Unit] = _.evalMap { device =>
+      device.getState
+        .map { state =>
+          val key = SwitchKey(device.device, device.name)
+          List(SwitchEvent.SwitchAddedEvent(key, device.metadata), SwitchStateUpdateEvent(key, state))
+        }
+    }.flatMap(Stream.emits).through(switchEventPublisher.pipe)
+
+    val remoteConfigAdded: Pipe[F, TplinkDevice[F], Unit] = _.evalMap { device =>
+      TplinkRemoteConfigSource
+        .deviceToRemote(config.remoteName, device)
+        .map(_.map(ConfigEvent.RemoteAddedEvent(_, eventSource)))
+    }.unNone.through(configEventPublisher.pipe)
+
+    val onDeviceAdded: Pipe[F, TplinkDevice[F], Unit] = _.broadcastThrough(switchAdded, remoteConfigAdded)
+
+    val switchRemoved: Pipe[F, TplinkDevice[F], Unit] = _.map { device =>
+      SwitchEvent.SwitchRemovedEvent(SwitchKey(device.device, device.name))
+    }.through(switchEventPublisher.pipe)
+
+    val remoteConfigRemoved: Pipe[F, TplinkDevice[F], Unit] = _.evalMap { device =>
+      TplinkRemoteConfigSource
+        .deviceToRemote(config.remoteName, device)
+        .map(_.map(r => ConfigEvent.RemoteRemovedEvent(r.name, eventSource)))
+    }.unNone.through(configEventPublisher.pipe)
+
+    val onDeviceRemoved: Pipe[F, TplinkDevice[F], Unit] = _.broadcastThrough(switchRemoved, remoteConfigRemoved)
+
     Discovery[F, G, (NonEmptyString, DeviceType), TplinkDevice[F]](
-      DevName,
-      config,
-      _ => onUpdate(),
-      () => F.unit,
-      () => discover,
-      _.refresh,
-      deviceKey,
-      device => List("device.name" -> device.name.value)
-    )
+      deviceType = DevName,
+      config = config.polling,
+      doDiscovery = discover,
+      onDevicesUpdate = (_, _) => F.unit,
+      onDeviceDiscovered = onDeviceAdded,
+      onDeviceRemoved = onDeviceRemoved,
+      onDeviceUpdate = onDeviceUpdate,
+      discoveryEventProducer = discoveryEventPublisher,
+      traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.roomName.value)
+    ).flatMap { disc =>
+      Resource
+        .make(remoteEventPublisher.publish1(RemoteEvent.RemoteAddedEvent(config.remoteName, eventSource)))(
+          _ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(config.remoteName, eventSource))
+        )
+        .map(_ => disc)
+    }
   }
 }

@@ -10,12 +10,12 @@ import io.janstenpickle.controller.cache.CacheResource
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
-import io.janstenpickle.controller.model.{Activity, Command, Remote}
-import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{Command, Remote}
+import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
-import io.janstenpickle.controller.switch.SwitchProvider
-import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.concurrent.duration._
@@ -41,32 +41,36 @@ object SonosComponents {
 
   def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
     config: Config,
-    onUpdate: () => F[Unit],
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    onDeviceUpdate: () => F[Unit],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    remoteEventPublisher: EventPublisher[F, RemoteEvent],
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    configEventPublisher: EventPublisher[F, ConfigEvent],
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, ConfigResult[NonEmptyString, Remote]](config.remotesCacheTimeout, classOf)
         discovery <- SonosDiscovery
           .polling[F, G](
-            config.polling,
-            config.switchDevice,
-            config.commandTimeout,
-            onUpdate,
+            config,
             workBlocker,
             discoveryBlocker,
-            onDeviceUpdate,
-            onSwitchUpdate
+            remoteEventPublisher,
+            switchEventPublisher,
+            configEventPublisher,
+            discoveryEventPublisher
           )
       } yield {
-        val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery)
+        val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery, remoteEventPublisher)
         val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
         val remoteConfig =
           SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery, remotesCache)
-        val switches = SonosSwitchProvider[F](config.switchDevice, discovery)
+        val switches = SonosSwitchProvider[F](
+          config.switchDevice,
+          discovery,
+          switchEventPublisher.narrow[SwitchEvent.SwitchStateUpdateEvent]
+        )
 
         Components[F](
           remote,

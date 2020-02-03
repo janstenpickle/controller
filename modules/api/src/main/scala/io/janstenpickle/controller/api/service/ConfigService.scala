@@ -12,6 +12,7 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.Button.{
   ContextIcon,
   ContextLabel,
@@ -20,10 +21,10 @@ import io.janstenpickle.controller.model.Button.{
   SwitchIcon,
   SwitchLabel
 }
-import io.janstenpickle.controller.model._
+import io.janstenpickle.controller.model.event.ConfigEvent
+import io.janstenpickle.controller.model.{SwitchKey, _}
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
 import io.janstenpickle.controller.switch.Switches
-import io.janstenpickle.controller.switch.model.SwitchKey
 import natchez.Trace
 
 import scala.collection.immutable.ListMap
@@ -36,8 +37,11 @@ class ConfigService[F[_]: Parallel] private (
   activityStore: ActivityStore[F],
   switches: Switches[F],
   validation: ConfigValidation[F],
+  configEventPublisher: EventPublisher[F, ConfigEvent],
   logger: Logger[F]
 )(implicit F: MonadError[F, Throwable], errors: ConfigServiceErrors[F], trace: Trace[F]) {
+  import ConfigService._
+
   private def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, default: A, op: State => A): F[A] =
     switches.list.flatMap { switchSet =>
       if (switchSet.contains(SwitchKey(device, name))) F.handleErrorWith(switches.getState(device, name).map(op)) {
@@ -136,19 +140,29 @@ class ConfigService[F[_]: Parallel] private (
       validation
         .validateActivity(a)
         .flatMap(NonEmptyList.fromList(_) match {
-          case None => activity.upsert(activityName, a)
+          case None =>
+            activity
+              .upsert(activityName, a)
+              .flatTap(
+                _ =>
+                  configEventPublisher
+                    .publish1(ConfigEvent.ActivityAddedEvent(a, eventSource))
+              )
           case Some(errs) => errors.configValidationFailed[ConfigResult[String, Activity]](errs)
         })
     }
 
-  def deleteActivity(a: NonEmptyString): F[ConfigResult[String, Activity]] = trace.span("delete.activity") {
+  def deleteActivity(room: Room, a: NonEmptyString): F[ConfigResult[String, Activity]] = trace.span("delete.activity") {
     activity.getConfig.flatMap { activities =>
       if (activities.values.values.map(_.name).toSet.contains(a)) remote.getConfig.flatMap { remotes =>
         val rs = remotes.values.values.collect {
           case r if r.activities.contains(a) => r.name
         }
         if (rs.nonEmpty) errors.activityInUse(a, rs.toList)
-        else activity.deleteItem(a.value)
+        else
+          activity
+            .deleteItem(a.value)
+            .flatTap(_ => configEventPublisher.publish1(ConfigEvent.ActivityRemovedEvent(room, a, eventSource)))
       } else errors.activityMissing[ConfigResult[String, Activity]](a)
 
     }
@@ -177,14 +191,18 @@ class ConfigService[F[_]: Parallel] private (
       validation
         .validateRemote(r)
         .flatMap(NonEmptyList.fromList(_) match {
-          case None => remote.upsert(remoteName, r)
+          case None =>
+            remote
+              .upsert(remoteName, r)
+              .flatTap(_ => configEventPublisher.publish1(ConfigEvent.RemoteAddedEvent(r, eventSource)))
           case Some(errs) => errors.configValidationFailed[ConfigResult[NonEmptyString, Remote]](errs)
         })
     }
 
   def deleteRemote(r: NonEmptyString): F[ConfigResult[NonEmptyString, Remote]] = trace.span("delete.remote") {
     remote.getConfig.flatMap { remotes =>
-      if (remotes.values.keySet.contains(r)) remote.deleteItem(r)
+      if (remotes.values.keySet.contains(r))
+        remote.deleteItem(r).flatTap(_ => configEventPublisher.publish1(ConfigEvent.RemoteRemovedEvent(r, eventSource)))
       else errors.remoteMissing[ConfigResult[NonEmptyString, Remote]](r)
     }
   }
@@ -209,7 +227,14 @@ class ConfigService[F[_]: Parallel] private (
       validation
         .validateButton(b)
         .flatMap(NonEmptyList.fromList(_) match {
-          case None => button.upsert(s"${b.room.getOrElse("all")}-${b.name}", b)
+          case None =>
+            button
+              .upsert(s"${b.room.getOrElse("all")}-${b.name}", b)
+              .flatTap(
+                _ =>
+                  configEventPublisher
+                    .publish1(ConfigEvent.ButtonAddedEvent(b, eventSource))
+              )
           case Some(errs) => errors.configValidationFailed[ConfigResult[String, Button]](errs)
         })
     }
@@ -217,15 +242,23 @@ class ConfigService[F[_]: Parallel] private (
   def addCommonButton(b: Button): F[ConfigResult[String, Button]] = trace.span("addCommonButton") {
     button.getValue(s"${b.room.getOrElse("all")}-${b.name}").flatMap {
       case Some(_) => errors.buttonAlreadyExists(b.name)
-      case None => updateCommonButton(b.name, b)
+      case None =>
+        updateCommonButton(b.name, b)
     }
   }
 
-  def deleteCommonButton(b: String): F[ConfigResult[String, Button]] =
+  def deleteCommonButton(b: NonEmptyString): F[ConfigResult[String, Button]] =
     trace.span("delete.common.button") {
       button.getConfig.flatMap { buttons =>
-        if (buttons.values.keySet.contains(b)) button.deleteItem(b)
-        else errors.buttonMissing[ConfigResult[String, Button]](b)
+        if (buttons.values.keySet.contains(b.value)) button.deleteItem(b.value)
+        else
+          errors
+            .buttonMissing[ConfigResult[String, Button]](b.value)
+            .flatTap(
+              _ =>
+                configEventPublisher
+                  .publish1(ConfigEvent.ButtonRemovedEvent(b, None, eventSource))
+            )
       }
     }
 
@@ -255,6 +288,8 @@ class ConfigService[F[_]: Parallel] private (
 }
 
 object ConfigService {
+  final val eventSource: String = "configService"
+
   def apply[F[_]: Sync: Parallel: Trace: ConfigServiceErrors](
     activity: WritableConfigSource[F, String, Activity],
     button: WritableConfigSource[F, String, Button],
@@ -262,9 +297,22 @@ object ConfigService {
     macros: MacroStore[F],
     activityStore: ActivityStore[F],
     switches: Switches[F],
-    validation: ConfigValidation[F]
+    validation: ConfigValidation[F],
+    configEventPublisher: EventPublisher[F, ConfigEvent]
   ): F[ConfigService[F]] =
     Slf4jLogger
       .fromClass[F](this.getClass)
-      .map(new ConfigService[F](activity, button, remote, macros, activityStore, switches, validation, _))
+      .map(
+        new ConfigService[F](
+          activity,
+          button,
+          remote,
+          macros,
+          activityStore,
+          switches,
+          validation,
+          configEventPublisher,
+          _
+        )
+      )
 }

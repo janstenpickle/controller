@@ -4,7 +4,7 @@ import cats.Functor
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.WritableConfigSource
-import io.janstenpickle.controller.model.{State, SwitchKey}
+import io.janstenpickle.controller.model.{RemoteSwitchKey, State}
 
 trait SwitchStateStore[F[_]] {
   def setOn(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit]
@@ -13,15 +13,15 @@ trait SwitchStateStore[F[_]] {
 }
 
 object SwitchStateStore {
-  def fromConfigSource[F[_]: Functor](source: WritableConfigSource[F, SwitchKey, State]): SwitchStateStore[F] =
+  def fromConfigSource[F[_]: Functor](source: WritableConfigSource[F, RemoteSwitchKey, State]): SwitchStateStore[F] =
     new SwitchStateStore[F] {
       override def setOn(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        source.upsert(SwitchKey(remote, device, name), State.On).void
+        source.upsert(RemoteSwitchKey(remote, device, name), State.On).void
 
       override def setOff(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        source.upsert(SwitchKey(remote, device, name), State.Off).void
+        source.upsert(RemoteSwitchKey(remote, device, name), State.Off).void
 
       override def getState(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[State] =
-        source.getValue(SwitchKey(remote, device, name)).map(_.getOrElse(State.Off))
+        source.getValue(RemoteSwitchKey(remote, device, name)).map(_.getOrElse(State.Off))
     }
 }

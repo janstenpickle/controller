@@ -76,7 +76,7 @@ object ControllerHomekitAuthInfo {
         load(_),
         pollConfig.pollInterval,
         pollConfig.errorThreshold,
-        (_: AuthInfo) => F.unit
+        (_: AuthInfo, _: AuthInfo) => F.unit
       ) { (get, update) =>
         new HomekitAuthInfo {
 

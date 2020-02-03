@@ -6,20 +6,19 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.semigroup._
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.State
-import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata}
 import natchez.Trace
 
 trait Switches[F[_]] { outer =>
   def getState(device: NonEmptyString, name: NonEmptyString): F[State]
-  def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[Metadata]]
+  def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[SwitchMetadata]]
   def switchOn(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def switchOff(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def toggle(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def list: F[Set[SwitchKey]]
   def mapK[G[_]](fk: F ~> G): Switches[G] = new Switches[G] {
     override def getState(device: NonEmptyString, name: NonEmptyString): G[State] = fk(outer.getState(device, name))
-    override def getMetadata(device: NonEmptyString, name: NonEmptyString): G[Option[Metadata]] =
+    override def getMetadata(device: NonEmptyString, name: NonEmptyString): G[Option[SwitchMetadata]] =
       fk(outer.getMetadata(device, name))
     override def switchOn(device: NonEmptyString, name: NonEmptyString): G[Unit] = fk(outer.switchOn(device, name))
     override def switchOff(device: NonEmptyString, name: NonEmptyString): G[Unit] = fk(outer.switchOff(device, name))
@@ -33,12 +32,8 @@ trait AppendableSwitches[F[_]] extends Switches[F] {
 }
 
 object Switches {
-  def apply[F[_]: Monad: SwitchErrors: Trace](switches: SwitchProvider[F]): AppendableSwitches[F] =
-    apply(switches, (_: SwitchKey) => Applicative[F].unit)
-
   def apply[F[_]: Monad](
-    switches: SwitchProvider[F],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    switches: SwitchProvider[F]
   )(implicit errors: SwitchErrors[F], trace: Trace[F]): AppendableSwitches[F] =
     new AppendableSwitches[F] {
       private def span[A](name: String, device: NonEmptyString, switch: NonEmptyString)(fa: F[A]): F[A] =
@@ -61,22 +56,22 @@ object Switches {
           )
         }
 
-      override def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[Metadata]] =
+      override def getMetadata(device: NonEmptyString, name: NonEmptyString): F[Option[SwitchMetadata]] =
         switches.getSwitches.map(_.get(SwitchKey(device, name)).map(_.metadata))
 
       override def switchOn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
         span("switches.switch.on", device, name) {
-          exec(device, name)(_.switchOn) *> onSwitchUpdate(SwitchKey(device, name))
+          exec(device, name)(_.switchOn)
         }
 
       override def switchOff(device: NonEmptyString, name: NonEmptyString): F[Unit] =
         span("switches.switch.off", device, name) {
-          exec(device, name)(_.switchOff) *> onSwitchUpdate(SwitchKey(device, name))
+          exec(device, name)(_.switchOff)
         }
 
       override def toggle(device: NonEmptyString, name: NonEmptyString): F[Unit] =
         span("switches.toggle", device, name) {
-          exec(device, name)(_.toggle) //*> onSwitchUpdate(SwitchKey(device, name))
+          exec(device, name)(_.toggle)
         }
 
       override def list: F[Set[SwitchKey]] =
@@ -85,6 +80,6 @@ object Switches {
         }
 
       override def addProvider(switchProvider: SwitchProvider[F]): AppendableSwitches[F] =
-        apply(switches |+| switchProvider, onSwitchUpdate)
+        apply(switches |+| switchProvider)
     }
 }

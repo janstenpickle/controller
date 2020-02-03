@@ -97,7 +97,11 @@ object GithubRemoteCommandConfigSource {
   case class CommitInfo(committer: Committer)
   case class Committer(date: Instant)
 
-  def apply[F[_]: Parallel, G[_]: Concurrent: Timer](client: Client[F], config: Config, onUpdate: Any => F[Unit])(
+  def apply[F[_]: Parallel, G[_]: Concurrent: Timer](
+    client: Client[F],
+    config: Config,
+    onUpdate: (Any, Any) => F[Unit]
+  )(
     implicit F: Sync[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]

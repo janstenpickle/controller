@@ -15,9 +15,12 @@ import cats.{Eq, FlatMap, Parallel}
 import eu.timepit.refined.types.numeric.PosInt
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import natchez.{Trace, TraceValue}
+import fs2.{Pipe, Stream}
+import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 
 import scala.concurrent.duration._
 
@@ -44,17 +47,21 @@ object Discovery {
       override def combine(x: Discovery[F, K, V], y: Discovery[F, K, V]): Discovery[F, K, V] = combined(x, y)
     }
 
-  def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K: Eq, V: Eq](
+  def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K: Eq, V <: DiscoveredDevice[F]: Eq](
     deviceType: String,
     config: Polling,
-    onUpdate: ((Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])) => F[Unit],
-    onDeviceUpdate: () => F[Unit],
-    doDiscovery: () => F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V])],
-    refresh: V => F[Unit],
-    makeKey: V => F[String],
-    traceParams: V => List[(String, TraceValue)] = (_: V) => List.empty,
+    doDiscovery: F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V])],
+    onDevicesUpdate: (
+      (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]),
+      (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])
+    ) => F[Unit],
+    onDeviceDiscovered: Pipe[F, V, Unit],
+    onDeviceRemoved: Pipe[F, V, Unit],
+    onDeviceUpdate: Pipe[F, V, Unit],
+    discoveryEventProducer: EventPublisher[F, DeviceDiscoveryEvent],
+    traceParams: V => List[(String, TraceValue)] = (_: V) => List.empty
   )(
-    implicit F: Sync[F],
+    implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
@@ -74,7 +81,7 @@ object Discovery {
         for {
           _ <- trace.put("current.count" -> current._2.size, "device.type" -> deviceType)
           (unmapped, discovered) <- trace.span("discover") {
-            doDiscovery().flatTap {
+            doDiscovery.flatTap {
               case (u, d) =>
                 trace.put("discovered.count" -> d.size, "unmapped.count" -> u.size, "device.type" -> deviceType)
             }
@@ -82,43 +89,83 @@ object Discovery {
           now <- timer.clock.realTime(TimeUnit.MILLISECONDS)
           updatedExpiry = discovered
             .foldLeft(current._3) {
-              case (exp, (k, _)) =>
-                exp.updated(k, now)
+              case (exp, (k, _)) => exp.updated(k, now)
             }
             .filter { case (_, ts) => (now - ts) < timeout }
-          updatedCurrent = current._2.filterKeys(updatedExpiry.keySet.contains)
+          (updatedCurrent, expiredCurrent) = current._2.partition { case (k, _) => updatedExpiry.keySet.contains(k) }
+          removedEvents = expiredCurrent.values.map { v =>
+            DeviceDiscoveryEvent.DeviceRemoved(v.key)
+          }
+          updatedCurrentKeys = updatedCurrent.values.map(v => (v.key, v.value)).toSet
+          addedDevices = discovered.values.filter { v =>
+            !updatedCurrentKeys.contains((v.key, v.value))
+          }
+          addedEvents = addedDevices.map { v =>
+            DeviceDiscoveryEvent.DeviceDiscovered(v.key, v.value)
+          }
+          unmappedEvents = unmapped.keys.map(DeviceDiscoveryEvent.UnmappedDiscovered)
+          discoveryEventStream = Stream
+            .emits((removedEvents ++ addedEvents ++ unmappedEvents).toList)
+            .through(discoveryEventProducer.pipe)
+          expiredEventStream = Stream.emits(expiredCurrent.values.toList).through(onDeviceRemoved)
+          addedEventStream = Stream.emits(addedDevices.toList).through(onDeviceDiscovered)
+
+          _ <- discoveryEventStream.merge(expiredEventStream).merge(addedEventStream).compile.drain
+
           devices = discovered ++ updatedCurrent
           _ <- trace.put("new.count" -> devices.size, "device.type" -> deviceType)
         } yield (unmapped, devices, updatedExpiry)
       }
 
-    Resource.liftF(Slf4jLogger.fromName[F](s"discovery-$deviceType")).flatMap { implicit logger =>
-      DataPoller
-        .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
-          "discovery",
-          "device.type" -> deviceType
-        )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onUpdate)(
-          (getData, setData) =>
-            new Discovery[F, K, V] {
-              override def devices: F[Discovered[K, V]] = getData().map {
-                case (unmapped, devices, _) => Discovered(unmapped, devices)
-              }
+    def removeDevices(unmapped: Map[DiscoveredDeviceKey, Map[String, String]], devices: Map[K, V]) =
+      Stream
+        .fromIterator[F]((unmapped.keys ++ devices.values.map(_.key)).iterator)
+        .map(DeviceDiscoveryEvent.DeviceRemoved)
+        .through(discoveryEventProducer.pipe)
+        .merge(Stream.fromIterator[F](devices.values.iterator).through(onDeviceRemoved))
+        .compile
+        .drain
 
-              override def reinit: F[Unit] = updateDevices((Map.empty, Map.empty, Map.empty)).flatMap(setData)
+    Resource
+      .liftF(Slf4jLogger.fromName[F](s"discovery-$deviceType"))
+      .flatMap { implicit logger =>
+        DataPoller
+          .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
+            "discovery",
+            "device.type" -> deviceType
+          )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onDevicesUpdate)(
+            (getData, setData) =>
+              new Discovery[F, K, V] {
+                override def devices: F[Discovered[K, V]] = getData().map {
+                  case (unmapped, devices, _) => Discovered(unmapped, devices)
+                }
+
+                override def reinit: F[Unit] =
+                  getData().flatMap {
+                    case (unmapped, devices, _) => removeDevices(unmapped, devices)
+                  } >> updateDevices((Map.empty, Map.empty, Map.empty)).flatMap(setData)
+            }
+          )
+          .flatMap { disc =>
+            DeviceState[F, G, K, V](
+              deviceType,
+              config.stateUpdateInterval,
+              config.errorCount,
+              disc,
+              onDeviceUpdate,
+              traceParams
+            ).map(_ => disc)
           }
-        )
-        .flatMap { disc =>
-          DeviceState[F, G, K, V](
-            deviceType,
-            config.stateUpdateInterval,
-            config.errorCount,
-            disc,
-            onDeviceUpdate,
-            refresh,
-            makeKey,
-            traceParams
-          ).map(_ => disc)
-        }
-    }
+      }
+      .flatMap { disc =>
+        Resource
+          .make(F.unit)(
+            _ =>
+              disc.devices.flatMap { devs =>
+                removeDevices(devs.unmapped, devs.devices)
+            }
+          )
+          .map(_ => disc)
+      }
   }
 }

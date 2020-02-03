@@ -3,7 +3,7 @@ package io.janstenpickle.controller.sonos
 import cats.{Applicative, Parallel}
 import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Concurrent, ContextShift, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, ExitCase, Timer}
 import cats.instances.list._
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
@@ -14,14 +14,17 @@ import com.vmichalak.sonoscontroller
 import com.vmichalak.sonoscontroller.model.{PlayState, TrackMetadata}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.janstenpickle.controller.discovery.DiscoveredDevice
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.sonos.SonosDevice.DeviceState
-import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import natchez.{Trace, TraceValue}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.FiniteDuration
 
-trait SonosDevice[F[_]] extends SimpleSonosDevice[F] {
+trait SonosDevice[F[_]] extends SimpleSonosDevice[F] with DiscoveredDevice[F] {
   def id: String
   def refresh: F[Unit]
   def devicesInGroup: F[Set[String]]
@@ -53,12 +56,14 @@ object SonosDevice {
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
     switchDevice: NonEmptyString,
+    deviceKey: DiscoveredDeviceKey,
+    deviceValue: DiscoveredDeviceValue,
     underlying: sonoscontroller.SonosDevice,
     allDevices: Ref[F, Map[String, SonosDevice[F]]],
     commandTimeout: FiniteDuration,
     blocker: Blocker,
-    onUpdate: () => F[Unit],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    onUpdate: SonosDevice[F] => F[Unit],
+    switchEventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit F: Concurrent[F], trace: Trace[F]): F[SonosDevice[F]] = {
     def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] = trace.span(s"sonos.$name") {
       trace.put(
@@ -128,12 +133,26 @@ object SonosDevice {
         override def name: NonEmptyString = formattedName
         override def label: NonEmptyString = nonEmptyName
 
+        private def updateSwitches(action: F[Unit], switches: List[(SwitchKey, State, String)]) = {
+          def publish(exitCase: Option[Throwable]) = switches.parTraverse_ {
+            case (key, state, switchType) =>
+              switchEventPublisher.publish1(SwitchStateUpdateEvent(key, state, exitCase))
+          }
+
+          (action *> publish(None)).handleErrorWith { th =>
+            publish(Some(th))
+          }
+        }
+
         private def refreshIsPlaying: F[Unit] =
           for {
             current <- state.get
             newIsPlaying <- _isPlaying
             _ <- if (current.isPlaying != newIsPlaying)
-              state.update(_.copy(isPlaying = newIsPlaying)) *> onSwitchUpdate(playPauseSwitchKey)
+              updateSwitches(
+                state.update(_.copy(isPlaying = newIsPlaying)),
+                List((playPauseSwitchKey, State.fromBoolean(newIsPlaying), "play_pause"))
+              )
             else F.unit
           } yield ()
 
@@ -146,7 +165,8 @@ object SonosDevice {
               doIfController(_.play)
             else trace.span("playCmd")(blocker.delay(underlying.play()))
             _ <- state.update(_.copy(isPlaying = true))
-            _ <- onUpdate()
+            _ <- switchEventPublisher.publish1(SwitchStateUpdateEvent(playPauseSwitchKey, State.On))
+            _ <- onUpdate(this)
           } yield ())
             .handleErrorWith(
               th =>
@@ -172,7 +192,8 @@ object SonosDevice {
               doIfController(_.pause)
             else trace.span("pauseCmd")(blocker.delay(underlying.pause()))
             _ <- state.update(_.copy(isPlaying = false))
-            _ <- onUpdate()
+            _ <- switchEventPublisher.publish1(SwitchStateUpdateEvent(playPauseSwitchKey, State.Off))
+            _ <- onUpdate(this)
           } yield ())
             .handleErrorWith(
               th =>
@@ -234,20 +255,20 @@ object SonosDevice {
         }
 
         override def mute: F[Unit] = span("mute") {
-          blocker.delay(underlying.setMute(true)) *> state.update(_.copy(isMuted = true)) *> onUpdate()
+          blocker.delay(underlying.setMute(true)) *> state.update(_.copy(isMuted = true)) *> onUpdate(this)
         }
 
         override def unMute: F[Unit] = span("unmute") {
-          blocker.delay(underlying.setMute(false)) *> state.update(_.copy(isMuted = false)) *> onUpdate()
+          blocker.delay(underlying.setMute(false)) *> state.update(_.copy(isMuted = false)) *> onUpdate(this)
         }
 
         override def isMuted: F[Boolean] = span("is.muted") { state.get.map(_.isMuted) }
 
         override def next: F[Unit] = span("next") {
-          blocker.delay(underlying.next()) *> refreshNowPlaying *> onUpdate()
+          blocker.delay(underlying.next()) *> refreshNowPlaying *> onUpdate(this)
         }
         override def previous: F[Unit] = span("previous") {
-          blocker.delay(underlying.previous()) *> refreshNowPlaying *> onUpdate()
+          blocker.delay(underlying.previous()) *> refreshNowPlaying *> onUpdate(this)
         }
         private def refreshController: F[Unit] = span("refresh.controller") {
           _isCoordinator.flatMap { con =>
@@ -280,7 +301,7 @@ object SonosDevice {
                   blocker.delay(underlying.join(m.id)) *> state
                     .update(_.copy(isGrouped = true)) *> refreshGroup *> refreshIsPlaying *> refreshController *> trace
                     .put("master.id" -> m.id, "master.name" -> m.name.value)
-                }) *> onUpdate()
+                }) *> onUpdate(this)
             }
           }
         }
@@ -291,7 +312,9 @@ object SonosDevice {
             _ <- if (isC) F.unit
             else
               blocker.delay(underlying.unjoin()) *> state
-                .update(_.copy(isGrouped = false, isController = true)) *> refreshGroup *> refreshIsPlaying *> onUpdate() *> trace
+                .update(_.copy(isGrouped = false, isController = true)) *> refreshGroup *> refreshIsPlaying *> onUpdate(
+                this
+              ) *> trace
                 .put("current.grouped" -> true, "new.grouped" -> false)
           } yield ()
         }
@@ -336,14 +359,33 @@ object SonosDevice {
           for {
             currentState <- state.get
             newState <- refreshState
-            _ <- state.set(newState)
-            _ <- if (newState.isPlaying != currentState.isPlaying) onSwitchUpdate(playPauseSwitchKey) else F.unit
-            _ <- if (newState.isGrouped != currentState.isGrouped) onSwitchUpdate(groupSwitchKey) else F.unit
-            _ <- if (newState.isMuted != currentState.isMuted) onSwitchUpdate(muteSwitchKey) else F.unit
+
+            ops = {
+              if (newState.isPlaying != currentState.isPlaying)
+                List((playPauseSwitchKey, State.fromBoolean(newState.isPlaying), "play_pause"))
+              else List.empty
+            } ++ {
+              if (newState.isGrouped != currentState.isGrouped)
+                List((groupSwitchKey, State.fromBoolean(newState.isGrouped), "group"))
+              else List.empty
+            } ++ {
+              if (newState.isMuted != currentState.isMuted)
+                List((muteSwitchKey, State.fromBoolean(newState.isMuted), "mute"))
+              else List.empty
+            }
+
+            _ <- updateSwitches(state.set(newState), ops)
           } yield ()
         }
 
         override def getState: F[DeviceState] = span("get.state") { state.get }
+
+        override def key: DiscoveredDeviceKey = deviceKey
+        override def value: DiscoveredDeviceValue = deviceValue
+
+        override def updatedKey: F[String] = getState.map { state =>
+          s"${name}${label}${state.isPlaying}${state.nowPlaying}${state.isMuted}${state.isGrouped}"
+        }
       }
   }
 

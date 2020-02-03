@@ -6,10 +6,10 @@ import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.model.State
+import io.janstenpickle.controller.model.{State, SwitchMetadata}
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import io.janstenpickle.controller.switch.{Metadata, Switch}
+import io.janstenpickle.controller.switch.Switch
 import natchez.Trace
 
 import scala.concurrent.duration.FiniteDuration
@@ -21,7 +21,7 @@ object PollingSwitch {
     underlying: Switch[F],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
-    onUpdate: State => F[Unit]
+    onUpdate: (State, State) => F[Unit]
   )(implicit errors: PollingSwitchErrors[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Switch[F]] =
     Resource.liftF(Slf4jLogger.fromName[F](s"switchPoller-${underlying.name.value}")).flatMap { implicit logger =>
       DataPoller.traced[F, G, State, Switch[F]](
@@ -41,7 +41,7 @@ object PollingSwitch {
           override def getState: F[State] = get()
           override def switchOn: F[Unit] = underlying.switchOn *> update(State.On)
           override def switchOff: F[Unit] = underlying.switchOff *> update(State.Off)
-          override def metadata: Metadata = underlying.metadata
+          override def metadata: SwitchMetadata = underlying.metadata
         }
       }
     }

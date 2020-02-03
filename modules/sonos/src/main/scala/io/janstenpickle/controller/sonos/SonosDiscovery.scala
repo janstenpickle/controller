@@ -9,26 +9,38 @@ import cats.instances.map._
 import cats.instances.string._
 import cats.instances.tuple._
 import cats.syntax.apply._
+import cats.syntax.applicativeError._
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
-import cats.{~>, Eq, Parallel}
+import cats.{Eq, Parallel}
 import com.vmichalak.sonoscontroller
-import com.vmichalak.sonoscontroller.{CommandBuilder, ParserHelper, SonosDevice => JSonosDevice}
+import com.vmichalak.sonoscontroller.{CommandBuilder, SonosDevice => JSonosDevice}
 import eu.timepit.refined.types.string.NonEmptyString
+import fs2.{Pipe, Stream}
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.Discovery
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.event.ConfigEvent._
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import io.janstenpickle.controller.poller.Empty
-import io.janstenpickle.controller.switch.model.SwitchKey
+import io.janstenpickle.controller.sonos.config.SonosRemoteConfigSource
+import io.janstenpickle.controller.model.event.SwitchEvent.{
+  SwitchAddedEvent,
+  SwitchRemovedEvent,
+  SwitchStateUpdateEvent
+}
 import natchez.Trace
 
 import scala.xml._
-
 import scala.collection.JavaConverters._
-import scala.concurrent.duration._
 
 object SonosDiscovery {
+  val eventSource: String = "sonos"
+
   def snakify(name: String): String =
     name
       .replaceAll("([A-Z]+)([A-Z][a-z])", "$1_$2")
@@ -43,102 +55,153 @@ object SonosDiscovery {
     Empty((Map.empty[NonEmptyString, SonosDevice[F]], Map.empty[NonEmptyString, Long]))
 
   def polling[F[_]: ContextShift: Parallel, G[_]: Concurrent: Timer](
-    config: Discovery.Polling,
-    switchDeviceName: NonEmptyString,
-    commandTimeout: FiniteDuration,
-    onUpdate: () => F[Unit],
+    config: SonosComponents.Config,
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
-    onDeviceUpdate: () => F[Unit],
-    onSwitchUpdate: SwitchKey => F[Unit]
+    remoteEventPublisher: EventPublisher[F, RemoteEvent],
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    configEventPublisher: EventPublisher[F, ConfigEvent],
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, SonosDiscovery[F]] =
-    Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
-      def deviceName(device: JSonosDevice) =
-        OptionT(
-          discoveryBlocker.delay[F, Option[String]](Option(device.getSpeakerInfo.getIpAddress).filter(_.nonEmpty))
-        ).semiflatMap { ip =>
-          discoveryBlocker
-            .delay[F, String](
-              CommandBuilder
-                .zoneGroupTopology("GetZoneGroupState")
-                .executeOn(ip)
-            )
-            .flatMap { resp =>
-              F.delay((XML.loadString(resp) \\ "ZoneGroups" \ "ZoneGroup").flatMap { zoneGroup =>
-                val members = (zoneGroup \ "ZoneGroupMember").flatMap { zoneGroupMember =>
-                  if (zoneGroupMember \@ "Invisible" != "1")
-                    Some(zoneGroupMember \@ "UUID" -> zoneGroupMember \@ "ZoneName")
-                  else None
-                }
+    Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+      Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
+        val deviceUpdate: SonosDevice[F] => F[ConfigEvent] = dev =>
+          SonosRemoteConfigSource
+            .deviceToRemote(config.remote, config.activity.name, config.allRooms, dev)
+            .map(RemoteAddedEvent(_, eventSource))
 
-                if (members.isEmpty) None
-                else Some(zoneGroup \@ "Coordinator" -> members)
-              }.toMap)
+        def deviceName(device: JSonosDevice) =
+          OptionT(
+            discoveryBlocker.delay[F, Option[String]](Option(device.getSpeakerInfo.getIpAddress).filter(_.nonEmpty))
+          ).semiflatMap { ip =>
+            discoveryBlocker
+              .delay[F, String](
+                CommandBuilder
+                  .zoneGroupTopology("GetZoneGroupState")
+                  .executeOn(ip)
+              )
+              .flatMap { resp =>
+                F.delay((XML.loadString(resp) \\ "ZoneGroups" \ "ZoneGroup").flatMap { zoneGroup =>
+                  val members = (zoneGroup \ "ZoneGroupMember").flatMap { zoneGroupMember =>
+                    if (zoneGroupMember \@ "Invisible" != "1")
+                      Some(zoneGroupMember \@ "UUID" -> zoneGroupMember \@ "ZoneName")
+                    else None
+                  }
+
+                  if (members.isEmpty) None
+                  else Some(zoneGroup \@ "Coordinator" -> members)
+                }.toMap)
+              }
+          }
+
+        def discover: F[Map[NonEmptyString, SonosDevice[F]]] = trace.span("sonos.discover") {
+          discoveryBlocker
+            .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
+            .flatTap { devices =>
+              trace.put("device.count" -> devices.size)
+            }
+            .flatMap { discovered =>
+              discovered
+                .parFlatTraverse { device =>
+                  trace.span("sonos.read.device") {
+                    (for {
+                      id <- trace.span("sonos.get.id") {
+                        discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
+                      }
+                      zoneInfo <- deviceName(device).value
+                      name = zoneInfo.flatMap(_.values.flatten.toMap.get(id))
+                    } yield (id, name))
+                      .flatMap {
+                        case (id, Some(name)) if id.nonEmpty && name.nonEmpty =>
+                          for {
+                            formattedName <- F
+                              .fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
+                            nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
+                            _ <- trace.put("device.id" -> id, "device.name" -> name)
+                            dev <- SonosDevice[F](
+                              id,
+                              formattedName,
+                              nonEmptyName,
+                              config.switchDevice,
+                              DiscoveredDeviceKey(id, "sonos"),
+                              DiscoveredDeviceValue(formattedName, Some(formattedName)),
+                              device,
+                              devicesRef,
+                              config.commandTimeout,
+                              workBlocker,
+                              deviceUpdate(_).flatMap(configEventPublisher.publish1),
+                              switchEventPublisher.narrow
+                            )
+                          } yield List(dev.name -> dev)
+                        case _ => F.pure(List.empty[(NonEmptyString, SonosDevice[F])])
+                      }
+                      .handleErrorWith(
+                        logger
+                          .warn(_)(s"Discovery initialization of Sonos device failed")
+                          .as(List.empty[(NonEmptyString, SonosDevice[F])])
+                      )
+
+                  }
+                }
+                .map(_.toMap)
             }
         }
 
-      def discover: F[Map[NonEmptyString, SonosDevice[F]]] = trace.span("sonos.discover") {
-        discoveryBlocker
-          .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
-          .flatTap { devices =>
-            trace.put("device.count" -> devices.size)
-          }
-          .flatMap { discovered =>
-            discovered
-              .parFlatTraverse { device =>
-                trace.span("sonos.read.device") {
-                  (for {
-                    id <- trace.span("sonos.get.id") {
-                      discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
-                    }
-                    zoneInfo <- deviceName(device).value
-                    name = zoneInfo.flatMap(_.values.flatten.toMap.get(id))
-                  } yield (id, name)).flatMap {
-                    case (id, Some(name)) if id.nonEmpty && name.nonEmpty =>
-                      for {
-                        formattedName <- F
-                          .fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
-                        nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
-                        _ <- trace.put("device.id" -> id, "device.name" -> name)
-                        dev <- SonosDevice[F](
-                          id,
-                          formattedName,
-                          nonEmptyName,
-                          switchDeviceName,
-                          device,
-                          devicesRef,
-                          commandTimeout,
-                          workBlocker,
-                          onDeviceUpdate,
-                          onSwitchUpdate
-                        )
-                      } yield List(dev.name -> dev)
-                    case _ => F.pure(List.empty[(NonEmptyString, SonosDevice[F])])
-                  }
+        val removedSwitches: Pipe[F, SonosDevice[F], Unit] = _.flatMap { dev =>
+          Stream.fromIterator[F](
+            SonosSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).keys.iterator
+          )
+        }.map(SwitchRemovedEvent).through(switchEventPublisher.pipe)
 
-                }
+        val removedRemotes: Pipe[F, SonosDevice[F], Unit] = _.evalMap(
+          SonosRemoteConfigSource.deviceToRemote(config.remote, config.activityConfig.name, config.allRooms, _)
+        ).map(r => RemoteRemovedEvent(r.name, eventSource)).through(configEventPublisher.pipe)
+
+        val onDeviceRemoved: Pipe[F, SonosDevice[F], Unit] = _.broadcastThrough(removedSwitches, removedRemotes)
+
+        val addedSwitches: Pipe[F, SonosDevice[F], Unit] = _.flatMap { dev =>
+          Stream.fromIterator[F](
+            SonosSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).iterator
+          )
+        }.evalMap {
+            case (key, switch) =>
+              switch.getState.map { state =>
+                List(SwitchAddedEvent(key, switch.metadata), SwitchStateUpdateEvent(key, state))
               }
-              .map(_.toMap)
           }
-      }
+          .flatMap(Stream.emits)
+          .through(switchEventPublisher.pipe)
 
-      Discovery[F, G, NonEmptyString, SonosDevice[F]](
-        "sonos",
-        config,
-        data => devicesRef.set(data._2.values.map(d => d.id -> d).toMap) *> onUpdate(),
-        onDeviceUpdate,
-        () => discover.map(Map.empty -> _),
-        _.refresh,
-        device =>
-          device.getState.map { state =>
-            s"${device.name}${device.label}${state.isPlaying}${state.nowPlaying}"
-        },
-        device => List("device.name" -> device.name.value, "device.id" -> device.id),
-      )
+        val addedRemotes: Pipe[F, SonosDevice[F], Unit] = _.evalMap { dev =>
+          SonosRemoteConfigSource.deviceToRemote(config.remote, config.activityConfig.name, config.allRooms, dev)
+        }.map(r => RemoteAddedEvent(r, eventSource)).through(configEventPublisher.pipe)
+
+        val onDeviceDiscovered: Pipe[F, SonosDevice[F], Unit] = _.broadcastThrough(addedSwitches, addedRemotes)
+
+        val onDeviceUpdate: Pipe[F, SonosDevice[F], Unit] = _.evalMap(deviceUpdate).through(configEventPublisher.pipe)
+
+        Discovery[F, G, NonEmptyString, SonosDevice[F]](
+          deviceType = "sonos",
+          config = config.polling,
+          doDiscovery = discover.map(Map.empty -> _),
+          onDevicesUpdate = (_, data) => devicesRef.set(data._2.values.map(d => d.id -> d).toMap),
+          onDeviceDiscovered = onDeviceDiscovered,
+          onDeviceRemoved = onDeviceRemoved,
+          onDeviceUpdate = onDeviceUpdate,
+          discoveryEventProducer = discoveryEventPublisher,
+          traceParams = device => List("device.name" -> device.name.value, "device.id" -> device.id)
+        ).flatMap { disc =>
+          Resource
+            .make(remoteEventPublisher.publish1(RemoteEvent.RemoteAddedEvent(config.remote, eventSource)))(
+              _ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(config.remote, eventSource))
+            )
+            .map(_ => disc)
+        }
+      }
     }
 }

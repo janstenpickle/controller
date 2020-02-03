@@ -6,25 +6,24 @@ import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
-import cats.{Functor, Parallel}
+import cats.{Functor, Monad, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
-import io.janstenpickle.controller.sonos.{CommandSource, Commands, SonosDiscovery}
+import io.janstenpickle.controller.sonos.{CommandSource, Commands, SonosDevice, SonosDiscovery}
 import natchez.Trace
 import scalacache.Cache
 import scalacache.CatsEffect.modes._
 
 object SonosRemoteConfigSource {
-  def apply[F[_]: Parallel: Trace](
+  def deviceToRemote[F[_]](
     remoteName: NonEmptyString,
     activityName: NonEmptyString,
     allRooms: Boolean,
-    discovery: SonosDiscovery[F],
-    cache: Cache[ConfigResult[NonEmptyString, Remote]]
-  )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] = {
+    device: SonosDevice[F]
+  )(implicit F: MonadError[F, Throwable]): F[Remote] = {
     def simpleTemplate(device: NonEmptyString, isMuted: Boolean): List[Button] =
       List(
         SwitchIcon(
@@ -114,48 +113,56 @@ object SonosRemoteConfigSource {
         )
       ) ++ simpleTemplate(device, isMuted)
 
+    for {
+      isMuted <- device.isMuted
+      isController <- device.isController
+      isGrouped <- device.isGrouped
+      buttons <- if (isController)
+        device.isPlaying
+          .map(template(device.name, isMuted, _) ++ groupTemplate(device.name, isController, isGrouped))
+      else
+        F.pure(simpleTemplate(device.name, isMuted) ++ groupTemplate(device.name, isController, isGrouped))
+      nowPlaying <- device.nowPlaying
+      remoteName <- nowPlaying match {
+        case None => F.pure(device.label)
+        case Some(np) =>
+          F.fromEither(
+            NonEmptyString
+              .from(s"${device.label} (${np.title} - ${np.artist})")
+              .leftMap(new RuntimeException(_))
+          )
+      }
+    } yield
+      Remote(
+        NonEmptyString.unsafeFrom(s"sonos-${remoteName.value.toLowerCase}"),
+        remoteName,
+        buttons,
+        Set(activityName),
+        if (allRooms) List.empty
+        else List(remoteName),
+        None,
+        nowPlaying.fold(Map.empty[String, String])(_.toMap)
+      )
+
+  }
+
+  def apply[F[_]: Parallel: Trace](
+    remoteName: NonEmptyString,
+    activityName: NonEmptyString,
+    allRooms: Boolean,
+    discovery: SonosDiscovery[F],
+    cache: Cache[ConfigResult[NonEmptyString, Remote]]
+  )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] =
     TracedConfigSource(
       new ConfigSource[F, NonEmptyString, Remote] {
         override def getConfig: F[ConfigResult[NonEmptyString, Remote]] =
           cache.cachingForMemoizeF(s"${remoteName.value}_remotes")(None)(
             discovery.devices
-              .flatMap(_.devices.values.toList.parTraverse {
-                device =>
-                  for {
-                    isMuted <- device.isMuted
-                    isController <- device.isController
-                    isGrouped <- device.isGrouped
-                    buttons <- if (isController)
-                      device.isPlaying
-                        .map(template(device.name, isMuted, _) ++ groupTemplate(device.name, isController, isGrouped))
-                    else
-                      F.pure(
-                        simpleTemplate(device.name, isMuted) ++ groupTemplate(device.name, isController, isGrouped)
-                      )
-                    nowPlaying <- device.nowPlaying
-                    remoteName <- nowPlaying match {
-                      case None => F.pure(device.label)
-                      case Some(np) =>
-                        F.fromEither(
-                          NonEmptyString
-                            .from(s"${device.label} (${np.title} - ${np.artist})")
-                            .leftMap(new RuntimeException(_))
-                        )
-                    }
-                  } yield
-                    (
-                      isController,
-                      Remote(
-                        NonEmptyString.unsafeFrom(s"sonos-${remoteName.value.toLowerCase}"),
-                        remoteName,
-                        buttons,
-                        Set(activityName),
-                        if (allRooms) List.empty
-                        else List(remoteName),
-                        None,
-                        nowPlaying.fold(Map.empty[String, String])(_.toMap)
-                      )
-                    )
+              .flatMap(_.devices.values.toList.parTraverse { device =>
+                for {
+                  isController <- device.isController
+                  remote <- deviceToRemote(remoteName, activityName, allRooms, device)
+                } yield (isController, remote)
               })
               .map(
                 remotes =>
@@ -177,5 +184,4 @@ object SonosRemoteConfigSource {
       "remotes",
       "sonos"
     )
-  }
 }
