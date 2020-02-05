@@ -118,7 +118,7 @@ lazy val api = (project in file("modules/api"))
     dockerExposedPorts += 8090,
     daemonUserUid in Docker := Some("9000"),
     javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
-    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+//    dockerPermissionStrategy := DockerPermissionStrategy.Run,
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "refined-cats"              % refinedVer,
       "io.extruder"       %% "extruder-cats-effect"      % extruderVer,

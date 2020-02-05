@@ -31,7 +31,7 @@ trait Fs2MqttClient[F[_]] { outer =>
 }
 
 object Fs2MqttClient {
-  case class Config(host: String = "localhost", port: Int = 1883)
+  case class Config(host: String, port: Int)
   case class MqttMessage(payload: Array[Byte], topic: String, properties: Map[String, String])
 
   def apply[F[_]: ContextShift: Timer](config: Config)(implicit F: ConcurrentEffect[F]): Resource[F, Fs2MqttClient[F]] =
