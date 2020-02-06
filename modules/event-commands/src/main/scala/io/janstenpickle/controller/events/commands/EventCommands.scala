@@ -1,8 +1,10 @@
 package io.janstenpickle.controller.events.commands
 
+import cats.Show
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
+import cats.syntax.show._
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
@@ -10,26 +12,40 @@ import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.model.event.CommandEvent
 import cats.effect.syntax.concurrent._
+import io.janstenpickle.controller.model.Command
+import io.janstenpickle.controller.model.Command.{Remote, Sleep, SwitchOff, SwitchOn, ToggleSwitch}
 
 import scala.concurrent.duration._
 
 object EventCommands {
+  implicit val show: Show[Command] = Show.show {
+    case Sleep(millis) => s"Sleep for ${millis}ms"
+    case ToggleSwitch(device, name) => s"Toggle switch '${name.value}' device '${device.value}'"
+    case SwitchOn(device, name) => s"Switch on '${name.value}' device '${device.value}'"
+    case SwitchOff(device, name) => s"Switch off '${name.value}' device '${device.value}'"
+    case Remote(remote, _, device, command) =>
+      s"Execute remote command '${command.value}' on '${device.value}' using '${remote.value}'"
+    case Command.Macro(name) => s"Execute macro ${name.value}"
+  }
+
   def apply[F[_]: Concurrent](eventPubSub: EventPubSub[F, CommandEvent], context: Context[F], `macro`: Macro[F])(
     implicit timer: Timer[F]
   ): Resource[F, Unit] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
       def repeatStream(stream: Stream[F, Unit]): F[Unit] =
         stream.compile.drain.handleErrorWith { th =>
-          logger.error(th)("Stats stream failed, restarting") *> timer.sleep(15.seconds) *> repeatStream(stream)
+          logger.error(th)("Event command stream failed, restarting") *> timer.sleep(15.seconds) *> repeatStream(stream)
         }
 
-      def timeout(fa: F[Unit]) = fa.timeoutTo(1.minute, logger.error("Timed out executing command"))
+      def timeout(fa: F[Unit]) = fa.timeoutTo(10.seconds, logger.error("Timed out executing command"))
 
       for {
         subscriber <- eventPubSub.subscriberResource
         stream = subscriber.subscribe.evalMap {
-          case CommandEvent.ContextCommand(room, name) => timeout(context.action(room, name))
-          case CommandEvent.MacroCommand(command) => timeout(`macro`.executeCommand(command))
+          case CommandEvent.ContextCommand(room, name) =>
+            logger.info(s"Running context command '$name' in room '$room'") *> timeout(context.action(room, name))
+          case CommandEvent.MacroCommand(command) =>
+            logger.info(command.show) *> timeout(`macro`.executeCommand(command))
         }
         _ <- Resource.make(repeatStream(stream).start)(_.cancel)
       } yield ()

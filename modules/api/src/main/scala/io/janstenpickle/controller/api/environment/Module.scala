@@ -223,13 +223,13 @@ object Module {
       workBlocker <- makeBlocker("work")
       _ <- PrometheusExportService.addDefaults[F](registry)
 
-      remoteEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, RemoteEvent](1000))
-      switchEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, SwitchEvent](1000))
-      configEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ConfigEvent](1000))
-      discoveryEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, DeviceDiscoveryEvent](1000))
-      activityEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ActivityUpdateEvent](1000))
-      macroEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, MacroEvent](1000))
-      commandEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, CommandEvent](1000))
+      remoteEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, RemoteEvent](10))
+      switchEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, SwitchEvent](10))
+      configEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ConfigEvent](10))
+      discoveryEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, DeviceDiscoveryEvent](10))
+      activityEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ActivityUpdateEvent](10))
+      macroEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, MacroEvent](10))
+      commandEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, CommandEvent](10))
 
       _ <- mqtt.fold(Resource.pure[F, Unit](()))(
         MqttEvents[F](
