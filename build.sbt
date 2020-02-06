@@ -10,6 +10,7 @@ val http4sVer = "0.21.0-RC2"
 val kittensVer = "2.0.0"
 val log4catsVer = "1.0.1"
 val natchezVer = "0.0.10"
+val epimetheusVer = "0.3.0"
 val prometheusVer = "0.8.0"
 val refinedVer = "0.9.10"
 val scalaCacheVer = "0.28.0"
@@ -99,6 +100,7 @@ lazy val root = (project in file("."))
     schedule,
     cronScheduler,
     prometheusStats,
+    prometheusTrace,
     gitRemoteStore,
     homekit,
     mqttClient,
@@ -473,10 +475,11 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   .settings(
     name := "controller-prometheus-stats",
     libraryDependencies ++= Seq(
-      "io.prometheus" % "simpleclient"        % prometheusVer,
-      "io.prometheus" % "simpleclient_common" % prometheusVer,
-      "org.http4s"    %% "http4s-core"        % http4sVer,
-      "org.http4s"    %% "http4s-dsl"         % http4sVer
+      "io.chrisdavenport" %% "epimetheus"         % epimetheusVer,
+      "io.prometheus"     % "simpleclient"        % prometheusVer,
+      "io.prometheus"     % "simpleclient_common" % prometheusVer,
+      "org.http4s"        %% "http4s-core"        % http4sVer,
+      "org.http4s"        %% "http4s-dsl"         % http4sVer
     )
   )
   .dependsOn(stats)
@@ -486,6 +489,8 @@ lazy val prometheusTrace = (project in file("modules/prometheus-trace"))
   .settings(
     name := "controller-prometheus-trace",
     libraryDependencies ++= Seq(
+      "io.chrisdavenport" %% "epimetheus"     % epimetheusVer,
+      "io.chrisdavenport" %% "mapref"         % "0.1.1",
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
       "io.prometheus"     % "simpleclient"    % prometheusVer,
       "org.tpolecat"      %% "natchez-core"   % natchezVer
