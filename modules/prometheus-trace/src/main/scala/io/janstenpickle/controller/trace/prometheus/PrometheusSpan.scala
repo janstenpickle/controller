@@ -45,8 +45,6 @@ private[prometheus] final case class PrometheusSpan[F[_]: Sync: Clock: ContextSh
 }
 
 object PrometheusSpan {
-  private def makeKey(name: String, labels: String*) = (name :: labels.toList).mkString("_")
-
   private def sanitise(str: String): String = str.replace('.', '_').replace('-', '_').replace("/", "").toLowerCase
 
   def makeSpan[F[_]: Sync: ContextShift: Logger](
@@ -61,15 +59,18 @@ object PrometheusSpan {
   )(implicit clock: Clock[F]): Resource[F, Span[F]] = {
     val sanitisedName = sanitise(s"${prefix}_$name")
 
-    def updateCollector[A <: Collector](ref: Ref[F, Option[A]], make: => A, f: A => Unit) =
+    def updateCollector[A <: Collector](ref: Ref[F, Option[A]], make: => A, f: A => Unit, labels: List[String]) =
       for {
         maybeA <- ref.get
         a <- maybeA.fold {
           val a = make
-          println(registry.metricFamilySamples().asScala.toList.map(_.name))
           blocker.delay(registry.register(a)).flatMap(_ => ref.set(Some(a))).as(a)
         }(_.pure[F])
-        _ <- blocker.delay(f(a))
+        _ <- blocker
+          .delay(f(a))
+          .handleErrorWith(
+            Logger[F].error(_)(s"Failed to record metric '$sanitisedName' with labels '${labels.mkString(",")}''")
+          )
       } yield ()
 
     def recordNumberLabels(labelKeys: List[String], labelValues: List[String], numberValues: Map[String, Number]) =
@@ -77,19 +78,16 @@ object PrometheusSpan {
         case (label, number) =>
           val metricName = s"${sanitisedName}_${sanitise(label)}"
 
-          println(metricName)
-
           updateCollector[Gauge](
             metrics.gauges(sanitisedName),
             Gauge.build(metricName, s"Gauge of numeric label value $label").labelNames(labelKeys: _*).create(),
-            _.labels(labelValues: _*).set(number.doubleValue())
+            _.labels(labelValues: _*).set(number.doubleValue()),
+            labelValues
           )
       }
 
     def recordTime(labelKeys: List[String], labelValues: List[String], start: Long, end: Long) = {
       lazy val seconds = (end - start).toDouble / 1000d
-
-      println(sanitisedName)
 
       updateCollector[Histogram](
         metrics.histograms(sanitisedName),
@@ -98,11 +96,13 @@ object PrometheusSpan {
           .labelNames(labelKeys: _*)
           .buckets(histogramBuckets.toList: _*)
           .create(),
-        _.labels(labelValues: _*).observe(seconds)
+        _.labels(labelValues: _*).observe(seconds),
+        labelValues
       ) >> updateCollector[Counter](
         metrics.counters(sanitisedName),
         Counter.build(s"${sanitisedName}_total", "Count from span").labelNames(labelKeys: _*).create(),
-        _.labels(labelValues: _*).inc()
+        _.labels(labelValues: _*).inc(),
+        labelValues
       )
     }
 
@@ -133,6 +133,7 @@ object PrometheusSpan {
               labelKeys = labels.keys.toList
               labelValues = labels.values.toList
 
+              _ = println(s"$sanitisedName => $labels")
               _ <- recordNumberLabels(labelKeys, labelValues, numbers)
               _ <- recordTime(labelKeys, labelValues, start, end)
             } yield ()).handleErrorWith { th =>

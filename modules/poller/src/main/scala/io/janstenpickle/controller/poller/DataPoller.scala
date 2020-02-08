@@ -124,7 +124,7 @@ object DataPoller {
   def traced[F[_], G[_], A, B](name: String, fields: (String, TraceValue)*): TracedPollerPartiallyApplied[F, G, A, B] =
     new TracedPollerPartiallyApplied[F, G, A, B] {
 
-      private def span[C](n: String)(k: F[C])(implicit F: Apply[F], trace: Trace[F]): F[C] = trace.span(n) {
+      private def span[C](n: String)(k: F[C])(implicit F: Apply[F], trace: Trace[F]): F[C] = trace.span(s"$name.$n") {
         trace.put(fields ++ List("poller.name" -> StringValue(name)): _*) *> k
       }
 
