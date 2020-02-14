@@ -13,6 +13,11 @@
         <appender-ref ref="STDOUT" />
     </appender>
 
+    <filter class="com.websudos.loggers.ClassNameFilter">
+        <className>org.http4s.blazecore.websocket.Http4sWSStage</className>
+        <onMatch>DENY</onMatch>
+    </filter>
+
     <logger name="org.http4s.blaze.channel.nio1.NIO1SocketServerGroup" level="WARN" />
     <logger name="io.github.hapjava.impl.http.HomekitClientConnection" level="WARN" />
 

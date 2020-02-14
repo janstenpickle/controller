@@ -33,7 +33,7 @@ object Discovery {
   case class Polling(
     discoveryInterval: FiniteDuration = 60.seconds,
     stateUpdateInterval: FiniteDuration = 10.seconds,
-    errorCount: PosInt = PosInt(3)
+    errorCount: PosInt = PosInt(30) // number of errors before failing on read
   )
 
   def combined[F[_]: FlatMap, K, V](x: Discovery[F, K, V], y: Discovery[F, K, V]): Discovery[F, K, V] =

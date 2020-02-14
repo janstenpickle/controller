@@ -23,4 +23,16 @@ object EventPubSub {
           EventSubscriber.streamFromTopicNonBlocking(topic, maxQueued)
       }
     }
+
+  def topicBlocking[F[_]: Concurrent: Clock, A](maxQueued: Int): F[EventPubSub[F, A]] =
+    Topic[F, Option[Event[A]]](None).map { topic =>
+      new EventPubSub[F, A] {
+        override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic)
+        override def subscriberResource: Resource[F, EventSubscriber[F, A]] =
+          EventSubscriber.resourceFromTopicBlocking(topic, maxQueued)
+
+        override def subscriberStream: EventSubscriber[F, A] =
+          EventSubscriber.streamFromTopicBlocking(topic, maxQueued)
+      }
+    }
 }

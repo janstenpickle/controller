@@ -229,7 +229,7 @@ object Module {
       discoveryEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, DeviceDiscoveryEvent](1000))
       activityEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ActivityUpdateEvent](1000))
       macroEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, MacroEvent](1000))
-      commandEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, CommandEvent](10))
+      commandEventPubSub <- Resource.liftF(EventPubSub.topicBlocking[F, CommandEvent](50))
 
       _ <- mqtt.fold(Resource.pure[F, Unit](()))(
         MqttEvents[F](
@@ -245,6 +245,7 @@ object Module {
       _ <- MultiSwitchEventListenter(switchEventPubSub, configEventPubSub)
 
       homeKitSwitchEventSubscriber <- switchEventPubSub.subscriberResource
+      commandEventSubscriber <- commandEventPubSub.subscriberResource
 
       _ <- StatsTranslator[F](
         configEventPubSub,
@@ -257,6 +258,10 @@ object Module {
 
       _ <- Resource.make(
         switchEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.start
+      )(_.cancel)
+
+      _ <- Resource.make(
+        commandEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.start
       )(_.cancel)
 
       (
@@ -403,7 +408,7 @@ object Module {
 
       context = Context[F](activity, mac, components.remotes, switches, combinedActivityConfig)
 
-      _ <- EventCommands(commandEventPubSub, context, mac)
+      _ <- EventCommands(commandEventSubscriber, context, mac)
 
       actionProcessor <- Resource.liftF(CommandEventProcessor[F](commandEventPubSub.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))

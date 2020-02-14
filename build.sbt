@@ -1,12 +1,12 @@
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
 val catsVer = "2.1.0"
-val catsEffectVer = "2.1.0"
-val circeVer = "0.12.1"
+val catsEffectVer = "2.1.1"
+val circeVer = "0.12.2"
 val collectionCompatVer = "2.1.2"
 val extruderVer = "0.11.0"
 val fs2Ver = "2.2.2"
-val http4sVer = "0.21.0-RC2"
+val http4sVer = "0.21.0"
 val kittensVer = "2.0.0"
 val log4catsVer = "1.0.1"
 val natchezVer = "0.0.10"
@@ -246,7 +246,10 @@ lazy val arrow = (project in file("modules/arrow"))
 
 lazy val events = (project in file("modules/events"))
   .settings(commonSettings)
-  .settings(name := "controller-events", libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver))
+  .settings(
+    name := "controller-events",
+    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+  )
   .dependsOn(model, errors)
 
 lazy val tracedRemote = (project in file("modules/trace-remote"))
