@@ -72,33 +72,30 @@ object MultiSwitchEventListenter {
     switchEvents: EventPubSub[F, SwitchEvent],
     configEvents: EventPubSub[F, ConfigEvent]
   ): Resource[F, Unit] =
-    Resource
-      .make(
-        switchEvents.subscriberStream
-          .collect {
-            case e: SwitchStateUpdateEvent => e
-          }
-          .subscribe
-          .either(configEvents.subscriberStream.subscribe)
-          .mapAccumulate(EventsState(Map.empty, Map.empty)) { (state, event) =>
-            (event match {
-              case Right(configEvent) =>
-                handleConfigEvent(configEvent).map {
-                  case (primaries, events) =>
-                    (state.copy(primariesReverseMapping = primaries), events)
-                }
-              case Left(switchEvent) =>
-                handleSwitchUpdateEvent(switchEvent).map {
-                  case (switchStates, events) => (state.copy(switchStates = switchStates), events)
-                }
-            }).run(state)
-          }
-          .flatMap { case (_, events) => Stream.emits(events) }
-          .through(switchEvents.publisher.pipe)
-          .compile
-          .drain
-          .start
-      )(_.cancel)
+    switchEvents.subscriberStream
+      .collect {
+        case e: SwitchStateUpdateEvent => e
+      }
+      .subscribe
+      .either(configEvents.subscriberStream.subscribe)
+      .mapAccumulate(EventsState(Map.empty, Map.empty)) { (state, event) =>
+        (event match {
+          case Right(configEvent) =>
+            handleConfigEvent(configEvent).map {
+              case (primaries, events) =>
+                (state.copy(primariesReverseMapping = primaries), events)
+            }
+          case Left(switchEvent) =>
+            handleSwitchUpdateEvent(switchEvent).map {
+              case (switchStates, events) => (state.copy(switchStates = switchStates), events)
+            }
+        }).run(state)
+      }
+      .flatMap { case (_, events) => Stream.emits(events) }
+      .through(switchEvents.publisher.pipe)
+      .compile
+      .drain
+      .background
       .map(_ => ())
 
 }

@@ -99,9 +99,7 @@ object DeconzBridge {
                   logger.error(th)("Deconz websocket failed, restarting") >> timer.sleep(10.seconds) >> websocket
                 } >> websocket
 
-            Resource
-              .make(websocket.start)(_.cancel)
-              .map(_ => ())
+            websocket.background.map(_ => ())
           }
       }
       .mapK(liftLower.lift)

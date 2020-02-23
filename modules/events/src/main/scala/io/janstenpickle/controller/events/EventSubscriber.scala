@@ -37,7 +37,7 @@ object EventSubscriber {
 
       for {
         queue <- Resource.liftF(Queue.circularBuffer[F, Event[A]](maxQueued))
-        _ <- Resource.make(loop(queue).compile.drain.start)(_.cancel)
+        _ <- loop(queue).compile.drain.background
       } yield queue
     }
   private def blockingQueueResource[F[_]: Concurrent, A](
@@ -52,7 +52,7 @@ object EventSubscriber {
 
       for {
         queue <- Resource.liftF(Queue.bounded[F, Event[A]](maxQueued))
-        _ <- Resource.make(loop(queue).compile.drain.start)(_.cancel)
+        _ <- loop(queue).compile.drain.background
       } yield queue
     }
 

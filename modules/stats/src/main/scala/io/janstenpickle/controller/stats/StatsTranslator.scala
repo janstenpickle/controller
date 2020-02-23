@@ -37,7 +37,7 @@ object StatsTranslator {
         .merge(RemoteStatsTranslator(remoteSubscriber))
         .merge(MacroStatsTranslator(macroSubscriber))
         .through(sink)
-      _ <- Resource.make(repeatStream(stream).start)(_.cancel)
+      _ <- repeatStream(stream).background
     } yield ()
   }
 

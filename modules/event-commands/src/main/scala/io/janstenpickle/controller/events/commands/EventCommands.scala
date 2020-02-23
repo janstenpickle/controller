@@ -30,7 +30,7 @@ object EventCommands {
 
   def apply[F[_]: Concurrent](subscriber: EventSubscriber[F, CommandEvent], context: Context[F], `macro`: Macro[F])(
     implicit timer: Timer[F]
-  ): Resource[F, Unit] =
+  ): Resource[F, F[Unit]] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
       def repeatStream(stream: Stream[F, Unit]): F[Unit] =
         stream.compile.drain.handleErrorWith { th =>
@@ -55,6 +55,6 @@ object EventCommands {
               .handleErrorWith(th => logger.warn(th)(s"Failed to execute command ${command.show}"))
         }
 
-      Resource.make(repeatStream(stream).start)(_.cancel).map(_ => ())
+      repeatStream(stream).background
     }
 }

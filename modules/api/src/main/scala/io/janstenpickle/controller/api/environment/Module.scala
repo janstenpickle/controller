@@ -256,13 +256,9 @@ object Module {
         MetricsSink[F](registry, workBlocker)
       )
 
-      _ <- Resource.make(
-        switchEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.start
-      )(_.cancel)
+      _ <- switchEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
 
-      _ <- Resource.make(
-        commandEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.start
-      )(_.cancel)
+      _ <- commandEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
 
       (
         activityConfig,

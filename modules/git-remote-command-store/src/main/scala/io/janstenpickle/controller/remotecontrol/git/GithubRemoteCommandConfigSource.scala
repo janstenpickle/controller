@@ -256,20 +256,19 @@ object GithubRemoteCommandConfigSource {
           fs2.Stream
             .fixedRate[G](config.gitPollInterval)
             .evalMap(_ => liftLower.lower("github.check.updates")(checkUpdates(cache)))
-        Resource
-          .make(
-            Concurrent[G].start(
-              stream
-                .handleErrorWith(
-                  th =>
-                    fs2.Stream
-                      .eval(log.error(th)("Github remote command source update poller failed, restarting process"))
-                      .flatMap(_ => stream)
-                )
-                .compile
-                .drain
-            )
-          )(f => Sync[G].suspend(f.cancel))
+
+        Concurrent[G]
+          .background(
+            stream
+              .handleErrorWith(
+                th =>
+                  fs2.Stream
+                    .eval(log.error(th)("Github remote command source update poller failed, restarting process"))
+                    .flatMap(_ => stream)
+              )
+              .compile
+              .drain
+          )
           .mapK(liftLower.lift)
           .map(_ => ())
       } else {

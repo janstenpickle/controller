@@ -248,7 +248,11 @@ lazy val events = (project in file("modules/events"))
   .settings(commonSettings)
   .settings(
     name := "controller-events",
-    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
+    libraryDependencies ++= Seq(
+      "org.typelevel"     %% "cats-effect"    % catsEffectVer,
+      "co.fs2"            %% "fs2-core"       % fs2Ver,
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer
+    )
   )
   .dependsOn(model, errors)
 
@@ -332,7 +336,13 @@ lazy val virtualSwitch = (project in file("modules/virtual-switch"))
 
 lazy val multiSwitch = (project in file("modules/multi-switch"))
   .settings(commonSettings)
-  .settings(name := "controller-multi-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .settings(
+    name := "controller-multi-switch",
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-effect" % catsEffectVer,
+      "eu.timepit"    %% "refined"     % refinedVer
+    )
+  )
   .dependsOn(configSource, switch, tracedSwitch, eventsSwitch)
 
 lazy val deconzBridge = (project in file("modules/deconz-bridge"))
@@ -608,6 +618,7 @@ lazy val mqttClient = (project in file("modules/mqtt-client"))
   .settings(
     name := "controller-mqtt-client",
     libraryDependencies ++= Seq(
+      "org.typelevel"          %% "cats-effect"          % catsEffectVer,
       "co.fs2"                 %% "fs2-reactive-streams" % fs2Ver,
       "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0",
       "com.hivemq"             % "hivemq-mqtt-client"    % "1.1.3"
@@ -619,9 +630,10 @@ lazy val mqttEvents = (project in file("modules/mqtt-events"))
   .settings(
     name := "controller-mqtt-events",
     libraryDependencies ++= Seq(
-      "io.circe" %% "circe-parser"         % circeVer,
-      "io.circe" %% "circe-generic-extras" % circeVer,
-      "io.circe" %% "circe-refined"        % circeVer
+      "org.typelevel" %% "cats-effect"          % catsEffectVer,
+      "io.circe"      %% "circe-parser"         % circeVer,
+      "io.circe"      %% "circe-generic-extras" % circeVer,
+      "io.circe"      %% "circe-refined"        % circeVer
     )
   )
   .dependsOn(events, mqttClient, model)

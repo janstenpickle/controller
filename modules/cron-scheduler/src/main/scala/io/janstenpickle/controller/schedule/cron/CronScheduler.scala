@@ -4,6 +4,7 @@ import java.time.DayOfWeek
 
 import cats.data.NonEmptyList
 import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.syntax.concurrent._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.show._
@@ -72,8 +73,7 @@ object CronScheduler {
               .onComplete(stream)
               .handleErrorWith(th => Stream.eval(logger.error(th)("Cron Scheduler failed")) >> stream)
 
-          Resource
-            .make(F.start(stream.compile.drain))(_.cancel)
+          stream.compile.drain.background
             .map { _ =>
               new Scheduler[F] {
                 override def create(schedule: Schedule): F[Option[String]] = trace.span("create.schedule") {

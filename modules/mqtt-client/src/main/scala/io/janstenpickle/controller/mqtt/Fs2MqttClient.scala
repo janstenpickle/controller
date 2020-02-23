@@ -49,14 +49,12 @@ object Fs2MqttClient {
           )
           _ <- Async.fromFuture(F.delay(client.connect().toScala))
         } yield client)(client => Async.fromFuture(F.delay(client.disconnect().toScala)).void)
-      _ <- Resource.make(
-        Stream
-          .awakeEvery[F](10.seconds)
-          .evalMap(_ => Async.fromFuture(F.delay(client.connect().toScala)))
-          .compile
-          .drain
-          .start
-      )(_.cancel)
+      _ <- Stream
+        .awakeEvery[F](10.seconds)
+        .evalMap(_ => Async.fromFuture(F.delay(client.connect().toScala)))
+        .compile
+        .drain
+        .background
     } yield {
       val rxClient = client.toRx
 

@@ -69,13 +69,11 @@ object MqttEvents {
     mqtt: Fs2MqttClient[F]
   ): Resource[F, Unit] =
     for {
-      _ <- Resource
-        .make((for {
-          sw <- events(config.switchTopic, switchEventPubSub)
-          conf <- events(config.configTopic, configEventPubSub)
-          rem <- events(config.remoteTopic, remoteEventPubSub)
-        } yield sw.merge(conf).merge(rem)).run(mqtt).compile.drain.start)(_.cancel)
-      _ <- Resource
-        .make(commandEvents(config.commandTopic)(commandEventPubSub, mqtt).compile.drain.start)(_.cancel)
+      _ <- (for {
+        sw <- events(config.switchTopic, switchEventPubSub)
+        conf <- events(config.configTopic, configEventPubSub)
+        rem <- events(config.remoteTopic, remoteEventPubSub)
+      } yield sw.merge(conf).merge(rem)).run(mqtt).compile.drain.background
+      _ <- commandEvents(config.commandTopic)(commandEventPubSub, mqtt).compile.drain.background
     } yield ()
 }

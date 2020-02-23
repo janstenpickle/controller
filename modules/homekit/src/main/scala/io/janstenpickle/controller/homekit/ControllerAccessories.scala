@@ -233,7 +233,7 @@ object ControllerAccessories {
           ref => ref.get.flatMap(sws => F.delay(sws.values.foreach(_.close())))
         )
         stateRef <- Resource.liftF(Ref.of(Map.empty[SwitchKey, State]))
-        _ <- Resource.make(blocker.blockOn(stream(ref, stateRef).compile.drain.start))(_.cancel)
+        _ <- blocker.blockOn(stream(ref, stateRef).compile.drain).background
       } yield ()
     }
 }
