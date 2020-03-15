@@ -15,4 +15,8 @@ object DeviceDiscoveryEvent {
 
   case class DeviceRemoved(key: DiscoveredDeviceKey) extends DeviceDiscoveryEvent
 
+  implicit val toOption: ToOption[DeviceDiscoveryEvent] = ToOption.instance {
+    case _: DeviceRemoved => None
+    case e: Any => Some(e)
+  }
 }

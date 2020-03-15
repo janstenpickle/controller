@@ -165,6 +165,7 @@ lazy val api = (project in file("modules/api"))
     prometheusTrace,
     trace,
     homekit,
+    kafkaEvents,
     mqttClient,
     mqttEvents,
     cronScheduler,
@@ -637,6 +638,21 @@ lazy val mqttEvents = (project in file("modules/mqtt-events"))
     )
   )
   .dependsOn(events, mqttClient, model)
+
+lazy val kafkaEvents = (project in file("modules/kafka-events"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-kafka-events",
+    libraryDependencies ++= Seq(
+      "co.fs2"          %% "fs2-core"             % fs2Ver,
+      "com.github.fd4s" %% "fs2-kafka"            % "1.0.0",
+      "org.typelevel"   %% "cats-effect"          % catsEffectVer,
+      "io.circe"        %% "circe-parser"         % circeVer,
+      "io.circe"        %% "circe-generic-extras" % circeVer,
+      "io.circe"        %% "circe-refined"        % circeVer
+    )
+  )
+  .dependsOn(events, model)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

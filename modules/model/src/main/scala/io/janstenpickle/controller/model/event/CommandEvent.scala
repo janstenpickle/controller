@@ -8,4 +8,6 @@ sealed trait CommandEvent
 object CommandEvent {
   case class MacroCommand(command: Command) extends CommandEvent
   case class ContextCommand(room: Room, name: NonEmptyString) extends CommandEvent
+
+  implicit val toOption: ToOption[CommandEvent] = ToOption.some
 }

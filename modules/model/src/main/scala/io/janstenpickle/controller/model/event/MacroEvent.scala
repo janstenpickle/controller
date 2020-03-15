@@ -10,4 +10,6 @@ object MacroEvent {
   case class StoreMacroEvent(name: NonEmptyString, commands: NonEmptyList[Command]) extends MacroEvent
   case class ExecuteMacro(name: NonEmptyString) extends MacroEvent
   case class ExecuteCommand(command: Command) extends MacroEvent
+
+  implicit val toOption: ToOption[MacroEvent] = ToOption.some
 }
