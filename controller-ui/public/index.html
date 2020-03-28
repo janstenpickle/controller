@@ -4,7 +4,6 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <meta name="theme-color" content="#000000">
     <!--
       manifest.json provides metadata used when your web app is added to the
       homescreen on Android. See https://developers.google.com/web/fundamentals/engage-and-retain/web-app-manifest/
@@ -38,13 +37,11 @@
     <meta name="msapplication-TileColor" content="#3372DF">
 
     <link rel="stylesheet" href="icons.css">
-    <link rel="stylesheet" href="material.blue_grey-indigo.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:200,300,400,600&display=swap" />
     <link rel="stylesheet" href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css">
 
+    <!-- <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script> -->
     <link rel="stylesheet" href="index.css">
-    <script defer src="material.min.js"></script>
-    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
-
   </head>
   <body>
     <noscript>
@@ -52,7 +49,7 @@
     </noscript>
 
         <header class="mdc-top-app-bar mdc-top-app-bar--short">
-          <div class="mdc-top-app-bar__row">
+          <div class="mdc-top-app-bar__row mdc-theme--secondary-bg">
             <section class="mdc-top-app-bar__section mdc-top-app-bar__section--align-start">
               <div id="rooms-menu"></div>
               <div id="toggle-all"></div>
@@ -66,7 +63,7 @@
         
 
 
-        <div class="demo-content mdc-top-app-bar--fixed-adjust">
+        <div class="demo-content mdc-top-app-bar--fixed-adjust mdc-theme--background">
             <section class="page__main-section">
 
         
@@ -74,8 +71,8 @@
           <div id="dialog"></div>
           <div id="dialog2"></div>
 
-          <div id="activities" class="mdc-grid center-items"></div>
-          <div id="remotes"></div>
+          <div id="activities" class="mdc-grid center-items mdc-theme--background"></div>
+          <div id="remotes" class="mdc-theme--background"></div>
           <div id="add-remote"></div>
           </section>
         </div>  

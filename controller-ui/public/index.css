@@ -1,45 +1,31 @@
-.mdl-layout__drawer.is-visible {
-  width: 300px;
+:root {
+  --mdc-theme-primary: #1b5e20;
+  --mdc-theme-secondary: #212121;
+  --mdc-theme-on-primary: #9e9e9e;
+  --mdc-theme-on-secondary: #1b5e20;
+  --mdc-theme-surface: #212121;
+  --mdc-theme-background: #121212;
+  --mdc-theme-on-surface: #9e9e9e;
+  --mdc-theme-text-primary-on-light:#121212;
+  --mdc-theme-text-primary-on-dark:#ffffff;
+  --mdc-theme-text-secondary-on-light:#121212;
+  --mdc-theme-text-secondary-on-dark:#ffffff;
 }
 
-.mdl-list__item-secondary-action {
-  margin-right: 50px;
-}
-
-.mdl-list__item:hover {
-  background-color: #e0e0e0
-}
-
-.demo-card-image.mdl-card {
-  width: 256px;
-  height: 256px;
-}
 .demo-card-image > .mdl-card__actions {
   height: 52px;
   padding: 16px;
-  background: rgba(0, 0, 0, 0.2);
 }
 
 .demo-card-image__filename {
-  color: #fff;
   font-size: 14px;
   font-weight: 500;
   padding: 16px;
 }
 
-.mdc-fab--color-override {
-  background-color: #e0e0e0;
-  color: black
-}
-
 .mdc-fab--small {
   height: 30px;
   width: 30px;
-}
-
-
-.mdc-card--background {
-  background-color: rgb(247, 247, 247)
 }
 
 .remote-edit {
@@ -72,9 +58,3 @@
 div#add-remote {
   padding: 10px;
 }
-
-/* dialog {
-  position: fixed;
-  top: 50%;
-  transform: translate(0, -50%);
-} */

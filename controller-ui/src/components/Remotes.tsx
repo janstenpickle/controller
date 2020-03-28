@@ -204,7 +204,7 @@ export default class Remotes extends React.Component<Props, RemotesState> {
       return (
         <div className="mdc-card mdc-card--background" key={data.name}>
           <div hidden={this.state.remoteEditMode.get(data.name) || false}>
-            <div className="center-align mdc-typography mdc-typography--overline">
+            <div className="center-align mdc-typography mdc-typography--overline mdc-theme--on-surface">
               {data.label}
               <i
                 id="edit-remote-name"
@@ -232,7 +232,7 @@ export default class Remotes extends React.Component<Props, RemotesState> {
               </i>
               <i
                 id="add-remote-button"
-                className="icon material-icons button-add"
+                className="icon material-icons button-add mdc-theme--on-surface"
                 onClick={() =>
                   this.setState({
                     buttonAddMode: true,
