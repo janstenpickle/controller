@@ -6,8 +6,6 @@ const port = () => {
     }
 }
 
-export const baseURL = `${window.location.protocol}//${
-  window.location.hostname
-}:${port()}`;
+export const baseURL = `${window.location.protocol}//nixos:${port()}`;
 
 export const baseWebsocketURL = `ws://${window.location.hostname}:${port()}`;

@@ -33,7 +33,7 @@ export function renderButton(
     if (activityName === currentActivity) {
       return baseClass + " mdc-button--raised";
     } else {
-      return baseClass + " mdc-button--outlined";
+      return baseClass + " mdc-button--outlined mdc-theme--on-secondary";
     }
   };
 
