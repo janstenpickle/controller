@@ -17,7 +17,7 @@ import org.apache.kafka.common.TopicPartition
 object KafkaSubscriber {
   def apply[F[_]: ConcurrentEffect: ContextShift: Timer, V](
     topic: NonEmptyString,
-    settings: ConsumerSettings[F, Option[V], Option[V]]
+    settings: F[ConsumerSettings[F, Option[V], Option[V]]]
   ): Resource[F, EventSubscriber[F, V]] = {
     def accumulate(
       stream: Stream[F, CommittableConsumerRecord[F, Option[V], Option[V]]],
@@ -60,7 +60,8 @@ object KafkaSubscriber {
     }
 
     for {
-      consumer <- consumerResource(settings)
+      s <- Resource.liftF(settings)
+      consumer <- consumerResource(s)
       _ <- Resource.liftF(consumer.subscribeTo(topic.value))
       assignments <- Resource.liftF(consumer.assignment)
       offsets <- Resource.liftF(consumer.endOffsets(assignments))
@@ -87,19 +88,13 @@ object KafkaSubscriber {
 
   def stream[F[_]: ConcurrentEffect: ContextShift: Timer, V](
     topic: NonEmptyString,
-    settings: ConsumerSettings[F, Option[V], Option[V]]
+    settings: F[ConsumerSettings[F, Option[V], Option[V]]]
   ): EventSubscriber[F, V] =
     new EventSubscriber[F, V] {
       override def subscribeEvent: Stream[F, Event[V]] =
-        consumerStream(settings)
-          .evalTap(
-            x =>
-              x.metrics.flatMap(
-                m =>
-                  Sync[F]
-                    .delay(println(m.toList.map { case (name, value) => (name, value.metricValue()) }.mkString("\n")))
-            )
-          )
+        Stream
+          .eval(settings)
+          .flatMap(consumerStream(_))
           .evalTap(_.subscribeTo(topic.value))
           .flatMap(_.stream)
           .map { r =>

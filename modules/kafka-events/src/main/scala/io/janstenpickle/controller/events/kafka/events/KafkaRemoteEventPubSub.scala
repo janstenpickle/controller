@@ -6,6 +6,7 @@ import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.kafka.{ConsumerSettings, Deserializer, ProducerSettings, Serializer}
 import io.circe.Codec
+import io.circe.generic.extras.Configuration
 import io.circe.generic.extras.auto._
 import io.circe.refined._
 import io.circe.generic.extras.semiauto._
@@ -22,6 +23,8 @@ import io.janstenpickle.controller.model.event.RemoteEvent.{
 }
 
 object KafkaRemoteEventPubSub {
+  implicit val config: Configuration = Configuration.default.withDiscriminator("type")
+
   implicit val remoteEventCodec: Codec.AsObject[RemoteEvent] = deriveConfiguredCodec[RemoteEvent]
 
   implicit def remoteEventKeySerializer[F[_]: Sync]: Serializer[F, RemoteEvent] =

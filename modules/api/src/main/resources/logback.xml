@@ -20,6 +20,8 @@
 
     <logger name="org.http4s.blaze.channel.nio1.NIO1SocketServerGroup" level="WARN" />
     <logger name="io.github.hapjava.impl.http.HomekitClientConnection" level="WARN" />
+    <logger name="org.apache.kafka" level="WARN" />
+    <logger name="org.apache.zookeeper" level="WARN" />
 
     <root level="${LOG_LEVEL}">
         <appender-ref ref="ASYNCSTDOUT" />

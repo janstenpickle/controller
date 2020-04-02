@@ -4,6 +4,7 @@ import java.util.UUID
 
 import cats.ApplicativeError
 import cats.effect.{Clock, Sync}
+import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import fs2.kafka.{Deserializer, Serializer}
@@ -36,11 +37,15 @@ object Serialization {
     Serializer.instance((_, _, _) => Sync[F].delay(UUID.randomUUID().toString.getBytes()))
 
   def circeDeserializer[F[_]: Sync: Clock, A: Decoder]: Deserializer[F, Option[A]] =
-    Deserializer.instance { (_, _, data) =>
+    Deserializer.instance { (topic, _, data) =>
       for {
         s <- Sync[F].delay(new String(data))
         a <- ApplicativeError[F, Throwable]
-          .fromEither(parse(s).flatMap(Decoder[A].decodeJson))
+          .fromEither(
+            parse(s)
+              .flatMap(Decoder[A].decodeJson)
+              .leftMap(err => new RuntimeException(s"${err.getMessage}\n$topic\n$s"))
+          )
       } yield a
 
     }.option

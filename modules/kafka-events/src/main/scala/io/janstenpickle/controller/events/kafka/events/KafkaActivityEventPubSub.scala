@@ -4,6 +4,7 @@ import cats.effect.{ConcurrentEffect, ContextShift, Resource, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.kafka.{ConsumerSettings, Deserializer, ProducerSettings}
 import io.circe.Codec
+import io.circe.generic.extras.Configuration
 import io.circe.generic.extras.auto._
 import io.circe.generic.extras.semiauto._
 import io.circe.refined._
@@ -13,6 +14,8 @@ import io.janstenpickle.controller.events.kafka.events.Serialization._
 import io.janstenpickle.controller.model.event.ActivityUpdateEvent
 
 object KafkaActivityEventPubSub {
+  implicit val config: Configuration = Configuration.default.withDiscriminator("type")
+
   implicit val activityUpdateEventCodec: Codec.AsObject[ActivityUpdateEvent] =
     deriveConfiguredCodec[ActivityUpdateEvent]
 

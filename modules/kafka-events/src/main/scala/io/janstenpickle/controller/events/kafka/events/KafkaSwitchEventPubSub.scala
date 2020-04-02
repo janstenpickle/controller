@@ -2,8 +2,9 @@ package io.janstenpickle.controller.events.kafka.events
 
 import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
-import fs2.kafka.{ConsumerSettings, ProducerSettings, Serializer}
+import fs2.kafka.{ConsumerSettings, Deserializer, ProducerSettings, Serializer}
 import io.circe.Codec
+import io.circe.generic.extras.Configuration
 import io.circe.generic.extras.auto._
 import io.circe.refined._
 import io.circe.generic.extras.semiauto._
@@ -13,6 +14,8 @@ import io.janstenpickle.controller.events.kafka.events.Serialization._
 import io.janstenpickle.controller.model.event.SwitchEvent
 
 object KafkaSwitchEventPubSub {
+  implicit val config: Configuration = Configuration.default.withDiscriminator("type")
+
   implicit val switchEventCodec: Codec.AsObject[SwitchEvent] = deriveConfiguredCodec[SwitchEvent]
 
   val switchRemovedEventCodec: Codec.AsObject[SwitchEvent.SwitchRemovedEvent] =
@@ -33,6 +36,6 @@ object KafkaSwitchEventPubSub {
       topic,
       config,
       ProducerSettings(switchEventKeySerializer[F], circeSerializer[F, SwitchEvent]),
-      ConsumerSettings(circeDeserializer[F, SwitchEvent], circeDeserializer[F, SwitchEvent])
+      ConsumerSettings(Deserializer.const(Option.empty[SwitchEvent]), circeDeserializer[F, SwitchEvent])
     )
 }

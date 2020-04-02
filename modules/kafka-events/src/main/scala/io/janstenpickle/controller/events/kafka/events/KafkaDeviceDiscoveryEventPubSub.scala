@@ -5,6 +5,7 @@ import cats.instances.option._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.kafka.{ConsumerSettings, ProducerSettings, Serializer}
+import io.circe.generic.extras.Configuration
 import io.circe.{Codec, Decoder}
 import io.circe.generic.extras.auto._
 import io.circe.generic.extras.semiauto._
@@ -17,6 +18,8 @@ import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent._
 
 object KafkaDeviceDiscoveryEventPubSub {
+  implicit val config: Configuration = Configuration.default.withDiscriminator("type")
+
   implicit val deviceDiscoveryEventCodec: Codec.AsObject[DeviceDiscoveryEvent] =
     deriveConfiguredCodec[DeviceDiscoveryEvent]
   implicit val deviceRemovedDecoder: Decoder[DeviceRemoved] = deriveConfiguredDecoder[DeviceRemoved]

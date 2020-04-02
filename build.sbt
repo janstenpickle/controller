@@ -103,6 +103,7 @@ lazy val root = (project in file("."))
     homekit,
     mqttClient,
     mqttEvents,
+    embeddedKafka,
     deconzBridge,
     hapJavaSubmodule
   )
@@ -169,7 +170,8 @@ lazy val api = (project in file("modules/api"))
     mqttClient,
     mqttEvents,
     cronScheduler,
-    deconzBridge
+    deconzBridge,
+    embeddedKafka
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
@@ -653,6 +655,18 @@ lazy val kafkaEvents = (project in file("modules/kafka-events"))
     )
   )
   .dependsOn(events, model)
+
+lazy val embeddedKafka = (project in file("modules/embedded-kafka"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-embedded-kafka",
+    libraryDependencies ++= Seq(
+      "co.fs2"                  %% "fs2-core"       % fs2Ver,
+      "com.github.fd4s"         %% "fs2-kafka"      % "1.0.0",
+      "org.typelevel"           %% "cats-effect"    % catsEffectVer,
+      "io.github.embeddedkafka" %% "embedded-kafka" % "2.4.1"
+    )
+  )
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)
