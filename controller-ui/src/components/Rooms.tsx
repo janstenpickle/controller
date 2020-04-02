@@ -93,7 +93,7 @@ export default class Rooms extends React.Component<Props, MenuState> {
         <div className="mdc-menu-surface--anchor" ref={setAnchorElement}>
           <button
             id="rooms-menu"
-            className="mdc-icon-button material-icons"
+            className="mdc-icon-button material-icons mdc-theme--on-surface"
             onClick={() => this.setState({ menuOpen: true })}
           >
             more_vert
@@ -106,12 +106,13 @@ export default class Rooms extends React.Component<Props, MenuState> {
           >
             <MenuList>
               {rooms.map((room, index) => (
-                <MenuListItem key={index} onClick={setRoom(room)}>
+                <MenuListItem key={index} onClick={setRoom(room)} className="mdc-theme--on-surface">
                   <MenuListItemText primaryText={toTitleCase(room)} />
                 </MenuListItem>
               ))}
               <MenuListDivider />
               <MenuListItem
+                className="mdc-theme--on-surface"
                 onClick={() =>
                   this.setState({ macroDialogOpen: true, menuOpen: false })
                 }
@@ -119,6 +120,7 @@ export default class Rooms extends React.Component<Props, MenuState> {
                 Create Macro
               </MenuListItem>
               <MenuListItem
+                className="mdc-theme--on-surface"
                 onClick={() =>
                   this.setState({ remoteDialogOpen: true, menuOpen: false })
                 }
@@ -126,6 +128,7 @@ export default class Rooms extends React.Component<Props, MenuState> {
                 Learn Remote Command
               </MenuListItem>
               <MenuListItem
+                className="mdc-theme--on-surface"
                 onClick={() => {
                   this.props.setEditMode(!this.props.editMode);
                   this.setState({ menuOpen: false });
@@ -134,7 +137,7 @@ export default class Rooms extends React.Component<Props, MenuState> {
                 <b>{editModeText()}</b>
               </MenuListItem>
               <MenuListDivider />
-              <MenuListItem>
+              <MenuListItem className="mdc-theme--on-surface">
                 <b>Settings</b>
               </MenuListItem>
             </MenuList>
