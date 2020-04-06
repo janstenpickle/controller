@@ -2,6 +2,7 @@ package io.janstenpickle.controller.events.kafka
 
 import java.time.Instant
 
+import cats.Applicative
 import cats.data.Chain
 import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.instances.long._
@@ -20,10 +21,10 @@ object KafkaSubscriber {
     settings: F[ConsumerSettings[F, Option[V], Option[V]]]
   ): Resource[F, EventSubscriber[F, V]] = {
     def accumulate(
-      stream: Stream[F, CommittableConsumerRecord[F, Option[V], Option[V]]],
-      offsets: Map[TopicPartition, Long]
+      consumer: KafkaConsumer[F, Option[V], Option[V]]
     ): Stream[F, CommittableConsumerRecord[F, Option[V], Option[V]]] = {
       def go(
+        offsets: Map[TopicPartition, Long],
         seenOffsets: Map[TopicPartition, Long],
         state: Chain[Chunk[CommittableConsumerRecord[F, Option[V], Option[V]]]],
         upToDate: Boolean,
@@ -32,43 +33,53 @@ object KafkaSubscriber {
       ): Pull[F, Chunk[CommittableConsumerRecord[F, Option[V], Option[V]]], Unit] = {
         def chunkOffsets(
           recordChunk: Chunk[CommittableConsumerRecord[F, Option[V], Option[V]]]
-        ): (Map[TopicPartition, Long], Boolean) =
-          recordChunk.foldLeft((Map.empty[TopicPartition, Long], false)) {
-            case ((acc, done), record) =>
-              if (done) { (acc, done) } else {
-                val state = acc ++ record.offset.offsets.mapValues(_.offset())
-                if (state === seenOffsets) return (state, true)
-                else (state, false)
-              }
+        ): Map[TopicPartition, Long] =
+          recordChunk.foldLeft(Map.empty[TopicPartition, Long]) {
+            case (acc, record) =>
+              val state = acc ++ record.offset.offsets.mapValues(_.offset())
+              if (state === seenOffsets) return state
+              else state
           }
 
         stream.pull.uncons.flatMap {
           case Some((recordChunk, next)) =>
             if (upToDate) {
-              Pull.output1(recordChunk) >> go(seenOffsets, state, upToDate)(next)
+              Pull.output1(recordChunk) >> go(offsets, seenOffsets, state, upToDate)(next)
             } else {
-              val (newSeenOffsets, done) = chunkOffsets(recordChunk)
+              val newSeenOffsets = chunkOffsets(recordChunk)
 
-              if (done) Pull.output(Chunk.chain(state.append(recordChunk))) >> go(Map.empty, Chain.empty, done)(next)
-              else go(newSeenOffsets, state.append(recordChunk), done)(next)
+              Pull.eval(if (offsets.isEmpty) consumerOffsets else Applicative[F].pure(offsets)).flatMap { endOffsets =>
+                val done = endOffsets.forall {
+                  case (tp, offset) => newSeenOffsets.get(tp).fold(false)(_ >= offset)
+                }
+
+                if (done)
+                  Pull.output(Chunk.chain(state.append(recordChunk))) >> go(endOffsets, Map.empty, Chain.empty, done)(
+                    next
+                  )
+                else go(endOffsets, newSeenOffsets, state.append(recordChunk), done)(next)
+              }
             }
           case None => Pull.output(Chunk.chain(state)) >> Pull.done
         }
       }
 
-      go(Map.empty, Chain.empty, upToDate = false)(stream).stream.flatMap(Stream.chunk)
+      def consumerOffsets: F[Map[TopicPartition, Long]] = consumer.assignment.flatMap(consumer.endOffsets)
+
+      Stream
+        .eval(consumerOffsets)
+        .flatMap(go(_, Map.empty, Chain.empty, upToDate = false)(consumer.stream).stream)
+        .flatMap(Stream.chunk)
     }
 
     for {
       s <- Resource.liftF(settings)
       consumer <- consumerResource(s)
       _ <- Resource.liftF(consumer.subscribeTo(topic.value))
-      assignments <- Resource.liftF(consumer.assignment)
-      offsets <- Resource.liftF(consumer.endOffsets(assignments))
     } yield
       new EventSubscriber[F, V] {
         override def subscribeEvent: Stream[F, Event[V]] =
-          accumulate(consumer.stream, offsets).map { r =>
+          accumulate(consumer).map { r =>
             r.record.value
               .orElse(r.record.key)
               .map(

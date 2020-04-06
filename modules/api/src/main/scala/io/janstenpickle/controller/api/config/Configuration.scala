@@ -16,6 +16,7 @@ import extruder.typesafe._
 import extruder.refined._
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.events.kafka.KafkaPubSub
 import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
@@ -43,7 +44,8 @@ object Configuration {
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
     homekit: ControllerHomekitServer.Config,
     deconz: Option[DeconzBridge.Config],
-    mqtt: Mqtt
+    mqtt: Mqtt,
+    kafka: Option[KafkaPubSub.Config]
   )
 
   case class Mqtt(client: Option[Fs2MqttClient.Config], events: MqttEvents.Config)

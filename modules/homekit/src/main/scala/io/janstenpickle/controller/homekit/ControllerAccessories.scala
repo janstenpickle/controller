@@ -6,29 +6,26 @@ import java.util.concurrent.CompletableFuture
 
 import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Concurrent, ContextShift, ExitCase, Fiber, Resource, Timer}
-import cats.instances.set._
+import cats.effect.{Blocker, Concurrent, ContextShift, Fiber, Resource, Timer}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.traverse._
 import cats.{~>, Id}
 import cats.syntax.applicativeError._
 import eu.timepit.refined.auto._
-import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.github.hapjava.accessories.{Lightbulb, Outlet, Switch}
 import io.github.hapjava.{HomekitAccessory, HomekitCharacteristicChangeCallback, HomekitRoot}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.events.{EventPubSub, EventSubscriber}
-import io.janstenpickle.controller.model.event.SwitchEvent
+import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
+import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn}
+import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
 import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchAddedEvent,
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
-import io.janstenpickle.controller.switch.Switches
 import natchez.{Trace, TraceValue}
 import org.apache.commons.text.WordUtils
 
@@ -46,9 +43,9 @@ object ControllerAccessories {
 
   def apply[F[_]: Timer: ContextShift, G[_]](
     root: HomekitRoot,
-    switches: Switches[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
     switchUpdates: EventPubSub[F, SwitchEvent],
+    commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id
@@ -95,7 +92,8 @@ object ControllerAccessories {
 
         def setState(state: Boolean): CompletableFuture[Void] =
           fkFuture(span("set.state") {
-            if (state) switches.switchOn(key.device, key.name) else switches.switchOff(key.device, key.name)
+            if (state) commands.publish1(CommandEvent.MacroCommand(SwitchOn(key.device, key.name)))
+            else commands.publish1(CommandEvent.MacroCommand(SwitchOff(key.device, key.name)))
           }).map(_ => null.asInstanceOf[Void])(blocker.blockingContext).toJava.toCompletableFuture
 
         def subscribeUpdates(callback: HomekitCharacteristicChangeCallback) =

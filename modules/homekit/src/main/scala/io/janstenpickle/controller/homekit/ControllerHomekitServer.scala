@@ -18,10 +18,9 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.github.hapjava.HomekitServer
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.events.{EventPubSub, EventSubscriber}
+import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.extruder.ConfigFileSource
-import io.janstenpickle.controller.model.event.SwitchEvent
-import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
 import natchez.Trace
 
 import scala.concurrent.Future
@@ -41,9 +40,9 @@ object ControllerHomekitServer {
   def create[F[_]: Timer: ContextShift: Trace, G[_]: Timer: Concurrent](
     config: Config,
     configFile: ConfigFileSource[F],
-    switches: Switches[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
     switchUpdates: EventPubSub[F, SwitchEvent],
+    commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id,
@@ -66,7 +65,7 @@ object ControllerHomekitServer {
           .flatTap(r => F.delay(r.start()))
       )(r => F.delay(r.stop()))
 
-      _ <- ControllerAccessories[F, G](root, switches, switchEvents, switchUpdates, blocker, fkFuture, fk)
+      _ <- ControllerAccessories[F, G](root, switchEvents, switchUpdates, commands, blocker, fkFuture, fk)
     } yield ())
       .use(
         _ => exitSignal.discrete.map(if (_) None else Some(ExitCode.Success)).unNoneTerminate.compile.toList.map(_.head)
@@ -75,9 +74,9 @@ object ControllerHomekitServer {
   private def streamLoop[F[_]: Concurrent: Timer: ContextShift: Trace, G[_]: Timer: Concurrent](
     config: Config,
     configFile: ConfigFileSource[F],
-    switches: Switches[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
     switchUpdates: EventPubSub[F, SwitchEvent],
+    commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id,
@@ -85,15 +84,15 @@ object ControllerHomekitServer {
     logger: Logger[F]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Stream[F, ExitCode] =
     Stream
-      .eval(create[F, G](config, configFile, switches, switchEvents, switchUpdates, blocker, fkFuture, fk, exitSignal))
+      .eval(create[F, G](config, configFile, switchEvents, switchUpdates, commands, blocker, fkFuture, fk, exitSignal))
       .handleErrorWith { th =>
         Stream.eval(logger.error(th)("Homekit failed")) >> Stream
           .sleep[F](10.seconds) >> streamLoop[F, G](
           config,
           configFile,
-          switches,
           switchEvents,
           switchUpdates,
+          commands,
           blocker,
           fkFuture,
           fk,
@@ -114,9 +113,9 @@ object ControllerHomekitServer {
   def stream[F[_]: Concurrent: Timer: ContextShift: Trace, G[_]: Concurrent: Timer](
     config: Config,
     configFile: ConfigFileSource[F],
-    switches: Switches[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
-    switchUpdates: EventPubSub[F, SwitchEvent]
+    switchUpdates: EventPubSub[F, SwitchEvent],
+    commands: EventPublisher[F, CommandEvent],
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]] =
@@ -129,9 +128,9 @@ object ControllerHomekitServer {
             exitCode <- streamLoop[F, G](
               config,
               configFile,
-              switches,
               switchEvents,
               switchUpdates,
+              commands,
               blocker,
               fkFuture,
               fk,

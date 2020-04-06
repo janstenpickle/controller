@@ -4,7 +4,7 @@ import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.instances.option._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import fs2.kafka.{ConsumerSettings, ProducerSettings, Serializer}
+import fs2.kafka.{AutoOffsetReset, ConsumerSettings, ProducerSettings, Serializer}
 import io.circe.generic.extras.Configuration
 import io.circe.{Codec, Decoder}
 import io.circe.generic.extras.auto._
@@ -42,6 +42,6 @@ object KafkaDeviceDiscoveryEventPubSub {
       ConsumerSettings(
         optKeyDeserializer[F, DeviceRemoved].map(_.widen[DeviceDiscoveryEvent]),
         circeDeserializer[F, DeviceDiscoveryEvent]
-      )
+      ).withAutoOffsetReset(AutoOffsetReset.Earliest)
     )
 }

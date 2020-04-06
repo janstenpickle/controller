@@ -2,7 +2,7 @@ package io.janstenpickle.controller.events.kafka.events
 
 import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
-import fs2.kafka.{ConsumerSettings, ProducerSettings, Serializer}
+import fs2.kafka.{AutoOffsetReset, ConsumerSettings, ProducerSettings, Serializer}
 import io.circe.generic.extras.Configuration
 import io.circe.{Codec, Decoder, Encoder}
 import io.circe.generic.extras.auto._
@@ -50,5 +50,6 @@ object KafkaConfigEventPubSub {
       config,
       ProducerSettings(configEventKeySerializer[F], circeSerializer[F, ConfigEvent]),
       ConsumerSettings(optKeyDeserializer[F, ConfigEvent], circeDeserializer[F, ConfigEvent])
+        .withAutoOffsetReset(AutoOffsetReset.Earliest)
     )
 }

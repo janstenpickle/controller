@@ -106,7 +106,7 @@ object Module {
       client <- Resources.httpClient[F](registry, blocker)
       config <- Resource.liftF(configOrError(getConfig()))
       mqtt <- Resources.mqttClient[F](config.mqtt)
-      events <- KafkaEvents.embedded[F]
+      events <- config.kafka.fold(Resource.liftF(TopicEvents[F]))(KafkaEvents.create[F])
       cs <- components(getConfig, ep, client, events, mqtt, registry)
     } yield cs
 
@@ -238,22 +238,13 @@ object Module {
       workBlocker <- makeBlocker("work")
       _ <- PrometheusExportService.addDefaults[F](registry)
 
-//      remoteEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, RemoteEvent](1000))
-//      switchEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, SwitchEvent](1000))
-//      configEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ConfigEvent](1000))
-//      discoveryEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, DeviceDiscoveryEvent](1000))
-//      activityEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ActivityUpdateEvent](1000))
-//      macroEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, MacroEvent](1000))
-//      commandEventPubSub <- Resource.liftF(EventPubSub.topicBlocking[F, CommandEvent](50))
-
       _ <- mqtt.fold(Resource.pure[F, Unit](()))(
         MqttEvents[F](config.mqtt.events, events.switch, events.config, events.remote, events.command, _)
       )
 
       _ <- MultiSwitchEventListenter(events.switch, events.config)
 
-      homeKitSwitchEventSubscriber <- events.switch.subscriberResource
-      commandEventSubscriber <- events.command.subscriberResource
+//      homeKitSwitchEventSubscriber <- events.switch.subscriberResource
 
       _ <- StatsTranslator[F](
         events.config,
@@ -416,7 +407,7 @@ object Module {
 
       context = Context[F](activity, mac, components.remotes, switches, combinedActivityConfig)
 
-      _ <- EventCommands(commandEventSubscriber, context, mac)
+      _ <- EventCommands(events.command.subscriberStream, context, mac)
 
       actionProcessor <- Resource.liftF(CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
@@ -436,7 +427,13 @@ object Module {
         )
 
       val homekit = ControllerHomekitServer
-        .stream[F, G](config.homekit, homekitConfigFileSource, switches, homeKitSwitchEventSubscriber, events.switch)
+        .stream[F, G](
+          config.homekit,
+          homekitConfigFileSource,
+          events.switch.subscriberStream,
+          events.switch,
+          events.command.publisher
+        )
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
             (

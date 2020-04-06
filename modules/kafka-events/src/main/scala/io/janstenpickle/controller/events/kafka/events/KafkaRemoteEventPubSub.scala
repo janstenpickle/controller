@@ -4,7 +4,7 @@ import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.instances.option._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import fs2.kafka.{ConsumerSettings, Deserializer, ProducerSettings, Serializer}
+import fs2.kafka.{AutoOffsetReset, ConsumerSettings, Deserializer, ProducerSettings, Serializer}
 import io.circe.Codec
 import io.circe.generic.extras.Configuration
 import io.circe.generic.extras.auto._
@@ -47,5 +47,6 @@ object KafkaRemoteEventPubSub {
       config,
       ProducerSettings(remoteEventKeySerializer[F], circeSerializer[F, RemoteEvent]),
       ConsumerSettings(optKeyDeserializer[F, RemoteEvent], circeDeserializer[F, RemoteEvent])
+        .withAutoOffsetReset(AutoOffsetReset.Earliest)
     )
 }
