@@ -13,11 +13,12 @@ import cats.syntax.functor._
 import cats.{~>, Id}
 import cats.syntax.applicativeError._
 import eu.timepit.refined.auto._
+import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.github.hapjava.accessories.{Lightbulb, Outlet, Switch}
 import io.github.hapjava.{HomekitAccessory, HomekitCharacteristicChangeCallback, HomekitRoot}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
+import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn}
 import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
@@ -35,16 +36,9 @@ import scala.concurrent.duration._
 import scala.util.hashing.MurmurHash3
 
 object ControllerAccessories {
-  case class SwitchState(
-    state: Map[SwitchKey, HomekitAccessory with Closeable],
-    toAdd: Iterable[HomekitAccessory with Closeable],
-    toRemove: Iterable[HomekitAccessory with Closeable]
-  )
-
   def apply[F[_]: Timer: ContextShift, G[_]](
     root: HomekitRoot,
     switchEvents: EventSubscriber[F, SwitchEvent],
-    switchUpdates: EventPubSub[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
@@ -56,7 +50,8 @@ object ControllerAccessories {
       def switchToService(
         key: SwitchKey,
         metadata: SwitchMetadata,
-        getState: F[State]
+        getState: F[State],
+        stateUpdates: Queue[F, State]
       ): HomekitAccessory with Closeable = {
         val model = metadata.model.getOrElse(key.device.value)
         val label = WordUtils.capitalizeFully(
@@ -99,16 +94,14 @@ object ControllerAccessories {
         def subscribeUpdates(callback: HomekitCharacteristicChangeCallback) =
           span("subscribe") {
             blocker.blockOn(
-              switchUpdates.subscriberStream.subscribe
-                .evalMap {
-                  case e: SwitchStateUpdateEvent if (e.key == key && e.error.isEmpty) =>
-                    rootSpan(span("update.subscriber") {
-                      Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
-                        logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
-                          .put("error" -> true, "error.message" -> th.getMessage)
-                      }
-                    })
-                  case _ => F.unit
+              stateUpdates.dequeue
+                .evalMap { _ =>
+                  rootSpan(span("update.subscriber") {
+                    Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
+                      logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
+                        .put("error" -> true, "error.message" -> th.getMessage)
+                    }
+                  })
                 }
                 .compile
                 .drain
@@ -206,29 +199,34 @@ object ControllerAccessories {
       }
 
       def stream(
-        switchRef: Ref[F, Map[SwitchKey, HomekitAccessory with Closeable]],
+        switchRef: Ref[F, Map[SwitchKey, (HomekitAccessory with Closeable, Queue[F, State])]],
         stateRef: Ref[F, Map[SwitchKey, State]]
       ) =
         switchEvents.subscribe.evalMap {
           case SwitchAddedEvent(key, meta) =>
-            val accessory = switchToService(key, meta, stateRef.get.map(_.getOrElse(key, State.Off)))
-            switchRef.update(_.updated(key, accessory)) *> F.delay(root.addAccessory(accessory))
+            Queue.unbounded[F, State].flatMap { queue =>
+              val accessory = switchToService(key, meta, stateRef.get.map(_.getOrElse(key, State.Off)), queue)
+
+              switchRef.update(_.updated(key, (accessory, queue))) *> F.delay(root.addAccessory(accessory))
+            }
           case SwitchRemovedEvent(key) =>
             for {
               state <- switchRef.get
               _ <- switchRef.set(state - key)
               _ <- stateRef.update(_ - key)
-              _ <- F.delay(state.get(key).fold(())(root.removeAccessory))
+              _ <- F.delay(state.get(key).fold(()) { case (accessory, _) => root.removeAccessory(accessory) })
             } yield ()
           case SwitchStateUpdateEvent(key, state, None) =>
-            stateRef.update(_.updated(key, state))
+            stateRef.update(_.updated(key, state)) *> switchRef.get.flatMap(_.get(key).fold(F.unit) {
+              case (_, queue) => queue.enqueue1(state)
+            })
           case _ =>
             F.unit
         }
 
       for {
-        ref <- Resource.make(Ref.of(Map.empty[SwitchKey, HomekitAccessory with Closeable]))(
-          ref => ref.get.flatMap(sws => F.delay(sws.values.foreach(_.close())))
+        ref <- Resource.make(Ref.of(Map.empty[SwitchKey, (HomekitAccessory with Closeable, Queue[F, State])]))(
+          ref => ref.get.flatMap(sws => F.delay(sws.values.foreach(_._1.close())))
         )
         stateRef <- Resource.liftF(Ref.of(Map.empty[SwitchKey, State]))
         _ <- blocker.blockOn(stream(ref, stateRef).compile.drain).background

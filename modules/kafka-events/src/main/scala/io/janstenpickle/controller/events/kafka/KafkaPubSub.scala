@@ -6,13 +6,18 @@ import cats.data.NonEmptyList
 import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import fs2.kafka.{AutoOffsetReset, ConsumerSettings, ProducerSettings}
+import fs2.kafka.{ConsumerSettings, ProducerSettings}
 import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.event.ToOption
+
 import scala.concurrent.duration._
 
 object KafkaPubSub {
-  case class Config(bootstrapServers: NonEmptyList[NonEmptyString])
+  case class Config(
+    bootstrapServers: NonEmptyList[NonEmptyString],
+    staticHeaders: Map[String, String] = Map.empty,
+    headerFilter: Map[String, String] = Map.empty
+  )
 
   def apply[F[_]: ConcurrentEffect: ContextShift: Timer, V: ToOption](
     topic: NonEmptyString,
@@ -34,14 +39,15 @@ object KafkaPubSub {
 
     KafkaPublisher(
       topic,
-      producerSettings.withBootstrapServers(bootstrapServers).withProperty("compression.type", "snappy")
+      producerSettings.withBootstrapServers(bootstrapServers).withProperty("compression.type", "snappy"),
+      config.staticHeaders
     ).map { pub =>
       new EventPubSub[F, V] {
         override def publisher: EventPublisher[F, V] = pub
         override def subscriberResource: Resource[F, EventSubscriber[F, V]] =
-          KafkaSubscriber(topic, consumer)
+          KafkaSubscriber.resource(topic, consumer, config.headerFilter)
         override def subscriberStream: EventSubscriber[F, V] =
-          KafkaSubscriber.stream(topic, consumer)
+          KafkaSubscriber.stream(topic, consumer, config.headerFilter)
       }
     }
   }

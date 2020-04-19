@@ -65,7 +65,8 @@ object KafkaEvents {
               topics.commandTopic,
               topics.discoveryTopic
             ).map { topic =>
-              new NewTopic(topic.value, 1, 1.toShort).configs(Map("cleanup.policy" -> "compact").asJava)
+              new NewTopic(topic.value, 1, 1.toShort)
+                .configs(Map("cleanup.policy" -> "compact", "max.compaction.lag.ms" -> "900000").asJava)
             }
           )
           .handleError(th => logger.warn(th)("Failed to create Kafka topics"))

@@ -14,13 +14,19 @@ import io.janstenpickle.controller.model.event.ToOption
 object KafkaPublisher {
   def apply[F[_]: ConcurrentEffect: ContextShift: Clock, V: ToOption](
     topic: NonEmptyString,
-    settings: ProducerSettings[F, V, Option[V]]
+    settings: ProducerSettings[F, V, Option[V]],
+    staticHeaders: Map[String, String]
   ): Resource[F, EventPublisher[F, V]] =
     producerResource(settings).map { producer =>
+      val headers = Headers.fromIterable(staticHeaders.map { case (k, v) => Header(k, v) })
+
       new EventPublisher[F, V] {
         override def publish1(a: V): F[Unit] = Clock[F].realTime(TimeUnit.MILLISECONDS).flatMap { time =>
           producer
-            .produce(ProducerRecords.one(ProducerRecord(topic.value, a, ToOption[V].toOption(a)).withTimestamp(time)))
+            .produce(
+              ProducerRecords
+                .one(ProducerRecord(topic.value, a, ToOption[V].toOption(a)).withTimestamp(time).withHeaders(headers))
+            )
             .flatten
             .void
         }
@@ -30,7 +36,7 @@ object KafkaPublisher {
             .evalMap { vs =>
               Clock[F].realTime(TimeUnit.MILLISECONDS).map { time =>
                 ProducerRecords(vs.map { v =>
-                  ProducerRecord(topic.value, v, ToOption[V].toOption(v)).withTimestamp(time)
+                  ProducerRecord(topic.value, v, ToOption[V].toOption(v)).withTimestamp(time).withHeaders(headers)
                 })
               }
             }

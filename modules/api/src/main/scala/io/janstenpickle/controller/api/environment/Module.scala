@@ -3,24 +3,19 @@ package io.janstenpickle.controller.api.environment
 import java.util.concurrent.{Executors, ThreadFactory}
 
 import cats.data.{EitherT, Kleisli, OptionT, Reader}
-import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
 import cats.effect.syntax.concurrent._
-import cats.instances.list._
-import cats.instances.parallel._
-import cats.kernel.Monoid
+import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
-import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.parallel._
 import cats.syntax.semigroup._
 import cats.{~>, Applicative, ApplicativeError, Id, MonadError, Parallel}
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
 import fs2.Stream
-import fs2.concurrent.{Queue, Signal, Topic}
+import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
@@ -31,24 +26,13 @@ import io.janstenpickle.controller.api.service.ConfigService
 import io.janstenpickle.controller.api.trace.implicits._
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource._
-import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.mqtt.MqttEvents
-import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
-import io.janstenpickle.controller.model.event.{
-  ActivityUpdateEvent,
-  CommandEvent,
-  ConfigEvent,
-  DeviceDiscoveryEvent,
-  MacroEvent,
-  RemoteEvent,
-  SwitchEvent
-}
+import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.multiswitch.{MultiSwitchEventListenter, MultiSwitchProvider}
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.schedule.cron.CronScheduler
@@ -61,27 +45,20 @@ import io.janstenpickle.controller.store.trace.{
   TracedSwitchStateStore
 }
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
-import io.janstenpickle.controller.mqtt.Fs2MqttClient
-import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.trace.EmptyTrace
-import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.deconz.DeconzBridge
 import io.janstenpickle.deconz.action.CommandEventProcessor
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
-import natchez.jaeger.Jaeger
 import org.http4s.client.Client
-import org.http4s.client.jdkhttpclient.JdkHttpClient
-import org.http4s.client.middleware.{GZip, Metrics}
-import org.http4s.dsl.Http4sDsl
-import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
+import org.http4s.metrics.prometheus.PrometheusExportService
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
 
 import scala.concurrent.Future
-import scala.concurrent.duration._
 
 object Module {
   type Homekit[F[_]] = Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]]
@@ -244,7 +221,7 @@ object Module {
 
       _ <- MultiSwitchEventListenter(events.switch, events.config)
 
-//      homeKitSwitchEventSubscriber <- events.switch.subscriberResource
+      homeKitSwitchEventSubscriber <- events.switch.subscriberResource
 
       _ <- StatsTranslator[F](
         events.config,
@@ -427,13 +404,7 @@ object Module {
         )
 
       val homekit = ControllerHomekitServer
-        .stream[F, G](
-          config.homekit,
-          homekitConfigFileSource,
-          events.switch.subscriberStream,
-          events.switch,
-          events.command.publisher
-        )
+        .stream[F, G](config.homekit, homekitConfigFileSource, homeKitSwitchEventSubscriber, events.command.publisher)
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
             (

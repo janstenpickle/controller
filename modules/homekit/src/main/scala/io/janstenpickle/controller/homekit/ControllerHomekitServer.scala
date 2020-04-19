@@ -41,7 +41,6 @@ object ControllerHomekitServer {
     config: Config,
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
-    switchUpdates: EventPubSub[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
@@ -65,7 +64,7 @@ object ControllerHomekitServer {
           .flatTap(r => F.delay(r.start()))
       )(r => F.delay(r.stop()))
 
-      _ <- ControllerAccessories[F, G](root, switchEvents, switchUpdates, commands, blocker, fkFuture, fk)
+      _ <- ControllerAccessories[F, G](root, switchEvents, commands, blocker, fkFuture, fk)
     } yield ())
       .use(
         _ => exitSignal.discrete.map(if (_) None else Some(ExitCode.Success)).unNoneTerminate.compile.toList.map(_.head)
@@ -75,7 +74,6 @@ object ControllerHomekitServer {
     config: Config,
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
-    switchUpdates: EventPubSub[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
@@ -84,14 +82,13 @@ object ControllerHomekitServer {
     logger: Logger[F]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Stream[F, ExitCode] =
     Stream
-      .eval(create[F, G](config, configFile, switchEvents, switchUpdates, commands, blocker, fkFuture, fk, exitSignal))
+      .eval(create[F, G](config, configFile, switchEvents, commands, blocker, fkFuture, fk, exitSignal))
       .handleErrorWith { th =>
         Stream.eval(logger.error(th)("Homekit failed")) >> Stream
           .sleep[F](10.seconds) >> streamLoop[F, G](
           config,
           configFile,
           switchEvents,
-          switchUpdates,
           commands,
           blocker,
           fkFuture,
@@ -114,7 +111,6 @@ object ControllerHomekitServer {
     config: Config,
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
-    switchUpdates: EventPubSub[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
   )(
     implicit liftLower: ContextualLiftLower[G, F, String]
@@ -129,7 +125,6 @@ object ControllerHomekitServer {
               config,
               configFile,
               switchEvents,
-              switchUpdates,
               commands,
               blocker,
               fkFuture,
