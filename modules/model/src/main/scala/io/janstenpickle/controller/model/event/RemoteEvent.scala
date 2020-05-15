@@ -7,8 +7,16 @@ sealed trait RemoteEvent
 
 object RemoteEvent {
   case class RemoteAddedEvent(remoteName: NonEmptyString, eventSource: String) extends RemoteEvent
+
   case class RemoteRemovedEvent(remoteName: NonEmptyString, eventSource: String) extends RemoteEvent
+
   case class RemoteSendCommandEvent(command: RemoteCommand) extends RemoteEvent
+
   case class RemoteLearnCommand(remoteName: NonEmptyString, remoteDevice: NonEmptyString, command: NonEmptyString)
       extends RemoteEvent
+
+  implicit val toOption: ToOption[RemoteEvent] = ToOption.instance {
+    case _: RemoteRemovedEvent => None
+    case e: Any => Some(e)
+  }
 }

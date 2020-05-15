@@ -393,6 +393,8 @@ export default class MacroDialog extends React.Component<Props, State> {
             return `Switch Off '${command.device}/${command.name}'`;
           case "Remote":
             return `Send Remote Command '${command.remote}/${command.device}/${command.command}'`;
+          default: 
+            return "";
         }
       })
       .map((element, index) => (

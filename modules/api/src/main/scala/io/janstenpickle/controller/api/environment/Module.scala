@@ -3,24 +3,19 @@ package io.janstenpickle.controller.api.environment
 import java.util.concurrent.{Executors, ThreadFactory}
 
 import cats.data.{EitherT, Kleisli, OptionT, Reader}
-import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
 import cats.effect.syntax.concurrent._
-import cats.instances.list._
-import cats.instances.parallel._
-import cats.kernel.Monoid
+import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
-import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.parallel._
 import cats.syntax.semigroup._
 import cats.{~>, Applicative, ApplicativeError, Id, MonadError, Parallel}
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
 import fs2.Stream
-import fs2.concurrent.{Queue, Signal, Topic}
+import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
@@ -31,24 +26,13 @@ import io.janstenpickle.controller.api.service.ConfigService
 import io.janstenpickle.controller.api.trace.implicits._
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.configsource._
-import io.janstenpickle.controller.configsource.extruder._
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.mqtt.MqttEvents
-import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
-import io.janstenpickle.controller.model.event.{
-  ActivityUpdateEvent,
-  CommandEvent,
-  ConfigEvent,
-  DeviceDiscoveryEvent,
-  MacroEvent,
-  RemoteEvent,
-  SwitchEvent
-}
+import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.multiswitch.{MultiSwitchEventListenter, MultiSwitchProvider}
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.schedule.cron.CronScheduler
@@ -61,27 +45,20 @@ import io.janstenpickle.controller.store.trace.{
   TracedSwitchStateStore
 }
 import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
-import io.janstenpickle.controller.mqtt.Fs2MqttClient
-import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switch.Switches
+import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.trace.EmptyTrace
-import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.deconz.DeconzBridge
 import io.janstenpickle.deconz.action.CommandEventProcessor
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
-import natchez.jaeger.Jaeger
 import org.http4s.client.Client
-import org.http4s.client.jdkhttpclient.JdkHttpClient
-import org.http4s.client.middleware.{GZip, Metrics}
-import org.http4s.dsl.Http4sDsl
-import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
+import org.http4s.metrics.prometheus.PrometheusExportService
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
 
 import scala.concurrent.Future
-import scala.concurrent.duration._
 
 object Module {
   type Homekit[F[_]] = Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]]
@@ -106,13 +83,15 @@ object Module {
       client <- Resources.httpClient[F](registry, blocker)
       config <- Resource.liftF(configOrError(getConfig()))
       mqtt <- Resources.mqttClient[F](config.mqtt)
-      cs <- components(getConfig, ep, client, mqtt, registry)
+      events <- config.kafka.fold(Resource.liftF(TopicEvents[F]))(KafkaEvents.create[F])
+      cs <- components(getConfig, ep, client, events, mqtt, registry)
     } yield cs
 
   def components[F[_]: ContextShift: Timer: Parallel](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
     ep: EntryPoint[F],
     client: Client[F],
+    events: Events[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
@@ -129,8 +108,13 @@ object Module {
 
     val liftedConfig: () => G[Either[ValidationErrors, Configuration.Config]] = () => lift(getConfig())
 
-    eitherTComponents[G, F](liftedConfig, ep.lowerT(client), mqtt.map(_.mapK(lift, liftLower.lower)), registry)
-      .mapK(liftLower.lower)
+    eitherTComponents[G, F](
+      liftedConfig,
+      ep.lowerT(client),
+      events.mapK(lift, liftLower.lower),
+      mqtt.map(_.mapK(lift, liftLower.lower)),
+      registry
+    ).mapK(liftLower.lower)
       .map {
         case (config, routes, registry, homekit) =>
           (config, ep.liftT(routes), registry, homekit)
@@ -140,6 +124,7 @@ object Module {
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: ConcurrentEffect: ContextShift: Timer](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
     client: Client[F],
+    events: Events[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
@@ -171,7 +156,13 @@ object Module {
     Resource
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
-        tracedComponents[G, M](liftedConfig, eitherTClient(client), mqtt.map(_.mapK(lift, lower)), registry).map {
+        tracedComponents[G, M](
+          liftedConfig,
+          eitherTClient(client),
+          events.mapK(lift, lower),
+          mqtt.map(_.mapK(lift, lower)),
+          registry
+        ).map {
           case (config, routes, registry, homekit) =>
             val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
               OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
@@ -197,6 +188,7 @@ object Module {
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: ConcurrentEffect: ContextShift: Timer](
     getConfig: () => F[Either[ValidationErrors, Configuration.Config]],
     client: Client[F],
+    events: Events[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
@@ -223,42 +215,30 @@ object Module {
       workBlocker <- makeBlocker("work")
       _ <- PrometheusExportService.addDefaults[F](registry)
 
-      remoteEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, RemoteEvent](1000))
-      switchEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, SwitchEvent](1000))
-      configEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ConfigEvent](1000))
-      discoveryEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, DeviceDiscoveryEvent](1000))
-      activityEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, ActivityUpdateEvent](1000))
-      macroEventPubSub <- Resource.liftF(EventPubSub.topicNonBlocking[F, MacroEvent](1000))
-      commandEventPubSub <- Resource.liftF(EventPubSub.topicBlocking[F, CommandEvent](50))
-
       _ <- mqtt.fold(Resource.pure[F, Unit](()))(
-        MqttEvents[F](
-          config.mqtt.events,
-          switchEventPubSub,
-          configEventPubSub,
-          remoteEventPubSub,
-          commandEventPubSub,
-          _
-        )
+        MqttEvents[F](config.mqtt.events, events.switch, events.config, events.remote, events.command, _)
       )
 
-      _ <- MultiSwitchEventListenter(switchEventPubSub, configEventPubSub)
+      _ <- MultiSwitchEventListenter(events.switch, events.config)
 
-      homeKitSwitchEventSubscriber <- switchEventPubSub.subscriberResource
-      commandEventSubscriber <- commandEventPubSub.subscriberResource
+      homeKitSwitchEventSubscriber <- events.switch.subscriberResource
 
       _ <- StatsTranslator[F](
-        configEventPubSub,
-        activityEventPubSub,
-        switchEventPubSub,
-        remoteEventPubSub,
-        macroEventPubSub,
+        events.config,
+        events.activity,
+        events.switch,
+        events.remote,
+        events.`macro`,
         MetricsSink[F](registry, workBlocker)
       )
 
-      _ <- switchEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
+      _ <- events.discovery.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
 
-      _ <- commandEventPubSub.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
+      _ <- events.config.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
+
+      _ <- events.switch.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
+
+      _ <- events.command.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
 
       (
         activityConfig,
@@ -275,10 +255,10 @@ object Module {
         switchStateConfig
       ) <- ConfigSources.create[F, G](
         config.config,
-        configEventPubSub.publisher,
-        switchEventPubSub.publisher,
-        activityEventPubSub.publisher,
-        discoveryEventPubSub.publisher,
+        events.config.publisher,
+        events.switch.publisher,
+        events.activity.publisher,
+        events.discovery.publisher,
         workBlocker
       )
 
@@ -334,10 +314,10 @@ object Module {
         discoveryMappingConfig,
         workBlocker,
         discoveryBlocker,
-        remoteEventPubSub.publisher,
-        switchEventPubSub.publisher,
-        configEventPubSub.publisher,
-        discoveryEventPubSub.publisher
+        events.remote.publisher,
+        events.switch.publisher,
+        events.config.publisher,
+        events.discovery.publisher
       )
 
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
@@ -354,7 +334,7 @@ object Module {
         virtualSwitchConfig,
         components.remotes,
         switchStateStore,
-        switchEventPubSub.publisher.narrow
+        events.switch.publisher.narrow
       )
 
       combinedSwitchProvider = components.switches |+| virtualSwitches
@@ -362,12 +342,12 @@ object Module {
       multiSwitchProvider = MultiSwitchProvider[F](
         multiSwitchConfig,
         Switches[F](combinedSwitchProvider),
-        switchEventPubSub.publisher.narrow
+        events.switch.publisher.narrow
       )
 
       switches = Switches[F](combinedSwitchProvider |+| multiSwitchProvider)
 
-      mac = Macro[F](macroStore, components.remotes, switches, macroEventPubSub.publisher)
+      mac = Macro[F](macroStore, components.remotes, switches, events.`macro`.publisher)
 
       act = Activity.dependsOnSwitch[F](
         config.activity.dependentSwitches,
@@ -375,14 +355,14 @@ object Module {
         activityConfig,
         activityStore,
         mac,
-        activityEventPubSub.publisher
+        events.activity.publisher
       )
 
       (activity, activitySwitchProvider) = ActivitySwitchProvider[F](
         act,
         combinedActivityConfig,
         mac,
-        switchEventPubSub.publisher.narrow
+        events.switch.publisher.narrow
       )
 
       allSwitches = switches.addProvider(activitySwitchProvider)
@@ -396,7 +376,7 @@ object Module {
           activityStore,
           allSwitches,
           new ConfigValidation(combinedActivityConfig, components.remotes, macroStore, switches),
-          configEventPubSub.publisher
+          events.config.publisher
         )
       )
 
@@ -404,9 +384,9 @@ object Module {
 
       context = Context[F](activity, mac, components.remotes, switches, combinedActivityConfig)
 
-      _ <- EventCommands(commandEventSubscriber, context, mac)
+      _ <- EventCommands(events.command.subscriberStream, context, mac)
 
-      actionProcessor <- Resource.liftF(CommandEventProcessor[F](commandEventPubSub.publisher, deconzConfig))
+      actionProcessor <- Resource.liftF(CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
     } yield {
       val router =
@@ -416,7 +396,7 @@ object Module {
           "/control/macro" -> new MacroApi[F](mac).routes,
           "/control/activity" -> new ActivityApi[F](activity, combinedActivityConfig).routes,
           "/control/context" -> new ContextApi[F](context).routes,
-          "/config" -> new ConfigApi[F, G](configService, activityEventPubSub, configEventPubSub, switchEventPubSub).routes,
+          "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,
           "/discovery" -> new RenameApi[F](components.rename).routes,
           "/schedule" -> new ScheduleApi[F](components.scheduler |+| cronScheduler).routes,
           "/" -> new ControllerUi[F](workBlocker).routes,
@@ -424,13 +404,7 @@ object Module {
         )
 
       val homekit = ControllerHomekitServer
-        .stream[F, G](
-          config.homekit,
-          homekitConfigFileSource,
-          switches,
-          homeKitSwitchEventSubscriber,
-          switchEventPubSub
-        )
+        .stream[F, G](config.homekit, homekitConfigFileSource, homeKitSwitchEventSubscriber, events.command.publisher)
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
             (

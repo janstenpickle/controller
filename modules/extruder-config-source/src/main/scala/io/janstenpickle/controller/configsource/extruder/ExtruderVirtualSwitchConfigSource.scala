@@ -22,7 +22,7 @@ import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource.Po
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.{ConfigEvent, SwitchEvent}
-import io.janstenpickle.controller.model.event.ConfigEvent.{VirtualSwitchAddedEvent, VirtualSwitchRemotedEvent}
+import io.janstenpickle.controller.model.event.ConfigEvent.{VirtualSwitchAddedEvent, VirtualSwitchRemovedEvent}
 import io.janstenpickle.controller.model.event.SwitchEvent.{SwitchAddedEvent, SwitchRemovedEvent}
 import io.janstenpickle.controller.model.{RemoteSwitchKey, State, SwitchMetadata, SwitchType, VirtualSwitch}
 import natchez.Trace
@@ -74,7 +74,7 @@ object ExtruderVirtualSwitchConfigSource {
           )(diff) >> Events.fromDiff[F, ConfigEvent, RemoteSwitchKey, VirtualSwitch](
             configEventPublisher,
             (k: RemoteSwitchKey, virtual: VirtualSwitch) => VirtualSwitchAddedEvent(k, virtual, eventSource),
-            (k: RemoteSwitchKey, _: VirtualSwitch) => VirtualSwitchRemotedEvent(k, eventSource)
+            (k: RemoteSwitchKey, _: VirtualSwitch) => VirtualSwitchRemovedEvent(k, eventSource)
           )(diff),
         decoder,
         encoder
