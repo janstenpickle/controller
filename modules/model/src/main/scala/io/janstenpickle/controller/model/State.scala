@@ -2,6 +2,7 @@ package io.janstenpickle.controller.model
 
 import cats.Eq
 import cats.instances.boolean._
+import io.circe.{Codec, Decoder, Encoder}
 
 sealed trait State {
   val value: String
@@ -12,6 +13,9 @@ sealed trait State {
 
 object State {
   implicit val eq: Eq[State] = Eq.by(_.isOn)
+
+  implicit val stateCodec: Codec[State] =
+    Codec.from(Decoder.decodeBoolean.map(fromBoolean), Encoder.encodeBoolean.contramap(_.isOn))
 
   case object On extends State {
     override val value: String = "on"

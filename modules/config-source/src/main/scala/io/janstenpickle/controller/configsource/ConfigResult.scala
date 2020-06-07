@@ -7,6 +7,8 @@ import cats.instances.map._
 import cats.instances.list._
 import cats.instances.string._
 import eu.timepit.refined.cats._
+import io.circe.{Codec, Decoder, Encoder, KeyDecoder, KeyEncoder}
+import io.circe.generic.semiauto._
 
 case class ConfigResult[K, V](values: Map[K, V] = Map.empty[K, V], errors: List[String] = List.empty)
 
@@ -19,4 +21,9 @@ object ConfigResult {
   }
 
   implicit def configResultEq[K: Eq, V: Eq]: Eq[ConfigResult[K, V]] = semi.eq
+
+  implicit def configResultDecoder[K: KeyDecoder, V: Decoder]: Decoder[ConfigResult[K, V]] = deriveDecoder
+  implicit def configResultEncoder[K: KeyEncoder, V: Encoder]: Encoder[ConfigResult[K, V]] = deriveEncoder
+  implicit def configResultCodec[K: KeyDecoder: KeyEncoder, V: Decoder: Encoder]: Codec[ConfigResult[K, V]] =
+    Codec.from(configResultDecoder, configResultEncoder)
 }

@@ -8,8 +8,10 @@ import cats.instances.int._
 import cats.instances.list._
 import cats.instances.option._
 import cats.instances.string._
-import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.Codec
+import io.circe.generic.extras.semiauto._
+import io.circe.refined._
 
 sealed trait Button {
   def name: NonEmptyString
@@ -22,6 +24,8 @@ sealed trait Button {
 
 object Button {
   implicit val eq: Eq[Button] = semi.eq
+
+  implicit val buttonCodec: Codec.AsObject[Button] = deriveConfiguredCodec
 
   sealed trait Remote extends Button {
     def remote: NonEmptyString

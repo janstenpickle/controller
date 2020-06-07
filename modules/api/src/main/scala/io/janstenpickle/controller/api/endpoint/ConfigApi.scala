@@ -1,21 +1,20 @@
 package io.janstenpickle.controller.api.endpoint
 
 import cats.data.ValidatedNel
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Concurrent, Timer}
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.apply._
-import cats.effect.syntax.concurrent._
 import cats.{~>, Semigroupal}
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.circe._
-import extruder.refined._
 import fs2.Stream
-import fs2.concurrent.{Queue, Topic}
+import io.circe.Encoder
+import io.circe.refined._
+import io.circe.syntax._
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.api.trace.Http4sUtils
 import io.janstenpickle.controller.api.service.ConfigService
@@ -47,7 +46,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
 ) extends Common[F] {
   import ConfigApi._
 
-  private def subscriber[A: DSEncoder](
+  private def subscriber[A: Encoder](
     req: Request[F],
     subscriptionStream: Stream[F, Boolean],
     op: F[A],
@@ -60,7 +59,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
       .map(_ => true)
       .mergeHaltBoth(subscriptionStream.groupWithin(1000, 50.millis).map(_ => true))
       .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
-      .map(as => Text(encode(as).noSpaces))
+      .map(a => Text(a.asJson.noSpaces))
       .translate(lowerName)
 
     liftLower

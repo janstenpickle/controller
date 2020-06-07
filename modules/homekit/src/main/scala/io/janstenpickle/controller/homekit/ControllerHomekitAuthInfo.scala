@@ -13,11 +13,14 @@ import cats.syntax.apply._
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.{~>, Id}
+import cats.{~>, ApplicativeError, Id}
 import eu.timepit.refined.types.numeric.PosInt
 import extruder.core.{Parser, Show}
 import extruder.typesafe._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.circe.generic.extras.Configuration
+import io.circe.{Codec, Decoder, Encoder}
+import io.circe.generic.extras.semiauto._
 import io.github.hapjava.{HomekitAuthInfo, HomekitServer}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource
@@ -25,18 +28,21 @@ import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import natchez.TraceValue.NumberValue
 import natchez.{Trace, TraceValue}
+import io.circe.syntax._
 
 import scala.concurrent.duration._
+import scala.util.Try
 
 object ControllerHomekitAuthInfo {
-  private implicit def byteArrayParser: Parser[Array[Byte]] = Parser[String].flatMapResult { str =>
-    Either.catchNonFatal(Base64.getDecoder.decode(str)).leftMap(_.getMessage)
+  private implicit def byteArrayDecoder: Decoder[Array[Byte]] = Decoder.decodeString.emapTry { str =>
+    Try(Base64.getDecoder.decode(str))
   }
-  private implicit def byteArrayShow: Show[Array[Byte]] = Show.by(Base64.getEncoder.encodeToString(_))
-  private implicit def bigIntParser: Parser[BigInteger] = Parser[Array[Byte]].flatMapResult { data =>
-    Either.catchNonFatal(new BigInteger(data)).leftMap(_.getMessage)
+  private implicit def byteArrayEncoder: Encoder[Array[Byte]] =
+    Encoder.encodeString.contramap(Base64.getEncoder.encodeToString(_))
+  private implicit def bigIntDecoder: Decoder[BigInteger] = byteArrayDecoder.emapTry { data =>
+    Try(new BigInteger(data))
   }
-  private implicit def bigIntShow: Show[BigInteger] = Show.by(_.toByteArray)
+  private implicit def bigIntEncoder: Encoder[BigInteger] = byteArrayEncoder.contramap(_.toByteArray)
 
   private implicit def authInfoEmpty: Empty[AuthInfo] = Empty(AuthInfo(None, None, None, Map.empty))
 
@@ -50,6 +56,9 @@ object ControllerHomekitAuthInfo {
     users: Map[String, Array[Byte]] = Map.empty
   )
 
+  implicit val config: Configuration = io.janstenpickle.controller.model.circeConfig
+  implicit val authInfoCodec: Codec[AuthInfo] = deriveConfiguredCodec
+
   case class Config(pollInterval: FiniteDuration = 30.seconds, errorThreshold: PosInt = PosInt(3))
 
   def apply[F[_], G[_]: Concurrent: Timer](configFile: ConfigFileSource[F], pollConfig: Config, fk: F ~> Id)(
@@ -59,15 +68,12 @@ object ControllerHomekitAuthInfo {
   ): Resource[F, HomekitAuthInfo] = {
     def load(current: Data[AuthInfo]): F[AuthInfo] =
       for {
-        config <- configFile.configs.map(_.typesafe)
-        authInfo <- decodeF[F, AuthInfo](config)
+        config <- configFile.configs.map(_.json)
+        authInfo <- ApplicativeError[F, Throwable].fromEither(config.as[AuthInfo])
       } yield authInfo
 
     def write(authInfo: AuthInfo): F[Unit] =
-      for {
-        config <- encodeF[F](authInfo)
-        _ <- configFile.write(config)
-      } yield ()
+      configFile.write(authInfo.asJson)
 
     def formatUsername(username: String): String = username.replace(":", "").replace("-", "").toLowerCase()
 
@@ -143,7 +149,7 @@ object ControllerHomekitAuthInfo {
           override def removeUser(username: String): Unit =
             fk(span("remove.user", "username" -> username) {
               get().flatMap { authInfo =>
-                val updated = authInfo.copy(users = authInfo.users.filterKeys(_ != formatUsername(username)))
+                val updated = authInfo.copy(users = authInfo.users.filterKeys(_ != formatUsername(username)).toMap)
 
                 write(updated) *> update(updated)
               }

@@ -15,7 +15,7 @@ import extruder.core.{ExtruderErrors, Parser}
 import extruder.typesafe._
 import extruder.refined._
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
-import io.janstenpickle.controller.configsource.extruder.ExtruderConfigSource
+import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.events.kafka.KafkaPubSub
 import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
@@ -56,7 +56,7 @@ object Configuration {
   case class ConfigData(
     dir: Path = Paths.get("/", "tmp", "controller", "config"),
     writeTimeout: FiniteDuration = 1.seconds,
-    polling: ExtruderConfigSource.PollingConfig
+    polling: CirceConfigSource.PollingConfig
   )
 
   case class VirtualSwitch(

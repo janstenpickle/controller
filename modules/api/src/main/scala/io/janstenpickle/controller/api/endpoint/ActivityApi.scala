@@ -4,6 +4,7 @@ import cats.effect.Sync
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import io.circe.refined._
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ConfigSource

@@ -119,7 +119,7 @@ class ConfigService[F[_]: Parallel] private (
             .map(k -> _)
       }
       .map { acts =>
-        activities.copy(values = ListMap(acts.sortBy(_._2.order): _*))
+        activities.copy(values = ListMap.from(acts.sortBy(_._2.order).reverse))
       }
 
   def getActivities: F[ConfigResult[String, Activity]] = trace.span("get.activities") {
@@ -175,7 +175,7 @@ class ConfigService[F[_]: Parallel] private (
           case (k, remote) =>
             addSwitchState(remote.buttons).map(b => k -> remote.copy(buttons = b))
         }
-        .map(rs => remotes.copy(values = ListMap(rs.sortBy(_._2.order): _*)))
+        .map(rs => remotes.copy(values = ListMap.from(rs.sortBy(_._2.order).reverse)))
     }
   }
 
@@ -211,11 +211,12 @@ class ConfigService[F[_]: Parallel] private (
     button.getConfig.flatMap { buttons =>
       addSwitchState(buttons.values.values.toList).map { bs =>
         buttons.copy(
-          values = ListMap(
+          values = ListMap.from(
             bs.map { b =>
                 s"${b.room.getOrElse("all")}-${b.name}" -> b
               }
-              .sortBy(_._2.order): _*
+              .sortBy(_._2.order)
+              .reverse
           )
         )
       }
@@ -277,6 +278,7 @@ class ConfigService[F[_]: Parallel] private (
       Rooms(
         remotes.flatten
           .groupBy(identity)
+          .view
           .mapValues(_.size)
           .toList
           .sortBy(_._2)

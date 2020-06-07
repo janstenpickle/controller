@@ -1,26 +1,26 @@
 import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
 
-val catsVer = "2.1.0"
-val catsEffectVer = "2.1.1"
-val circeVer = "0.12.2"
-val collectionCompatVer = "2.1.2"
+val catsVer = "2.1.1"
+val catsEffectVer = "2.1.3"
+val circeVer = "0.13.0"
+val collectionCompatVer = "2.1.6"
 val extruderVer = "0.11.0"
-val fs2Ver = "2.2.2"
-val http4sVer = "0.21.0"
-val kittensVer = "2.0.0"
+val fs2Ver = "2.3.0"
+val http4sVer = "0.21.4"
+val kittensVer = "2.1.0"
 val jmdnsVer = "3.5.5"
-val log4catsVer = "1.0.1"
-val natchezVer = "0.0.10"
-val prometheusVer = "0.8.0"
-val refinedVer = "0.9.10"
+val log4catsVer = "1.1.1"
+val natchezVer = "0.0.11"
+val prometheusVer = "0.9.0"
+val refinedVer = "0.9.14"
 val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
-val scalaTestVer = "3.0.8"
+val scalaTestVer = "3.1.2"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
-  scalaVersion := "2.12.10",
+  scalaVersion := "2.13.2",
   scalacOptions ++= Seq(
     "-deprecation",
     "-unchecked",
@@ -53,8 +53,6 @@ val commonSettings = Seq(
     false
   },
   bintrayReleaseOnPublish := true,
-  coverageMinimum := 80,
-  coverageHighlighting := true,
   scalafmtOnCompile := true,
   scalafmtTestOnCompile := true,
   parallelExecution in ThisBuild := true,
@@ -85,7 +83,7 @@ lazy val root = (project in file("."))
     broadlink,
     store,
     remoteControl,
-    extruderConfigSource,
+    circeConfigSource,
     `macro`,
     context,
     activity,
@@ -129,14 +127,48 @@ lazy val api = (project in file("modules/api"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
-      "org.http4s"        %% "http4s-jdk-http-client"    % "0.2.0-M4",
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.0",
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"             % "0.7.0",
+      "org.typelevel"     %% "cats-mtl-core"             % "0.7.1",
       ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+    ),
+    graalVMNativeImageOptions ++= Seq(
+      "--verbose",
+      "--no-server",
+      "--no-fallback",
+      "--static",
+      "--enable-http",
+      "--enable-https",
+      "--enable-all-security-services",
+      "--report-unsupported-elements-at-runtime",
+      "--allow-incomplete-classpath",
+      "-H:+ReportExceptionStackTraces",
+      "-H:+ReportUnsupportedElementsAtRuntime",
+      "-H:+TraceClassInitialization",
+      "-H:+PrintClassInitialization",
+      "-H:+RemoveSaturatedTypeFlows",
+      "-H:+StackTrace",
+      "-H:+JNI",
+      "-H:-SpawnIsolates",
+      "-H:-UseServiceLoaderFeature",
+      "-H:ReflectionConfigurationFiles=../../../../reflection.json",
+      "--install-exit-handlers",
+      "--initialize-at-build-time=scala.runtime.Statics$VM",
+      "--initialize-at-build-time=ch.qos.logback.classic.Logger",
+      "--initialize-at-build-time=ch.qos.logback.core.status.StatusBase",
+      "--initialize-at-build-time=ch.qos.logback.classic.Level",
+      "--initialize-at-build-time=ch.qos.logback.core.spi.AppenderAttachableImpl",
+      "--initialize-at-build-time=ch.qos.logback.core.status.InfoStatus",
+      "--initialize-at-build-time=ch.qos.logback.core.status.ErrorStatus",
+      "--initialize-at-build-time=org.slf4j.impl.StaticLoggerBinder",
+      "--initialize-at-build-time=ch.qos.logback.core.CoreConstants",
+      "--initialize-at-build-time=org.slf4j.LoggerFactory",
+      "--initialize-at-run-time=io.netty.util.internal.logging.Log4JLogger",
+      "--initialize-at-build-time=scala.Symbol$",
     ),
     mappings in Universal := {
       val universalMappings = (mappings in Universal).value
@@ -154,7 +186,7 @@ lazy val api = (project in file("modules/api"))
     eventCommands,
     tracedStore,
     remoteControl,
-    extruderConfigSource,
+    circeConfigSource,
     gitRemoteStore,
     `macro`,
     context,
@@ -174,7 +206,7 @@ lazy val api = (project in file("modules/api"))
     cronScheduler,
     deconzBridge
   )
-  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
+  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
 
 lazy val advertiser = (project in file("modules/advertiser"))
   .settings(commonSettings)
@@ -195,9 +227,12 @@ lazy val model = (project in file("modules/model"))
   .settings(
     name := "controller-model",
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core" % catsVer,
-      "eu.timepit"    %% "refined"   % refinedVer,
-      "org.typelevel" %% "kittens"   % kittensVer
+      "org.typelevel" %% "cats-core"            % catsVer,
+      "eu.timepit"    %% "refined"              % refinedVer,
+      "org.typelevel" %% "kittens"              % kittensVer,
+      "io.circe"      %% "circe-parser"         % circeVer,
+      "io.circe"      %% "circe-generic-extras" % circeVer,
+      "io.circe"      %% "circe-refined"        % circeVer
     )
   )
 
@@ -241,10 +276,10 @@ lazy val extruder = (project in file("modules/extruder"))
   )
   .dependsOn(poller)
 
-lazy val extruderConfigSource = (project in file("modules/extruder-config-source"))
+lazy val circeConfigSource = (project in file("modules/circe-config-source"))
   .settings(commonSettings)
   .settings(
-    name := "controller-extruder-config-source",
+    name := "controller-circe-config-source",
     libraryDependencies ++= Seq(
       "io.chrisdavenport"      %% "log4cats-slf4j"          % log4catsVer,
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
@@ -372,13 +407,13 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
       "eu.timepit"                   %% "refined-cats"                  % refinedVer,
       "org.typelevel"                %% "kittens"                       % kittensVer,
       "io.chrisdavenport"            %% "log4cats-slf4j"                % log4catsVer,
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % "2.0.0-RC6",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % "2.0.0",
       "io.circe"                     %% "circe-parser"                  % circeVer,
       "io.circe"                     %% "circe-generic"                 % circeVer,
       "org.tpolecat"                 %% "natchez-core"                  % natchezVer
     )
   )
-  .dependsOn(arrow, events, model, extruderConfigSource)
+  .dependsOn(arrow, events, model, circeConfigSource)
 
 lazy val tracedSwitch = (project in file("modules/trace-switch"))
   .settings(commonSettings)
@@ -400,7 +435,7 @@ lazy val cronScheduler = (project in file("modules/cron-scheduler"))
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "fs2-cron-core"  % "0.2.2",
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "io.chrisdavenport" %% "fuuid"          % "0.1.2"
+      "io.chrisdavenport" %% "fuuid"          % "0.4.0"
     )
   )
   .dependsOn(arrow, schedule, `macro`, configSource)
@@ -540,7 +575,7 @@ lazy val gitRemoteStore = (project in file("modules/git-remote-command-store"))
   .settings(
     name := "controller-git-remote-command-store",
     libraryDependencies ++= Seq(
-      "commons-io"        % "commons-io"      % "2.6",
+      "commons-io"        % "commons-io"      % "2.7",
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
       "org.typelevel"     %% "cats-effect"    % catsEffectVer,
       "org.typelevel"     %% "kittens"        % kittensVer,
@@ -626,7 +661,7 @@ lazy val homekit = (project in file("modules/homekit"))
       "org.apache.commons"     % "commons-text"          % "1.8",
       "org.typelevel"          %% "cats-effect"          % catsEffectVer,
       "org.tpolecat"           %% "natchez-core"         % natchezVer,
-      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0"
+      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.1"
     )
   )
   .dependsOn(events, extruder, poller, switch, hapJavaSubmodule)
@@ -639,7 +674,7 @@ lazy val mqttClient = (project in file("modules/mqtt-client"))
       "org.typelevel"          %% "cats-effect"          % catsEffectVer,
       "co.fs2"                 %% "fs2-reactive-streams" % fs2Ver,
       "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0",
-      "com.hivemq"             % "hivemq-mqtt-client"    % "1.1.3"
+      "com.hivemq"             % "hivemq-mqtt-client"    % "1.2.0"
     )
   )
 
@@ -697,7 +732,7 @@ lazy val broadlinkApiSubmodule = (project in file("submodules/broadlink-java-api
     organization := "com.github.mob41.blapi",
     name := "broadlink-java-api",
     libraryDependencies ++= Seq(
-      "javax.xml.bind" % "jaxb-api"     % "2.3.0",
+      "javax.xml.bind" % "jaxb-api"     % "2.3.1",
       "org.slf4j"      % "slf4j-api"    % "1.7.22",
       "junit"          % "junit"        % "4.12" % Test,
       "org.slf4j"      % "slf4j-simple" % "1.7.22" % Test
