@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.model
 
 import cats.Eq
-import cats.data.NonEmptyList
 import cats.derived.semi
 import cats.instances.list._
 import cats.instances.int._
@@ -10,6 +9,9 @@ import cats.instances.set._
 import cats.instances.string._
 import cats.instances.boolean._
 import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.Codec
+import io.circe.generic.extras.semiauto._
+import io.circe.refined._
 
 case class Remote(
   name: NonEmptyString,
@@ -25,4 +27,5 @@ case class Remote(
 object Remote {
   implicit val eq: Eq[Remote] = semi.eq
   implicit val setEditable: SetEditable[Remote] = SetEditable((remote, editable) => remote.copy(editable = editable))
+  implicit val remoteCodec: Codec.AsObject[Remote] = deriveConfiguredCodec
 }

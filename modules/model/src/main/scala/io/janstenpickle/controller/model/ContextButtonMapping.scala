@@ -3,6 +3,9 @@ package io.janstenpickle.controller.model
 import cats.Eq
 import cats.derived.semi
 import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.Codec
+import io.circe.generic.extras.semiauto._
+import io.circe.refined._
 
 sealed trait ContextButtonMapping {
   def name: NonEmptyString
@@ -10,6 +13,7 @@ sealed trait ContextButtonMapping {
 
 object ContextButtonMapping {
   implicit val eq: Eq[ContextButtonMapping] = semi.eq
+  implicit val contextButtonMapping: Codec.AsObject[ContextButtonMapping] = deriveConfiguredCodec
 
   case class Remote(
     name: NonEmptyString,

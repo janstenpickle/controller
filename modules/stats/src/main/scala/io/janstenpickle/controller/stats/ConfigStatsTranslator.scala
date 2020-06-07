@@ -137,7 +137,7 @@ object ConfigStatsTranslator {
         case (state, ConfigEvent.MacroRemovedEvent(name, src)) =>
           val newMacros = state.macros.flatMap {
             case (source, macros) if source == src =>
-              val nm = macros.filterKeys(_ != name)
+              val nm = macros.view.filterKeys(_ != name).toMap
               if (nm.nonEmpty) List(source -> nm)
               else List.empty
             case x => List(x)

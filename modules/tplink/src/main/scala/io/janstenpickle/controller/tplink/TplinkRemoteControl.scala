@@ -24,10 +24,10 @@ object TplinkRemoteControl {
           private def commands(device: TplinkDevice.SmartBulb[F]): Map[NonEmptyString, F[Unit]] =
             (if (device.dimmable)
                Map(Commands.BrightnessUp -> device.brightnessUp, Commands.BrightnessDown -> device.brightnessDown)
-             else Map.empty) ++ (
+             else Map.empty[NonEmptyString, F[Unit]]) ++ (
               if (device.colourTemp)
                 Map(NonEmptyString("temp_up") -> device.tempUp, NonEmptyString("temp_down") -> device.tempDown)
-              else Map.empty
+              else Map.empty[NonEmptyString, F[Unit]]
             ) ++ (
               if (device.colourTemp)
                 Map(
@@ -36,7 +36,7 @@ object TplinkRemoteControl {
                   NonEmptyString("saturation_up") -> device.saturationUp,
                   NonEmptyString("saturation_down") -> device.saturationDown
                 )
-              else Map.empty
+              else Map.empty[NonEmptyString, F[Unit]]
             )
 
           def devices: F[Map[(NonEmptyString, DeviceType), TplinkDevice.SmartBulb[F]]] =

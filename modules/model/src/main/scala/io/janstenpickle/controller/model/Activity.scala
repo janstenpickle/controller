@@ -9,6 +9,9 @@ import cats.instances.option._
 import cats.instances.string._
 import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.Codec
+import io.circe.generic.extras.semiauto._
+import io.circe.refined._
 
 case class Activity(
   name: NonEmptyString,
@@ -26,4 +29,5 @@ object Activity {
   implicit val setEditable: SetEditable[Activity] = SetEditable(
     (activity, editable) => activity.copy(editable = editable)
   )
+  implicit val codec: Codec[Activity] = deriveConfiguredCodec
 }

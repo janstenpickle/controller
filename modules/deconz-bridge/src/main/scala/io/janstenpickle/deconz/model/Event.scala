@@ -2,7 +2,7 @@ package io.janstenpickle.deconz.model
 
 import cats.Eq
 import cats.instances.string._
-import io.circe.Decoder
+import io.circe.{Codec, Decoder, Encoder}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -59,6 +59,4 @@ object ButtonAction {
   }
 
   implicit val buttonEventEq: Eq[ButtonAction] = Eq.by(_.stringValue)
-
-  implicit val buttonEventDecoder: Decoder[ButtonAction] = Decoder.decodeInt.emap(fromInt)
 }

@@ -26,7 +26,9 @@ object MacroStatsTranslator {
           name,
           commands
             .groupBy(commandType)
+            .view
             .mapValues(_.size)
+            .toMap
         )
     }
 }

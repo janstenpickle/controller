@@ -9,8 +9,6 @@ import cats.syntax.either._
 import eu.timepit.refined._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.circe.instances._
-import extruder.refined._
 import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.model.RemoteCommandSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls

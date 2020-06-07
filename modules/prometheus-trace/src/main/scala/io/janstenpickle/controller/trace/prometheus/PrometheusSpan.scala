@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.trace.prometheus
 
-import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
+import java.util.concurrent.TimeUnit
 
 import cats.Applicative
 import cats.data.NonEmptyList
@@ -31,7 +31,7 @@ private[prometheus] final case class PrometheusSpan[F[_]: Sync: Clock: ContextSh
 
   override def kernel: F[Kernel] = labelsRef.get.map { labels =>
     Kernel(
-      labels.mapValues(_.value.toString).updated(ServiceNameHeader, serviceName) ++ parentService
+      labels.view.mapValues(_.value.toString).toMap.updated(ServiceNameHeader, serviceName) ++ parentService
         .map(ParentServiceNameHeader -> _)
     )
   }

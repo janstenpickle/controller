@@ -14,9 +14,9 @@ object SwitchStatsTranslator {
   private def switchesStateToStat(state: Map[SwitchKey, SwitchMetadata]): Stats.Switches =
     Stats.Switches(
       state.size,
-      state.groupBy(_._2.`type`).mapValues(_.size),
-      state.groupBy(_._2.room.getOrElse("")).mapValues(_.size),
-      state.groupBy(_._1.device).mapValues(_.size)
+      state.groupBy(_._2.`type`).view.mapValues(_.size).toMap,
+      state.groupBy(_._2.room.getOrElse("")).view.mapValues(_.size).toMap,
+      state.groupBy(_._1.device).view.mapValues(_.size).toMap
     )
 
   def apply[F[_]](switchSubscriber: EventSubscriber[F, SwitchEvent]): Stream[F, Stats] =

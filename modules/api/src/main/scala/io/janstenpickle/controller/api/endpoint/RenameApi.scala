@@ -4,8 +4,7 @@ import cats.effect.Sync
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import extruder.circe.instances._
-import extruder.refined._
+import io.circe.generic.auto._
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import natchez.Trace

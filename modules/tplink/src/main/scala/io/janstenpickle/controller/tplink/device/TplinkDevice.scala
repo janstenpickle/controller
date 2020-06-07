@@ -201,7 +201,8 @@ object TplinkDevice {
             _ <- if (current != newState)
               (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState)))
                 .handleErrorWith { th =>
-                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState, Some(th))) *> th.raiseError
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState, Some(th))) *> th
+                    .raiseError[F, Unit]
                 } else Applicative[F].unit
           } yield ()
         override def name: NonEmptyString = tplink.deviceName
@@ -383,7 +384,8 @@ object TplinkDevice {
             _ <- if (current.power != newState.power)
               (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power)))
                 .handleErrorWith { th =>
-                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power, Some(th))) *> th.raiseError
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power, Some(th))) *> th
+                    .raiseError[F, Unit]
                 } else state.set(newState)
           } yield ()
 

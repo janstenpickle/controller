@@ -4,6 +4,8 @@ import cats.Eq
 import cats.instances.map._
 import cats.instances.option._
 import cats.instances.string._
+import io.circe.Codec
+import io.circe.generic.semiauto._
 
 case class SwitchMetadata(
   room: Option[String] = None,

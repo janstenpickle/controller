@@ -21,10 +21,14 @@ import sttp.client.asynchttpclient.fs2.{AsyncHttpClientFs2Backend, Fs2WebSocketH
 
 import scala.concurrent.duration._
 import fs2.Stream
+import io.circe.Decoder
 import io.janstenpickle.controller.errors.ErrorHandler
+import io.janstenpickle.deconz.model.ButtonAction.fromInt
 
 object DeconzBridge {
   case class Config(host: NonEmptyString, port: PortNumber)
+
+  implicit val buttonEventDecoder: Decoder[ButtonAction] = Decoder.decodeInt.emap(fromInt)
 
   def apply[F[_], G[_]: ContextShift](config: Config, processor: ActionProcessor[F], blocker: Blocker)(
     implicit F: Sync[F],
