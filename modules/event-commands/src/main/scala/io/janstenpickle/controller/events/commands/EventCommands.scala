@@ -9,6 +9,7 @@ import cats.syntax.show._
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
+import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.events.EventSubscriber
@@ -29,10 +30,12 @@ object EventCommands {
     case Command.Macro(name) => s"Execute macro ${name.value}"
   }
 
-  def apply[F[_]: Concurrent](subscriber: EventSubscriber[F, CommandEvent], context: Context[F], `macro`: Macro[F])(
-    implicit timer: Timer[F],
-    errorHandler: ErrorHandler[F]
-  ): Resource[F, F[Unit]] =
+  def apply[F[_]: Concurrent](
+    subscriber: EventSubscriber[F, CommandEvent],
+    context: Context[F],
+    `macro`: Macro[F],
+    activity: Activity[F]
+  )(implicit timer: Timer[F], errorHandler: ErrorHandler[F]): Resource[F, F[Unit]] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
       def repeatStream(stream: Stream[F, Unit]): F[Unit] =
         stream.compile.drain.handleErrorWith { th =>
@@ -50,12 +53,16 @@ object EventCommands {
         .evalTap {
           case CommandEvent.ContextCommand(room, name) =>
             logger.info(s"Running context command '$name' in room '$room'")
+          case CommandEvent.ActivityCommand(room, name) =>
+            logger.info(s"Setting activity '$name' in room '$room'")
           case CommandEvent.MacroCommand(command) =>
             logger.info(command.show)
         }
         .evalMap {
           case CommandEvent.ContextCommand(room, name) =>
             handleErrors(context.action(room, name), s"Failed to execute context action $name in room $room")
+          case CommandEvent.ActivityCommand(room, name) =>
+            handleErrors(activity.setActivity(room, name), s"Failed to set activity $name in room $room")
           case CommandEvent.MacroCommand(command) =>
             handleErrors(`macro`.executeCommand(command), s"Failed to execute command ${command.show}")
         }

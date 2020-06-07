@@ -33,6 +33,7 @@ import scala.util.Try
 
 object Configuration {
   case class Config(
+    hostname: Option[NonEmptyString],
     broadlink: BroadlinkComponents.Config,
     virtualSwitch: VirtualSwitch,
     tplink: TplinkComponents.Config,
