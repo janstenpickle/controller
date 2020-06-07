@@ -18,7 +18,9 @@ object SonosActivityConfigSource {
     combinedDeviceName: NonEmptyString = NonEmptyString("sonos"),
     playPauseMappingName: NonEmptyString = Commands.PlayPause,
     nextMappingName: NonEmptyString = Commands.Next,
-    previousMappingName: NonEmptyString = Commands.Previous
+    previousMappingName: NonEmptyString = Commands.Previous,
+    volUpMappingName: NonEmptyString = Commands.VolUp,
+    volDownMappingName: NonEmptyString = Commands.VolDown,
   )
 
   def apply[F[_]: Applicative: Trace](config: Config, discovery: SonosDiscovery[F]): ConfigSource[F, String, Activity] =
@@ -44,7 +46,11 @@ object SonosActivityConfigSource {
                       ContextButtonMapping
                         .Remote(config.nextMappingName, config.remoteName, CommandSource, name, Commands.Next),
                       ContextButtonMapping
-                        .Remote(config.previousMappingName, config.remoteName, CommandSource, name, Commands.Previous)
+                        .Remote(config.previousMappingName, config.remoteName, CommandSource, name, Commands.Previous),
+                      ContextButtonMapping
+                        .Remote(config.volUpMappingName, config.remoteName, CommandSource, name, Commands.VolUp),
+                      ContextButtonMapping
+                        .Remote(config.volDownMappingName, config.remoteName, CommandSource, name, Commands.VolDown),
                     ),
                     None,
                     None,

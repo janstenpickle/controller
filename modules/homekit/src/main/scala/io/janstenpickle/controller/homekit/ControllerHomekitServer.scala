@@ -31,13 +31,13 @@ object ControllerHomekitServer {
   case class Config(
     enabled: Boolean = false,
     label: NonEmptyString = NonEmptyString("Controller"),
-    host: Option[NonEmptyString],
     port: PortNumber = PortNumber(8091),
     threadCount: Option[PosInt],
     auth: ControllerHomekitAuthInfo.Config
   )
 
   def create[F[_]: Timer: ContextShift: Trace, G[_]: Timer: Concurrent](
+    host: String,
     config: Config,
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
@@ -48,9 +48,7 @@ object ControllerHomekitServer {
     exitSignal: Signal[F, Boolean]
   )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): F[ExitCode] =
     (for {
-      address <- Resource.liftF[F, InetAddress](
-        F.delay(config.host.fold(InetAddress.getLocalHost)(InetAddress.getByName(_)))
-      )
+      address <- Resource.liftF[F, InetAddress](F.delay(InetAddress.getByName(host)))
       authInfo <- ControllerHomekitAuthInfo[F, G](configFile, config.auth, fk)
 
       server <- Resource.make[F, HomekitServer](
@@ -71,6 +69,7 @@ object ControllerHomekitServer {
       )
 
   private def streamLoop[F[_]: Concurrent: Timer: ContextShift: Trace, G[_]: Timer: Concurrent](
+    host: String,
     config: Config,
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
@@ -82,10 +81,11 @@ object ControllerHomekitServer {
     logger: Logger[F]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Stream[F, ExitCode] =
     Stream
-      .eval(create[F, G](config, configFile, switchEvents, commands, blocker, fkFuture, fk, exitSignal))
+      .eval(create[F, G](host, config, configFile, switchEvents, commands, blocker, fkFuture, fk, exitSignal))
       .handleErrorWith { th =>
         Stream.eval(logger.error(th)("Homekit failed")) >> Stream
           .sleep[F](10.seconds) >> streamLoop[F, G](
+          host,
           config,
           configFile,
           switchEvents,
@@ -108,6 +108,7 @@ object ControllerHomekitServer {
     })))
 
   def stream[F[_]: Concurrent: Timer: ContextShift: Trace, G[_]: Concurrent: Timer](
+    host: String,
     config: Config,
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
@@ -122,6 +123,7 @@ object ControllerHomekitServer {
             blocker <- Stream.resource(makeBlocker[F])
             logger <- Stream.eval(Slf4jLogger.create[F])
             exitCode <- streamLoop[F, G](
+              host,
               config,
               configFile,
               switchEvents,

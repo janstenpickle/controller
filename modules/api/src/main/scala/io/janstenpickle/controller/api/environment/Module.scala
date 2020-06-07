@@ -1,5 +1,6 @@
 package io.janstenpickle.controller.api.environment
 
+import java.net.InetAddress
 import java.util.concurrent.{Executors, ThreadFactory}
 
 import cats.data.{EitherT, Kleisli, OptionT, Reader}
@@ -11,6 +12,8 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.semigroup._
 import cats.{~>, Applicative, ApplicativeError, Id, MonadError, Parallel}
+import eu.timepit.refined.types.net.PortNumber
+import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
@@ -19,6 +22,7 @@ import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
+import io.janstenpickle.controller.advertiser.Advertiser
 import io.janstenpickle.controller.api.config.Configuration
 import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.error.{ControlError, ErrorInterpreter, Handler}
@@ -62,6 +66,12 @@ import scala.concurrent.Future
 
 object Module {
   type Homekit[F[_]] = Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]]
+
+  def hostname[F[_]: Sync](config: Option[NonEmptyString]): F[String] =
+    config
+      .map(_.value)
+      .orElse(Option(System.getenv("HOSTNAME")).filter(_.nonEmpty))
+      .fold(Sync[F].delay(InetAddress.getLocalHost.getHostName))(host => Applicative[F].pure(host))
 
   def configOrError[F[_]](
     result: F[Either[ValidationErrors, Configuration.Config]]
@@ -384,10 +394,14 @@ object Module {
 
       context = Context[F](activity, mac, components.remotes, switches, combinedActivityConfig)
 
-      _ <- EventCommands(events.command.subscriberStream, context, mac)
+      _ <- EventCommands(events.command.subscriberStream, context, mac, activity)
 
       actionProcessor <- Resource.liftF(CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
+
+      host <- Resource.liftF(hostname[F](config.hostname))
+
+      _ <- Advertiser[F](host, config.server.port)
     } yield {
       val router =
         Router(
@@ -396,6 +410,7 @@ object Module {
           "/control/macro" -> new MacroApi[F](mac).routes,
           "/control/activity" -> new ActivityApi[F](activity, combinedActivityConfig).routes,
           "/control/context" -> new ContextApi[F](context).routes,
+          "/command" -> new CommandWs[F, G](events.command.publisher.mapK(liftLower.lower, liftLower.lift)).routes,
           "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,
           "/discovery" -> new RenameApi[F](components.rename).routes,
           "/schedule" -> new ScheduleApi[F](components.scheduler |+| cronScheduler).routes,
@@ -404,7 +419,13 @@ object Module {
         )
 
       val homekit = ControllerHomekitServer
-        .stream[F, G](config.homekit, homekitConfigFileSource, homeKitSwitchEventSubscriber, events.command.publisher)
+        .stream[F, G](
+          host,
+          config.homekit,
+          homekitConfigFileSource,
+          homeKitSwitchEventSubscriber,
+          events.command.publisher
+        )
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
             (

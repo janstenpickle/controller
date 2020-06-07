@@ -8,6 +8,7 @@ val extruderVer = "0.11.0"
 val fs2Ver = "2.2.2"
 val http4sVer = "0.21.0"
 val kittensVer = "2.0.0"
+val jmdnsVer = "3.5.5"
 val log4catsVer = "1.0.1"
 val natchezVer = "0.0.10"
 val prometheusVer = "0.8.0"
@@ -74,6 +75,7 @@ lazy val root = (project in file("."))
   .settings(commonSettings)
   .settings(name := "controller")
   .aggregate(
+    advertiser,
     api,
     model,
     errors,
@@ -145,6 +147,7 @@ lazy val api = (project in file("modules/api"))
     }
   )
   .dependsOn(
+    advertiser,
     arrow,
     tplink,
     broadlink,
@@ -172,6 +175,20 @@ lazy val api = (project in file("modules/api"))
     deconzBridge
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
+
+lazy val advertiser = (project in file("modules/advertiser"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-advertiser",
+    libraryDependencies ++= Seq(
+      "co.fs2"            %% "fs2-core"       % fs2Ver,
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "org.typelevel"     %% "cats-core"      % catsVer,
+      "org.typelevel"     %% "cats-effect"    % catsEffectVer,
+      "eu.timepit"        %% "refined"        % refinedVer,
+      "org.jmdns"         % "jmdns"           % jmdnsVer
+    )
+  )
 
 lazy val model = (project in file("modules/model"))
   .settings(commonSettings)
@@ -567,7 +584,7 @@ lazy val kodi = (project in file("modules/kodi"))
       "org.http4s"        %% "http4s-client"  % http4sVer,
       "org.http4s"        %% "http4s-circe"   % http4sVer,
       "io.circe"          %% "circe-generic"  % circeVer,
-      "org.jmdns"         % "jmdns"           % "3.5.5"
+      "org.jmdns"         % "jmdns"           % jmdnsVer
     )
   )
   .dependsOn(
@@ -701,7 +718,7 @@ lazy val hapJavaSubmodule = (project in file("submodules/HAP-Java"))
       "org.zeromq"       % "curve25519-java" % "0.1.0",
       "javax.json"       % "javax.json-api"  % "1.0",
       "org.glassfish"    % "javax.json"      % "1.0.4",
-      "org.jmdns"        % "jmdns"           % "3.5.5",
+      "org.jmdns"        % "jmdns"           % jmdnsVer,
       "commons-io"       % "commons-io"      % "2.6",
       "junit"            % "junit"           % "4.12" % Test,
       "org.mockito"      % "mockito-all"     % "1.10.19" % Test
