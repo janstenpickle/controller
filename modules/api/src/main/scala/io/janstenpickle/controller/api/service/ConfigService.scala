@@ -10,6 +10,8 @@ import cats.{MonadError, Parallel, Traverse}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.janstenpickle.controller.`macro`.store.MacroStore
+import io.janstenpickle.controller.activity.store.ActivityStore
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
 import io.janstenpickle.controller.events.EventPublisher
@@ -23,7 +25,6 @@ import io.janstenpickle.controller.model.Button.{
 }
 import io.janstenpickle.controller.model.event.ConfigEvent
 import io.janstenpickle.controller.model.{SwitchKey, _}
-import io.janstenpickle.controller.store.{ActivityStore, MacroStore}
 import io.janstenpickle.controller.switch.Switches
 import natchez.Trace
 

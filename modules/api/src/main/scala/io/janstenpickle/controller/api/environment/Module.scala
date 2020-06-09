@@ -21,6 +21,8 @@ import fs2.Stream
 import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
+import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
+import io.janstenpickle.controller.activity.store.{ActivityStore, TracedActivityStore}
 import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
 import io.janstenpickle.controller.advertiser.Advertiser
 import io.janstenpickle.controller.api.config.Configuration
@@ -40,22 +42,18 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.multiswitch.{MultiSwitchEventListenter, MultiSwitchProvider}
+import io.janstenpickle.controller.remote.store.{RemoteCommandStore, TracedRemoteCommandStore}
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.schedule.cron.CronScheduler
 import io.janstenpickle.controller.stats.StatsTranslator
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
-import io.janstenpickle.controller.store.trace.{
-  TracedActivityStore,
-  TracedMacroStore,
-  TracedRemoteCommandStore,
-  TracedSwitchStateStore
-}
-import io.janstenpickle.controller.store.{ActivityStore, MacroStore, RemoteCommandStore, SwitchStateStore}
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
+import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitchStateStore}
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.deconz.DeconzBridge
 import io.janstenpickle.deconz.action.CommandEventProcessor
+import io.janstenpickle.controller.`macro`.store.TracedMacroStore
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._

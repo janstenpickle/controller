@@ -82,7 +82,6 @@ lazy val root = (project in file("."))
     eventCommands,
     remote,
     broadlink,
-    store,
     remoteControl,
     circeConfigSource,
     `macro`,
@@ -190,15 +189,20 @@ lazy val api = (project in file("modules/api"))
     tplink,
     broadlink,
     eventCommands,
-    tracedStore,
     remoteControl,
+    remoteConfig,
+    remoteStore,
     circeConfigSource,
     gitRemoteStore,
     `macro`,
+    macroConfig,
     context,
     activity,
+    activityConfig,
     sonos,
     kodi,
+    switchStore,
+    switchConfig,
     virtualSwitch,
     multiSwitch,
     stats,
@@ -212,7 +216,8 @@ lazy val api = (project in file("modules/api"))
     cronScheduler,
     deconzBridge,
     eventDrivenSwitches,
-    websocketEvents
+    websocketEvents,
+    discoveryConfig
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
 
@@ -253,7 +258,7 @@ lazy val components = (project in file("modules/components"))
   .settings(name := "controller-components")
   .dependsOn(model, configSource, remoteControl, schedule, switch, dynamicDiscovery)
 
-lazy val configSource = (project in file("modules/config-source"))
+lazy val configSource = (project in file("modules/config/config-source"))
   .settings(commonSettings)
   .settings(
     name := "controller-config-source",
@@ -261,7 +266,7 @@ lazy val configSource = (project in file("modules/config-source"))
   )
   .dependsOn(model)
 
-lazy val tracedConfigSource = (project in file("modules/trace-config-source"))
+lazy val tracedConfigSource = (project in file("modules/config/trace-config-source"))
   .settings(commonSettings)
   .settings(
     name := "controller-trace-config-source",
@@ -284,7 +289,7 @@ lazy val extruder = (project in file("modules/extruder"))
   )
   .dependsOn(poller)
 
-lazy val circeConfigSource = (project in file("modules/circe-config-source"))
+lazy val circeConfigSource = (project in file("modules/config/circe-config-source"))
   .settings(commonSettings)
   .settings(
     name := "controller-circe-config-source",
@@ -295,17 +300,30 @@ lazy val circeConfigSource = (project in file("modules/circe-config-source"))
   )
   .dependsOn(configSource, events, extruder, schedule, tracedConfigSource)
 
-lazy val remote = (project in file("modules/remote"))
+lazy val remote = (project in file("modules/remote/remote"))
   .settings(commonSettings)
   .settings(name := "controller-remote")
   .dependsOn(model, errors)
+
+lazy val remoteStore = (project in file("modules/remote/remote-store"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-remote-store",
+    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(model, configSource)
+
+lazy val remoteConfig = (project in file("modules/remote/remote-config"))
+  .settings(commonSettings)
+  .settings(name := "controller-remote-config", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(model, configSource, circeConfigSource)
 
 lazy val arrow = (project in file("modules/arrow"))
   .settings(commonSettings)
   .settings(name := "controller-arrow", libraryDependencies ++= Seq("org.typelevel" %% "cats-core" % catsVer))
   .dependsOn(model)
 
-lazy val events = (project in file("modules/events"))
+lazy val events = (project in file("modules/events/events"))
   .settings(commonSettings)
   .settings(
     name := "controller-events",
@@ -317,7 +335,7 @@ lazy val events = (project in file("modules/events"))
   )
   .dependsOn(model, errors)
 
-lazy val tracedRemote = (project in file("modules/trace-remote"))
+lazy val tracedRemote = (project in file("modules/remote/trace-remote"))
   .settings(commonSettings)
   .settings(
     name := "controller-trace-remote",
@@ -325,10 +343,10 @@ lazy val tracedRemote = (project in file("modules/trace-remote"))
   )
   .dependsOn(remote)
 
-lazy val broadlink = (project in file("modules/broadlink"))
+lazy val broadlink = (project in file("modules/plugins/broadlink"))
   .settings(commonSettings)
   .settings(
-    name := "controller-broadlink",
+    name := "controller-plugin-broadlink",
     libraryDependencies ++= Seq(
       "javax.xml.bind" % "jaxb-api"     % "2.3.0",
       "eu.timepit"     %% "refined"     % refinedVer,
@@ -341,6 +359,7 @@ lazy val broadlink = (project in file("modules/broadlink"))
     components,
     remote,
     tracedRemote,
+    switchStore,
     switch,
     eventsSwitch,
     tracedSwitch,
@@ -349,7 +368,7 @@ lazy val broadlink = (project in file("modules/broadlink"))
     dynamicDiscovery
   )
 
-lazy val switch = (project in file("modules/switch"))
+lazy val switch = (project in file("modules/switch/switch"))
   .settings(commonSettings)
   .settings(
     name := "controller-switch",
@@ -362,15 +381,28 @@ lazy val switch = (project in file("modules/switch"))
   )
   .dependsOn(model, errors)
 
-lazy val pollingSwitch = (project in file("modules/polling-switch"))
+lazy val switchStore = (project in file("modules/switch/switch-store"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-switch-store",
+    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(model, configSource)
+
+lazy val switchConfig = (project in file("modules/switch/switch-config"))
+  .settings(commonSettings)
+  .settings(name := "controller-switch-config", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(model, configSource, circeConfigSource)
+
+lazy val pollingSwitch = (project in file("modules/switch/polling-switch"))
   .settings(commonSettings)
   .settings(name := "controller-polling-switch")
   .dependsOn(switch, poller)
 
-lazy val tplink = (project in file("modules/tplink"))
+lazy val tplink = (project in file("modules/plugins/tplink"))
   .settings(commonSettings)
   .settings(
-    name := "controller-tplink",
+    name := "controller-plugin-tplink",
     libraryDependencies ++= Seq(
       "io.circe"      %% "circe-core"   % circeVer,
       "io.circe"      %% "circe-parser" % circeVer,
@@ -390,12 +422,12 @@ lazy val tplink = (project in file("modules/tplink"))
     tracedRemote
   )
 
-lazy val virtualSwitch = (project in file("modules/virtual-switch"))
+lazy val virtualSwitch = (project in file("modules/switch/virtual-switch"))
   .settings(commonSettings)
   .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(store, configSource, pollingSwitch, tracedSwitch, eventsSwitch, remoteControl)
+  .dependsOn(switchStore, switchConfig, pollingSwitch, tracedSwitch, eventsSwitch, remoteControl)
 
-lazy val multiSwitch = (project in file("modules/multi-switch"))
+lazy val multiSwitch = (project in file("modules/switch/multi-switch"))
   .settings(commonSettings)
   .settings(
     name := "controller-multi-switch",
@@ -404,7 +436,7 @@ lazy val multiSwitch = (project in file("modules/multi-switch"))
       "eu.timepit"    %% "refined"     % refinedVer
     )
   )
-  .dependsOn(configSource, switch, tracedSwitch, eventsSwitch)
+  .dependsOn(switchConfig, switch, tracedSwitch, eventsSwitch)
 
 lazy val deconzBridge = (project in file("modules/deconz-bridge"))
   .settings(commonSettings)
@@ -423,7 +455,7 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
   )
   .dependsOn(arrow, events, model, circeConfigSource)
 
-lazy val tracedSwitch = (project in file("modules/trace-switch"))
+lazy val tracedSwitch = (project in file("modules/switch/trace-switch"))
   .settings(commonSettings)
   .settings(
     name := "controller-trace-switch",
@@ -431,7 +463,7 @@ lazy val tracedSwitch = (project in file("modules/trace-switch"))
   )
   .dependsOn(switch)
 
-lazy val eventsSwitch = (project in file("modules/events-switch"))
+lazy val eventsSwitch = (project in file("modules/switch/events-switch"))
   .settings(commonSettings)
   .settings(name := "controller-events-switch")
   .dependsOn(events, switch)
@@ -461,20 +493,7 @@ lazy val schedule = (project in file("modules/schedule"))
   )
   .dependsOn(model)
 
-lazy val store = (project in file("modules/store"))
-  .settings(commonSettings)
-  .settings(name := "controller-store", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
-  .dependsOn(model, configSource)
-
-lazy val tracedStore = (project in file("modules/trace-store"))
-  .settings(commonSettings)
-  .settings(
-    name := "controller-trace-store",
-    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
-  )
-  .dependsOn(store)
-
-lazy val remoteControl = (project in file("modules/remote-control"))
+lazy val remoteControl = (project in file("modules/remote/remote-control"))
   .settings(commonSettings)
   .settings(
     name := "controller-remote-control",
@@ -484,9 +503,9 @@ lazy val remoteControl = (project in file("modules/remote-control"))
       "org.tpolecat"  %% "natchez-core" % natchezVer
     )
   )
-  .dependsOn(events, remote, store)
+  .dependsOn(events, remote, remoteStore)
 
-lazy val `macro` = (project in file("modules/macro"))
+lazy val `macro` = (project in file("modules/macro/macro"))
   .settings(commonSettings)
   .settings(
     name := "controller-macro",
@@ -495,14 +514,27 @@ lazy val `macro` = (project in file("modules/macro"))
       "org.tpolecat"  %% "natchez-core" % natchezVer
     )
   )
-  .dependsOn(remoteControl, switch, store, configSource, errors)
+  .dependsOn(remoteControl, switch, macroStore, configSource, errors)
+
+lazy val macroConfig = (project in file("modules/macro/macro-config"))
+  .settings(commonSettings)
+  .settings(name := "controller-macro-config", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(model, configSource, circeConfigSource)
+
+lazy val macroStore = (project in file("modules/macro/macro-store"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-macro-store",
+    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(model, configSource)
 
 lazy val context = (project in file("modules/context"))
   .settings(commonSettings)
   .settings(name := "controller-context")
   .dependsOn(activity, `macro`)
 
-lazy val eventCommands = (project in file("modules/event-commands"))
+lazy val eventCommands = (project in file("modules/events/event-commands"))
   .settings(commonSettings)
   .settings(
     name := "controller-event-commands",
@@ -510,10 +542,23 @@ lazy val eventCommands = (project in file("modules/event-commands"))
   )
   .dependsOn(context, events, dynamicDiscovery)
 
-lazy val activity = (project in file("modules/activity"))
+lazy val activity = (project in file("modules/activity/activity"))
   .settings(commonSettings)
   .settings(name := "controller-activity", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
-  .dependsOn(`macro`, tracedSwitch, eventsSwitch)
+  .dependsOn(`macro`, tracedSwitch, eventsSwitch, activityStore)
+
+lazy val activityConfig = (project in file("modules/activity/activity-config"))
+  .settings(commonSettings)
+  .settings(name := "controller-activity-config", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(model, configSource, circeConfigSource)
+
+lazy val activityStore = (project in file("modules/activity/activity-store"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-activity-store",
+    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(model, configSource)
 
 lazy val poller = (project in file("modules/poller"))
   .settings(commonSettings)
@@ -530,7 +575,7 @@ lazy val poller = (project in file("modules/poller"))
   )
   .dependsOn(arrow)
 
-lazy val stats = (project in file("modules/stats"))
+lazy val stats = (project in file("modules/stats/stats"))
   .settings(commonSettings)
   .settings(
     name := "controller-stats",
@@ -543,7 +588,7 @@ lazy val stats = (project in file("modules/stats"))
   )
   .dependsOn(remoteControl, activity, `macro`, switch, configSource, schedule)
 
-lazy val prometheusStats = (project in file("modules/prometheus-stats"))
+lazy val prometheusStats = (project in file("modules/stats/prometheus-stats"))
   .settings(commonSettings)
   .settings(
     name := "controller-prometheus-stats",
@@ -556,7 +601,7 @@ lazy val prometheusStats = (project in file("modules/prometheus-stats"))
   )
   .dependsOn(stats)
 
-lazy val prometheusTrace = (project in file("modules/prometheus-trace"))
+lazy val prometheusTrace = (project in file("modules/trace/prometheus-trace"))
   .settings(commonSettings)
   .settings(
     name := "controller-prometheus-trace",
@@ -579,7 +624,7 @@ lazy val cache = (project in file("modules/cache"))
     )
   )
 
-lazy val gitRemoteStore = (project in file("modules/git-remote-command-store"))
+lazy val gitRemoteStore = (project in file("modules/remote/git-remote-command-store"))
   .settings(commonSettings)
   .settings(
     name := "controller-git-remote-command-store",
@@ -596,12 +641,12 @@ lazy val gitRemoteStore = (project in file("modules/git-remote-command-store"))
       "eu.timepit"        %% "refined-cats"   % refinedVer
     )
   )
-  .dependsOn(poller, store)
+  .dependsOn(poller, remoteStore)
 
-lazy val sonos = (project in file("modules/sonos"))
+lazy val sonos = (project in file("modules/plugins/sonos"))
   .settings(commonSettings)
   .settings(
-    name := "controller-sonos",
+    name := "controller-plugin-sonos",
     libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
   )
   .dependsOn(
@@ -618,10 +663,10 @@ lazy val sonos = (project in file("modules/sonos"))
     dynamicDiscovery
   )
 
-lazy val kodi = (project in file("modules/kodi"))
+lazy val kodi = (project in file("modules/plugins/kodi"))
   .settings(commonSettings)
   .settings(
-    name := "controller-kodi",
+    name := "controller-plugin-kodi",
     libraryDependencies ++= Seq(
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
       "org.http4s"        %% "http4s-dsl"     % http4sVer,
@@ -645,7 +690,7 @@ lazy val kodi = (project in file("modules/kodi"))
     dynamicDiscovery
   )
 
-lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
+lazy val dynamicDiscovery = (project in file("modules/discovery/dynamic-discovery"))
   .settings(commonSettings)
   .settings(
     name := "controller-dynamic-discovery",
@@ -653,7 +698,12 @@ lazy val dynamicDiscovery = (project in file("modules/dynamic-discovery"))
   )
   .dependsOn(events, poller)
 
-lazy val trace = (project in file("modules/trace"))
+lazy val discoveryConfig = (project in file("modules/discovery/discovery-config"))
+  .settings(commonSettings)
+  .settings(name := "controller-discovery-config", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
+  .dependsOn(model, configSource, circeConfigSource)
+
+lazy val trace = (project in file("modules/trace/trace"))
   .settings(commonSettings)
   .settings(name := "controller-trace", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
 
@@ -675,7 +725,7 @@ lazy val homekit = (project in file("modules/homekit"))
   )
   .dependsOn(events, extruder, poller, switch, hapJavaSubmodule)
 
-lazy val mqttClient = (project in file("modules/mqtt-client"))
+lazy val mqttClient = (project in file("modules/events/mqtt-client"))
   .settings(commonSettings)
   .settings(
     name := "controller-mqtt-client",
@@ -687,7 +737,7 @@ lazy val mqttClient = (project in file("modules/mqtt-client"))
     )
   )
 
-lazy val mqttEvents = (project in file("modules/mqtt-events"))
+lazy val mqttEvents = (project in file("modules/events/mqtt-events"))
   .settings(commonSettings)
   .settings(
     name := "controller-mqtt-events",
@@ -700,7 +750,7 @@ lazy val mqttEvents = (project in file("modules/mqtt-events"))
   )
   .dependsOn(events, mqttClient, model)
 
-lazy val websocketEvents = (project in file("modules/websocket-events"))
+lazy val websocketEvents = (project in file("modules/events/websocket-events"))
   .settings(commonSettings)
   .settings(
     name := "controller-websocket-events",
@@ -714,7 +764,7 @@ lazy val websocketEvents = (project in file("modules/websocket-events"))
   )
   .dependsOn(arrow, events, model)
 
-lazy val eventDrivenSwitches = (project in file("modules/event-driven-switches"))
+lazy val eventDrivenSwitches = (project in file("modules/switch/event-driven-switches"))
   .settings(commonSettings)
   .settings(
     name := "controller-event-driven-switches",
@@ -722,12 +772,12 @@ lazy val eventDrivenSwitches = (project in file("modules/event-driven-switches")
   )
   .dependsOn(events, model, switch, tracedSwitch)
 
-lazy val eventDrivenRemoteControls = (project in file("modules/event-driven-remote-controls"))
+lazy val eventDrivenRemoteControls = (project in file("modules/remote/event-driven-remote-controls"))
   .settings(commonSettings)
   .settings(name := "controller-event-driven-remote-controls")
   .dependsOn(events, model, remoteControl)
 
-lazy val eventDrivenActivity = (project in file("modules/event-driven-activity"))
+lazy val eventDrivenActivity = (project in file("modules/activity/event-driven-activity"))
   .settings(commonSettings)
   .settings(
     name := "controller-event-driven-activity",
@@ -735,7 +785,7 @@ lazy val eventDrivenActivity = (project in file("modules/event-driven-activity")
   )
   .dependsOn(events, model, activity)
 
-lazy val eventDrivenDeviceRename = (project in file("modules/event-driven-device-rename"))
+lazy val eventDrivenDeviceRename = (project in file("modules/discovery/event-driven-device-rename"))
   .settings(commonSettings)
   .settings(
     name := "controller-event-driven-device-rename",
@@ -743,7 +793,7 @@ lazy val eventDrivenDeviceRename = (project in file("modules/event-driven-device
   )
   .dependsOn(events, model, dynamicDiscovery)
 
-lazy val kafkaEvents = (project in file("modules/kafka-events"))
+lazy val kafkaEvents = (project in file("modules/events/kafka-events"))
   .settings(commonSettings)
   .settings(
     name := "controller-kafka-events",

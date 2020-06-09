@@ -4,10 +4,13 @@ import cats.data.NonEmptyList
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.{Applicative, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
+import io.janstenpickle.controller.`macro`.config.CirceMacroConfigSource
+import io.janstenpickle.controller.activity.config.{CirceActivityConfigSource, CirceCurrentActivityConfigSource}
 import io.janstenpickle.controller.api.config.Configuration.ConfigData
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe._
+import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, ConfigEvent, DeviceDiscoveryEvent, SwitchEvent}
@@ -26,9 +29,15 @@ import io.janstenpickle.controller.model.{
   State,
   VirtualSwitch
 }
+import io.janstenpickle.controller.remote.config.{CirceRemoteCommandConfigSource, CirceRemoteConfigSource}
 import io.janstenpickle.controller.schedule.cron.CirceScheduleConfigSource
 import io.janstenpickle.controller.schedule.model.Schedule
 import io.janstenpickle.deconz.config.{ActionMapping, CirceButtonMappingConfigSource}
+import io.janstenpickle.switches.config.{
+  CirceMultiSwitchConfigSource,
+  CirceSwitchStateConfigSource,
+  CirceVirtualSwitchConfigSource
+}
 import natchez.Trace
 
 object ConfigSources {
