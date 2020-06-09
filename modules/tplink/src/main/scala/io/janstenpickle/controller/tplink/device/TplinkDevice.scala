@@ -201,7 +201,7 @@ object TplinkDevice {
             _ <- if (current != newState)
               (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState)))
                 .handleErrorWith { th =>
-                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState, Some(th))) *> th
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState, Some(th.getMessage))) *> th
                     .raiseError[F, Unit]
                 } else Applicative[F].unit
           } yield ()
@@ -384,7 +384,7 @@ object TplinkDevice {
             _ <- if (current.power != newState.power)
               (state.set(newState) *> eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power)))
                 .handleErrorWith { th =>
-                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power, Some(th))) *> th
+                  eventPublisher.publish1(SwitchStateUpdateEvent(switchKey, newState.power, Some(th.getMessage))) *> th
                     .raiseError[F, Unit]
                 } else state.set(newState)
           } yield ()

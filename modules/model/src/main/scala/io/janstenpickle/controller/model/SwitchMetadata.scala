@@ -33,4 +33,6 @@ object SwitchMetadata {
   }
 
   implicit val eq: Eq[SwitchMetadata] = cats.derived.semi.eq
+
+  implicit val switchMetadataCodec: Codec[SwitchMetadata] = deriveCodec
 }

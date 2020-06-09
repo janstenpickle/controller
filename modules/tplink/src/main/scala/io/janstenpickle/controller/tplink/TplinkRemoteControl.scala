@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.tplink
 
-import cats.{Apply, FlatMap}
+import cats.{Apply, FlatMap, Monad}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
@@ -13,11 +13,11 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
 
 object TplinkRemoteControl {
-  def apply[F[_]: FlatMap](
+  def apply[F[_]: Monad](
     remote: NonEmptyString,
     discovery: TplinkDiscovery[F],
     eventPublisher: EventPublisher[F, RemoteEvent]
-  )(implicit trace: Trace[F], errors: RemoteControlErrors[F]): RemoteControl[F] =
+  )(implicit trace: Trace[F], errors: RemoteControlErrors[F]): F[RemoteControl[F]] =
     RemoteControl
       .evented(
         RemoteControl.traced(new RemoteControl[F] {

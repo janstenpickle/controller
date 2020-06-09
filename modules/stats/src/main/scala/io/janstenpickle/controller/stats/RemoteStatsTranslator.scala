@@ -17,7 +17,7 @@ object RemoteStatsTranslator {
           (newState, Stats.RemoteDevices(newState.size))
         case (state, RemoteSendCommandEvent(command)) =>
           (state, Stats.SendRemoteCommand(command.remote, command.source, command.device, command.name))
-        case (state, RemoteLearnCommand(remoteName, remoteDevice, command)) =>
+        case (state, RemoteLearntCommand(remoteName, remoteDevice, _, command)) =>
           (state, Stats.LearnRemoteCommand(remoteName, remoteDevice, command))
       }
       .map(_._2)

@@ -79,10 +79,10 @@ object KodiComponents {
             )
             .map(_ |+| staticDiscovery)
         else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)
-
+        remote <- Resource.liftF(KodiRemoteControl(discovery, remoteEventPublisher))
       } yield
         Components[F](
-          KodiRemoteControl(discovery, remoteEventPublisher),
+          remote,
           KodiSwitchProvider(config.switchDevice, discovery, switchEventPublisher.narrow),
           rename =
             if (config.dynamicDiscovery) KodiDeviceRename[F](discovery, discoveryNameMapping, discoveryEventPublisher)

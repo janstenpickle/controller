@@ -9,15 +9,17 @@ import cats.syntax.parallel._
 import cats.syntax.traverse._
 import cats.{Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn, ToggleSwitch}
+import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn}
 import io.janstenpickle.controller.model.{Command, State}
-import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.schedule.model.Schedule
+import io.janstenpickle.controller.schedule.{NamedScheduler, Scheduler}
 import io.janstenpickle.controller.tplink.device.TplinkDevice
 import io.janstenpickle.controller.tplink.{DeviceType, TplinkDiscovery}
 
 object TplinkScheduler {
-  def apply[F[_]: Parallel](discovery: TplinkDiscovery[F])(implicit F: Monad[F]): Scheduler[F] = new Scheduler[F] {
+  def apply[F[_]: Parallel](discovery: TplinkDiscovery[F])(implicit F: Monad[F]): Scheduler[F] = new NamedScheduler[F] {
+    override val name: String = "tplink"
+
     private def devices =
       discovery.devices.map(_.devices.toList.collect {
         case ((_, DeviceType.SmartPlug(_)), dev: TplinkDevice.SmartPlug[F]) => dev
@@ -63,6 +65,7 @@ object TplinkScheduler {
         case (device, name, time, State.Off) => Schedule(time, NonEmptyList.of(Command.SwitchOff(device, name)))
       }))
 
-    override def list: F[List[String]] = devices.flatMap(_.parFlatTraverse(_.listSchedules))
+    override def list: F[Set[(String, String)]] =
+      devices.flatMap(_.parFlatTraverse(_.listSchedules)).map(_.map(name -> _).toSet)
   }
 }

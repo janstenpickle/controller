@@ -44,7 +44,7 @@ object Configuration {
     activity: Activity,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
     homekit: ControllerHomekitServer.Config,
-    deconz: Option[DeconzBridge.Config],
+    deconz: Option[DeconzBridge.DeconzApiConfig],
     mqtt: Mqtt,
     kafka: Option[KafkaPubSub.Config]
   )

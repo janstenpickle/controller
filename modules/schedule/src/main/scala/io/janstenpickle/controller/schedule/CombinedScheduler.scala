@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.schedule
 
-import cats.instances.list._
+import alleycats.std.set._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.{Monad, Parallel}
@@ -23,7 +23,7 @@ object CombinedScheduler {
 
       override def create(schedule: Schedule): F[Option[String]] = fallback(_.create(schedule))
       override def update(id: String, schedule: Schedule): F[Option[Unit]] = fallback(_.update(id, schedule))
-      override def list: F[List[String]] = (List(first, second) ++ others).parFlatTraverse(_.list)
+      override def list: F[Set[(String, String)]] = (Set(first, second) ++ others).parFlatTraverse(_.list)
       override def delete(id: String): F[Option[Unit]] = fallback(_.delete(id))
       override def info(id: String): F[Option[Schedule]] = fallback(_.info(id))
     }

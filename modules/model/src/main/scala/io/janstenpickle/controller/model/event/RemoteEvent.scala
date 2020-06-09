@@ -1,7 +1,10 @@
 package io.janstenpickle.controller.model.event
 
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.model.RemoteCommand
+import io.circe.Codec
+import io.circe.generic.extras.semiauto._
+import io.circe.refined._
+import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 
 sealed trait RemoteEvent
 
@@ -12,11 +15,18 @@ object RemoteEvent {
 
   case class RemoteSendCommandEvent(command: RemoteCommand) extends RemoteEvent
 
-  case class RemoteLearnCommand(remoteName: NonEmptyString, remoteDevice: NonEmptyString, command: NonEmptyString)
-      extends RemoteEvent
+  case class RemoteLearntCommand(
+    remoteName: NonEmptyString,
+    remoteDevice: NonEmptyString,
+    commandSource: Option[RemoteCommandSource],
+    command: NonEmptyString
+  ) extends RemoteEvent
 
   implicit val toOption: ToOption[RemoteEvent] = ToOption.instance {
     case _: RemoteRemovedEvent => None
     case e: Any => Some(e)
   }
+
+  implicit val remoteEventCodec: Codec[RemoteEvent] = deriveConfiguredCodec
+
 }

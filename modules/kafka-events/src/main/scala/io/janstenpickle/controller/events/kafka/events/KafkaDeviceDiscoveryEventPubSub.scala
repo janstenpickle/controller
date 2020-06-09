@@ -26,7 +26,7 @@ object KafkaDeviceDiscoveryEventPubSub {
 
   def deviceDiscoveryEventSerializer[F[_]: Sync]: Serializer[F, DeviceDiscoveryEvent] = jsonSerializer.contramap {
     case DeviceDiscovered(key, _) => DeviceRemoved(key).asJson
-    case e @ UnmappedDiscovered(_) => e.asJson
+    case e @ UnmappedDiscovered(_, _) => e.asJson
     case DeviceRename(key, _) => DeviceRemoved(key).asJson
     case e @ DeviceRemoved(_) => e.asJson
   }

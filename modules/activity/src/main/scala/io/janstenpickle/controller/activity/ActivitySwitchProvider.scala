@@ -20,6 +20,8 @@ import natchez.Trace
 object ActivitySwitchProvider {
   private final val switchDevice = NonEmptyString("activity")
 
+  // TODO publish switch events
+
   def apply[F[_]: MonadError[*[_], Throwable]: Parallel: Clock: Trace](
     underlying: Activity[F],
     config: ConfigSource[F, String, ActivityModel],

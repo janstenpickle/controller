@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.kodi
 
-import cats.Monad
+import cats.{Monad, Parallel}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -18,7 +18,7 @@ object KodiRemoteControl {
   def apply[F[_]: Trace](
     discovery: KodiDiscovery[F],
     eventPublisher: EventPublisher[F, RemoteEvent]
-  )(implicit F: Monad[F], errors: RemoteControlErrors[F]): RemoteControl[F] =
+  )(implicit F: Monad[F], errors: RemoteControlErrors[F]): F[RemoteControl[F]] =
     RemoteControl.evented(
       RemoteControl
         .traced(

@@ -16,7 +16,7 @@ object EventingSwitch {
     publisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): Switch[F] =
     new Switch[F] {
-      private def publishState(state: State, error: Option[Throwable] = None) =
+      private def publishState(state: State, error: Option[String] = None) =
         publisher.publish1(SwitchStateUpdateEvent(SwitchKey(device, name), state, error))
 
       override def name: NonEmptyString = underlying.name
@@ -28,11 +28,11 @@ object EventingSwitch {
       override def getState: F[State] = underlying.getState
 
       override def switchOn: F[Unit] = (underlying.switchOn *> publishState(State.On)).handleErrorWith { th =>
-        publishState(State.On, Some(th)) *> th.raiseError
+        publishState(State.On, Some(th.getMessage)) *> th.raiseError
       }
 
       override def switchOff: F[Unit] = (underlying.switchOff *> publishState(State.Off)).handleErrorWith { th =>
-        publishState(State.Off, Some(th)) *> th.raiseError
+        publishState(State.Off, Some(th.getMessage)) *> th.raiseError
       }
     }
 }

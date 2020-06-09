@@ -61,8 +61,10 @@ object SonosComponents {
             configEventPublisher,
             discoveryEventPublisher
           )
+        remote <- Resource.liftF(
+          SonosRemoteControl[F](config.remote, config.combinedDevice, discovery, remoteEventPublisher)
+        )
       } yield {
-        val remote = SonosRemoteControl[F](config.remote, config.combinedDevice, discovery, remoteEventPublisher)
         val activityConfig = SonosActivityConfigSource[F](config.activity, discovery)
         val remoteConfig =
           SonosRemoteConfigSource[F](config.remote, config.activity.name, config.allRooms, discovery, remotesCache)

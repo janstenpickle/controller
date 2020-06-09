@@ -1,9 +1,11 @@
 package io.janstenpickle.controller.remotecontrol
 
+import cats.instances.list._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.{Applicative, Apply, FlatMap, MonadError}
+import cats.syntax.traverse._
+import cats.{Applicative, Apply, FlatMap, Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
@@ -53,29 +55,32 @@ object RemoteControl {
       override def remoteName: NonEmptyString = remoteControl.remoteName
     }
 
-  def evented[F[_]: Apply](
+  def evented[F[_]: Monad](
     underlying: RemoteControl[F],
     eventPublisher: EventPublisher[F, RemoteEvent]
-  ): RemoteControl[F] =
-    new RemoteControl[F] {
-      override def remoteName: NonEmptyString = underlying.remoteName
+  ): F[RemoteControl[F]] =
+    underlying.listCommands
+      .flatMap(_.traverse { command =>
+        eventPublisher
+          .publish1(RemoteEvent.RemoteLearntCommand(command.remote, command.device, command.source, command.name))
+      })
+      .as(new RemoteControl[F] {
+        override def remoteName: NonEmptyString = underlying.remoteName
 
-      override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        underlying.learn(device, name) *> eventPublisher.publish1(
-          RemoteEvent.RemoteLearnCommand(remoteName, device, name)
-        )
+        override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
+          underlying.learn(device, name) *> eventPublisher
+            .publish1(RemoteEvent.RemoteLearntCommand(remoteName, device, None, name))
 
-      override def sendCommand(
-        source: Option[RemoteCommandSource],
-        device: NonEmptyString,
-        name: NonEmptyString
-      ): F[Unit] =
-        underlying.sendCommand(source, device, name) *> eventPublisher.publish1(
-          RemoteEvent.RemoteSendCommandEvent(RemoteCommand(remoteName, source, device, name))
-        )
+        override def sendCommand(
+          source: Option[RemoteCommandSource],
+          device: NonEmptyString,
+          name: NonEmptyString
+        ): F[Unit] =
+          underlying.sendCommand(source, device, name) *> eventPublisher
+            .publish1(RemoteEvent.RemoteSendCommandEvent(RemoteCommand(remoteName, source, device, name)))
 
-      override def listCommands: F[List[RemoteCommand]] = underlying.listCommands
-    }
+        override def listCommands: F[List[RemoteCommand]] = underlying.listCommands
+      })
 
   def empty[F[_]](
     remote: NonEmptyString
@@ -94,11 +99,11 @@ object RemoteControl {
     override def remoteName: NonEmptyString = remote
   }
 
-  def apply[F[_]: FlatMap, T](
+  def apply[F[_]: Monad, T](
     remote: Remote[F, T],
     store: RemoteCommandStore[F, T],
     eventPublisher: EventPublisher[F, RemoteEvent]
-  )(implicit errors: RemoteControlErrors[F], trace: Trace[F]): RemoteControl[F] =
+  )(implicit errors: RemoteControlErrors[F], trace: Trace[F]): F[RemoteControl[F]] =
     evented(
       traced(new RemoteControl[F] {
 

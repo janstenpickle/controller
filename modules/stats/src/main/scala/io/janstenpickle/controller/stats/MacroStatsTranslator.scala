@@ -19,9 +19,9 @@ object MacroStatsTranslator {
 
   def apply[F[_]](macroEventSubscriber: EventSubscriber[F, MacroEvent]): fs2.Stream[F, Stats] =
     macroEventSubscriber.subscribe.map {
-      case ExecuteMacro(name) => Stats.ExecuteMacro(name)
-      case ExecuteCommand(command) => Stats.ExecuteCommand(commandType(command))
-      case StoreMacroEvent(name, commands) =>
+      case ExecutedMacro(name) => Stats.ExecuteMacro(name)
+      case ExecutedCommand(command) => Stats.ExecuteCommand(commandType(command))
+      case StoredMacroEvent(name, commands) =>
         Stats.StoreMacro(
           name,
           commands

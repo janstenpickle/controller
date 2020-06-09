@@ -103,7 +103,7 @@ object Discovery {
           addedEvents = addedDevices.map { v =>
             DeviceDiscoveryEvent.DeviceDiscovered(v.key, v.value)
           }
-          unmappedEvents = unmapped.keys.map(DeviceDiscoveryEvent.UnmappedDiscovered)
+          unmappedEvents = unmapped.map((DeviceDiscoveryEvent.UnmappedDiscovered.apply _).tupled)
           discoveryEventStream = Stream
             .emits((removedEvents ++ addedEvents ++ unmappedEvents).toList)
             .through(discoveryEventProducer.pipe)

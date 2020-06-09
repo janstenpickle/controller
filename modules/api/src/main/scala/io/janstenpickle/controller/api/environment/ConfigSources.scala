@@ -26,6 +26,7 @@ import io.janstenpickle.controller.model.{
   State,
   VirtualSwitch
 }
+import io.janstenpickle.controller.schedule.cron.CirceScheduleConfigSource
 import io.janstenpickle.controller.schedule.model.Schedule
 import io.janstenpickle.deconz.config.{ActionMapping, CirceButtonMappingConfigSource}
 import natchez.Trace

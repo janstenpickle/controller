@@ -41,7 +41,7 @@ object Macro {
         listMacros.flatMap { macros =>
           if (macros.contains(name))
             trace.put("error" -> true, "reason" -> "macro already exists") *> errors.macroAlreadyExists(name)
-          else macroStore.storeMacro(name, commands) *> publisher.publish1(MacroEvent.StoreMacroEvent(name, commands))
+          else macroStore.storeMacro(name, commands) *> publisher.publish1(MacroEvent.StoredMacroEvent(name, commands))
         }
       }
 
@@ -53,14 +53,14 @@ object Macro {
         case Command.SwitchOn(device, switch) => switches.switchOn(device, switch)
         case Command.SwitchOff(device, switch) => switches.switchOff(device, switch)
         case Command.Macro(n) => executeMacro(n)
-      }) *> publisher.publish1(MacroEvent.ExecuteCommand(command))
+      }) *> publisher.publish1(MacroEvent.ExecutedCommand(command))
 
     private def execute(name: NonEmptyString)(commands: NonEmptyList[Command]): F[Unit] =
       span("execute", name, "commands" -> commands.size) {
         commands.traverse {
           case Command.Macro(n) if n == name => F.unit
           case command => executeCommand(command)
-        }.void *> publisher.publish1(MacroEvent.ExecuteMacro(name))
+        }.void *> publisher.publish1(MacroEvent.ExecutedMacro(name))
       }
 
     def executeMacro(name: NonEmptyString): F[Unit] = span("execute.macro", name) {

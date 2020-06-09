@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.configsource.circe
+package io.janstenpickle.controller.schedule.cron
 
 import java.time.DayOfWeek
 
@@ -9,6 +9,7 @@ import cats.syntax.either._
 import extruder.core._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
+import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.schedule.model._

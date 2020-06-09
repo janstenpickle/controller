@@ -32,8 +32,10 @@ import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.context.Context
+import io.janstenpickle.controller.event.switch.EventDrivenSwitches
 import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.mqtt.MqttEvents
+import io.janstenpickle.controller.events.websocket.ServerWs
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
@@ -250,6 +252,8 @@ object Module {
 
       _ <- events.command.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
 
+      _ <- events.remote.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
+
       (
         activityConfig,
         buttonConfig,
@@ -390,11 +394,11 @@ object Module {
         )
       )
 
-      cronScheduler <- CronScheduler[F, G](mac, scheduleConfig)
+      cronScheduler <- CronScheduler[F, G](events.command.publisher, scheduleConfig)
 
       context = Context[F](activity, mac, components.remotes, switches, combinedActivityConfig)
 
-      _ <- EventCommands(events.command.subscriberStream, context, mac, activity)
+      _ <- EventCommands(events.command.subscriberStream, context, mac, activity, components.remotes, components.rename)
 
       actionProcessor <- Resource.liftF(CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
@@ -405,6 +409,15 @@ object Module {
     } yield {
       val router =
         Router(
+          "/events" -> ServerWs[F, G](
+            events.config.subscriberStream,
+            events.remote.subscriberStream,
+            events.switch.subscriberStream,
+            events.`macro`.subscriberStream,
+            events.activity.subscriberStream,
+            events.discovery.subscriberStream,
+            events.command.publisher
+          ),
           "/control/remote" -> new RemoteApi[F](components.remotes).routes,
           "/control/switch" -> new SwitchApi[F](allSwitches).routes,
           "/control/macro" -> new MacroApi[F](mac).routes,

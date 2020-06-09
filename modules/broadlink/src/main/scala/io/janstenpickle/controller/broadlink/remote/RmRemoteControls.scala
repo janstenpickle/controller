@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.broadlink.remote
 
-import cats.Parallel
+import cats.{Applicative, Parallel}
 import cats.effect.{Async, ContextShift, Sync, Timer}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -10,6 +10,8 @@ import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlEr
 import io.janstenpickle.controller.store.RemoteCommandStore
 import natchez.Trace
 import cats.syntax.flatMap._
+import cats.instances.list._
+import cats.syntax.traverse._
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
 import io.janstenpickle.controller.remote.trace.TracedRemote
@@ -28,16 +30,20 @@ object RmRemoteControls {
       private implicit def _cache = cache
 
       private def underlying: F[RemoteControls[F]] = memoizeF(None) {
-        discovery.devices.map(
+        discovery.devices.flatMap(
           d =>
-            RemoteControls(d.devices.collect {
-              case (_, BroadlinkDevice.Remote(remote)) =>
-                remote.name -> RemoteControl(
-                  TracedRemote(remote, "host" -> remote.host, "mac" -> remote.mac, "manufacturer" -> "broadlink"),
-                  store,
-                  eventPublisher
-                )
-            })
+            d.devices.toList
+              .flatTraverse[F, (NonEmptyString, RemoteControl[F])] {
+                case (_, BroadlinkDevice.Remote(remote)) =>
+                  RemoteControl(
+                    TracedRemote(remote, "host" -> remote.host, "mac" -> remote.mac, "manufacturer" -> "broadlink"),
+                    store,
+                    eventPublisher
+                  ).map(r => List(remote.name -> r))
+
+                case _ => Applicative[F].pure(List.empty)
+              }
+              .map(remotes => RemoteControls(remotes.toMap))
         )
       }
 

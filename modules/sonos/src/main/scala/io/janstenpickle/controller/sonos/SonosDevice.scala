@@ -134,13 +134,13 @@ object SonosDevice {
         override def label: NonEmptyString = nonEmptyName
 
         private def updateSwitches(action: F[Unit], switches: List[(SwitchKey, State, String)]) = {
-          def publish(exitCase: Option[Throwable]) = switches.parTraverse_ {
+          def publish(exitCase: Option[String]) = switches.parTraverse_ {
             case (key, state, switchType) =>
               switchEventPublisher.publish1(SwitchStateUpdateEvent(key, state, exitCase))
           }
 
           (action *> publish(None)).handleErrorWith { th =>
-            publish(Some(th))
+            publish(Some(th.getMessage))
           }
         }
 

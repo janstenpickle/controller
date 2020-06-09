@@ -1,36 +1,68 @@
 package io.janstenpickle.deconz
 
+import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
+import cats.Applicative
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
+import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.circe.Decoder
 import io.circe.generic.auto._
 import io.circe.parser.parse
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.deconz.action.ActionProcessor
+import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
+import io.janstenpickle.controller.errors.ErrorHandler
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.model.event.CommandEvent
+import io.janstenpickle.deconz.action.{ActionProcessor, CommandEventProcessor}
+import io.janstenpickle.deconz.config.CirceButtonMappingConfigSource
+import io.janstenpickle.deconz.model.ButtonAction.fromInt
 import io.janstenpickle.deconz.model.{ButtonAction, Event}
 import natchez.Trace
 import sttp.client._
 import sttp.client.asynchttpclient.fs2.{AsyncHttpClientFs2Backend, Fs2WebSocketHandler, Fs2WebSockets}
 
 import scala.concurrent.duration._
-import fs2.Stream
-import io.circe.Decoder
-import io.janstenpickle.controller.errors.ErrorHandler
-import io.janstenpickle.deconz.model.ButtonAction.fromInt
 
 object DeconzBridge {
-  case class Config(host: NonEmptyString, port: PortNumber)
+  case class Config(
+    api: DeconzApiConfig,
+    configDir: Path,
+    polling: PollingConfig,
+    writeTimeout: FiniteDuration = 30.seconds
+  )
+  case class DeconzApiConfig(host: NonEmptyString, port: PortNumber)
 
   implicit val buttonEventDecoder: Decoder[ButtonAction] = Decoder.decodeInt.emap(fromInt)
 
-  def apply[F[_], G[_]: ContextShift](config: Config, processor: ActionProcessor[F], blocker: Blocker)(
+  def apply[F[_]: Timer: ContextShift: ErrorHandler, G[_]: ContextShift](
+    config: Config,
+    commandPublisher: EventPublisher[F, CommandEvent],
+    blocker: Blocker
+  )(
+    implicit F: Concurrent[F],
+    G: ConcurrentEffect[G],
+    liftLower: ContextualLiftLower[G, F, String],
+    timer: Timer[G],
+    trace: Trace[F]
+  ): Resource[F, Unit] =
+    for {
+      mappingSource <- ConfigFileSource
+        .polling[F, G](config.configDir.resolve("deconz"), config.polling.pollInterval, blocker, config.writeTimeout)
+      mapping <- CirceButtonMappingConfigSource[F, G](mappingSource, config.polling, _ => Applicative[F].unit)
+      actionProcessor <- Resource.liftF(CommandEventProcessor[F](commandPublisher, mapping))
+      _ <- apply[F, G](config.api, actionProcessor, blocker)
+    } yield ()
+
+  def apply[F[_], G[_]: ContextShift](config: DeconzApiConfig, processor: ActionProcessor[F], blocker: Blocker)(
     implicit F: Sync[F],
     G: ConcurrentEffect[G],
     liftLower: ContextualLiftLower[G, F, String],

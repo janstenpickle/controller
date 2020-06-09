@@ -1,9 +1,10 @@
 package io.janstenpickle.controller.schedule.cron
 
+import java.nio.file.Path
 import java.time.DayOfWeek
 
 import cats.data.NonEmptyList
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.effect.syntax.concurrent._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -14,10 +15,13 @@ import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.chrisdavenport.fuuid.FUUID
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
-import io.janstenpickle.controller.schedule.Scheduler
+import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.model.event.CommandEvent
+import io.janstenpickle.controller.schedule.{NamedScheduler, Scheduler}
 import io.janstenpickle.controller.schedule.model.Schedule
 import natchez.Trace
 
@@ -25,7 +29,29 @@ import scala.collection.immutable.SortedSet
 import scala.concurrent.duration._
 
 object CronScheduler {
-  def apply[F[_], G[_]](macros: Macro[F], store: WritableConfigSource[F, String, Schedule])(
+  case class Config(configDir: Path, polling: PollingConfig, writeTimeout: FiniteDuration = 10.seconds)
+
+  def apply[F[_]: ContextShift, G[_]: Concurrent: Timer: ContextShift](
+    config: Config,
+    commandPublisher: EventPublisher[F, CommandEvent],
+    blocker: Blocker
+  )(
+    implicit F: Concurrent[F],
+    timer: Timer[F],
+    trace: Trace[F],
+    liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, Scheduler[F]] =
+    for {
+      source <- ConfigFileSource
+        .polling[F, G](config.configDir.resolve("schedule"), config.polling.pollInterval, blocker, config.writeTimeout)
+      schedules <- CirceScheduleConfigSource[F, G](source, config.polling)
+      scheduler <- apply[F, G](commandPublisher, schedules)
+    } yield scheduler
+
+  def apply[F[_], G[_]](
+    commandPublisher: EventPublisher[F, CommandEvent],
+    store: WritableConfigSource[F, String, Schedule]
+  )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
@@ -62,7 +88,9 @@ object CronScheduler {
                         .as(
                           awakeEveryCron(cron) >> Stream.eval(logger.info(s"Running schedule '$id'")) >> Stream
                             .eval(liftLower.lift(liftLower.lower("run.schedule") {
-                              trace.put("id" -> id) >> schedule.commands.traverse(macros.executeCommand)
+                              trace.put("id" -> id) >> schedule.commands.traverse { cmd =>
+                                commandPublisher.publish1(CommandEvent.MacroCommand(cmd))
+                              }
                             }))
                         )
                     }
@@ -75,7 +103,9 @@ object CronScheduler {
 
           stream.compile.drain.background
             .map { _ =>
-              new Scheduler[F] {
+              new NamedScheduler[F] {
+                override val name: String = "cron"
+
                 override def create(schedule: Schedule): F[Option[String]] = trace.span("create.schedule") {
                   FUUID.randomFUUID.flatMap { uuid =>
                     val id = uuid.show
@@ -102,8 +132,8 @@ object CronScheduler {
                   trace.put("id" -> id) >> store.getValue(id)
                 }
 
-                override def list: F[List[String]] = trace.span("list.schedule") {
-                  store.listKeys.map(_.toList).flatTap { schedules =>
+                override def list: F[Set[(String, String)]] = trace.span("list.schedule") {
+                  store.listKeys.map(_.map(name -> _)).flatTap { schedules =>
                     trace.put("schedule.count" -> schedules.size)
                   }
                 }

@@ -45,7 +45,7 @@ object Activity {
           ) *> activities
           .storeActivity(room, name) *> activityEventPublisher.publish1(ActivityUpdateEvent(room, name)))
           .handleErrorWith { th =>
-            activityEventPublisher.publish1(ActivityUpdateEvent(room, name, Some(th))) *> th.raiseError
+            activityEventPublisher.publish1(ActivityUpdateEvent(room, name, Some(th.getMessage))) *> th.raiseError
           }
       }
 
@@ -64,6 +64,14 @@ object Activity {
   )(implicit F: MonadError[F, Throwable], trace: Trace[F]): Activity[F] = {
     val underlying = apply[F](config, activities, macros, activityEventPublisher)
 
+    dependsOnSwitch[F](switches, switchProvider, underlying)
+  }
+
+  def dependsOnSwitch[F[_]: Parallel: Clock](
+    switches: Map[Room, SwitchKey],
+    switchProvider: SwitchProvider[F],
+    underlying: Activity[F]
+  )(implicit F: MonadError[F, Throwable], trace: Trace[F]): Activity[F] =
     new Activity[F] {
       override def setActivity(room: Room, name: NonEmptyString): F[Unit] =
         span("depends.on.switch.set.activity", room, "activity" -> name.value) {
@@ -92,6 +100,5 @@ object Activity {
         underlying.getActivity(room)
       }
     }
-  }
 
 }

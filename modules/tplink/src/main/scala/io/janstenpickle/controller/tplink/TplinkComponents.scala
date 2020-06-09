@@ -55,15 +55,17 @@ object TplinkComponents {
           configEventPublisher,
           discoveryEventPublisher
         )
-        .map { discovery =>
-          emptyComponents.copy(
-            switches = TplinkSwitchProvider[F](discovery, switchEventPublisher.narrow),
-            remotes = RemoteControls(TplinkRemoteControl(config.remoteName, discovery, remoteEventPublisher)),
-            scheduler = TplinkScheduler(discovery),
-            activityConfig = TplinkActivityConfigSource(discovery),
-            remoteConfig = TplinkRemoteConfigSource(config.remoteName, discovery),
-            rename = TplinkDeviceRename[F](discovery, discoveryEventPublisher)
-          )
+        .flatMap { discovery =>
+          Resource.liftF(TplinkRemoteControl(config.remoteName, discovery, remoteEventPublisher)).map { remote =>
+            emptyComponents.copy(
+              switches = TplinkSwitchProvider[F](discovery, switchEventPublisher.narrow),
+              remotes = RemoteControls(remote),
+              scheduler = TplinkScheduler(discovery),
+              activityConfig = TplinkActivityConfigSource(discovery),
+              remoteConfig = TplinkRemoteConfigSource(config.remoteName, discovery),
+              rename = TplinkDeviceRename[F](discovery, discoveryEventPublisher)
+            )
+          }
         } else
       Resource.pure[F, Components[F]](emptyComponents)
   }

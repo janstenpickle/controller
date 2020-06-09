@@ -66,7 +66,7 @@ object SwitchesForRemote {
                 }
                 .handleErrorWith { th =>
                   eventPublisher
-                    .publish1(SwitchStateUpdateEvent(key, State.Off, Some(th))) *> th.raiseError
+                    .publish1(SwitchStateUpdateEvent(key, State.Off, Some(th.getMessage))) *> th.raiseError
                 }
 
             override def switchOff: F[Unit] =
@@ -82,7 +82,7 @@ object SwitchesForRemote {
                 }
                 .handleErrorWith { th =>
                   eventPublisher
-                    .publish1(SwitchStateUpdateEvent(key, State.Off, Some(th))) *> th.raiseError
+                    .publish1(SwitchStateUpdateEvent(key, State.Off, Some(th.getMessage))) *> th.raiseError
                 }
 
           }

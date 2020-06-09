@@ -20,7 +20,7 @@ object SonosRemoteControl {
     combinedDeviceName: NonEmptyString,
     discovery: SonosDiscovery[F],
     eventPublisher: EventPublisher[F, RemoteEvent]
-  )(implicit F: MonadError[F, Throwable], errors: RemoteControlErrors[F], trace: Trace[F]): RemoteControl[F] =
+  )(implicit F: MonadError[F, Throwable], errors: RemoteControlErrors[F], trace: Trace[F]): F[RemoteControl[F]] =
     RemoteControl.evented(
       RemoteControl
         .traced(

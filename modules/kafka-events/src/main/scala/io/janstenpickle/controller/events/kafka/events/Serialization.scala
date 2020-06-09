@@ -18,12 +18,6 @@ import io.janstenpickle.controller.model.State
 object Serialization {
   implicit val config: Configuration = Configuration.default.withDiscriminator("type")
 
-  implicit val stateDecoder: Decoder[State] = Decoder.decodeBoolean.map(State.fromBoolean)
-  implicit val stateEncoder: Encoder[State] = Encoder.encodeBoolean.contramap(_.isOn)
-
-  implicit val throwableCodec: Codec[Option[Throwable]] =
-    Codec.from(Decoder.const(None), Encoder.instance(_ => Json.Null))
-
   def optKeyDeserializer[F[_]: Sync, A: Decoder]: Deserializer[F, Option[A]] =
     Deserializer.instance { (_, _, data) =>
       Sync[F].delay(new String(data)).map { s =>

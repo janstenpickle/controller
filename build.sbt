@@ -10,6 +10,7 @@ val http4sVer = "0.21.4"
 val kittensVer = "2.1.0"
 val jmdnsVer = "3.5.5"
 val log4catsVer = "1.1.1"
+val maprefVer = "0.1.1"
 val natchezVer = "0.0.11"
 val prometheusVer = "0.9.0"
 val refinedVer = "0.9.14"
@@ -103,8 +104,13 @@ lazy val root = (project in file("."))
     homekit,
     mqttClient,
     mqttEvents,
+    websocketEvents,
     deconzBridge,
-    hapJavaSubmodule
+    hapJavaSubmodule,
+    eventDrivenSwitches,
+    eventDrivenRemoteControls,
+    eventDrivenActivity,
+    eventDrivenDeviceRename
   )
 
 lazy val api = (project in file("modules/api"))
@@ -168,7 +174,7 @@ lazy val api = (project in file("modules/api"))
       "--initialize-at-build-time=ch.qos.logback.core.CoreConstants",
       "--initialize-at-build-time=org.slf4j.LoggerFactory",
       "--initialize-at-run-time=io.netty.util.internal.logging.Log4JLogger",
-      "--initialize-at-build-time=scala.Symbol$",
+      "--initialize-at-build-time=scala.Symbol$"
     ),
     mappings in Universal := {
       val universalMappings = (mappings in Universal).value
@@ -204,7 +210,9 @@ lazy val api = (project in file("modules/api"))
     mqttClient,
     mqttEvents,
     cronScheduler,
-    deconzBridge
+    deconzBridge,
+    eventDrivenSwitches,
+    websocketEvents
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
 
@@ -435,10 +443,11 @@ lazy val cronScheduler = (project in file("modules/cron-scheduler"))
     libraryDependencies ++= Seq(
       "eu.timepit"        %% "fs2-cron-core"  % "0.2.2",
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "io.chrisdavenport" %% "fuuid"          % "0.4.0"
+      "io.chrisdavenport" %% "fuuid"          % "0.4.0",
+      "org.tpolecat"      %% "natchez-core"   % natchezVer
     )
   )
-  .dependsOn(arrow, schedule, `macro`, configSource)
+  .dependsOn(arrow, schedule, events, configSource, extruder, circeConfigSource)
 
 lazy val schedule = (project in file("modules/schedule"))
   .settings(commonSettings)
@@ -499,7 +508,7 @@ lazy val eventCommands = (project in file("modules/event-commands"))
     name := "controller-event-commands",
     libraryDependencies ++= Seq("io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer)
   )
-  .dependsOn(context, events)
+  .dependsOn(context, events, dynamicDiscovery)
 
 lazy val activity = (project in file("modules/activity"))
   .settings(commonSettings)
@@ -690,6 +699,49 @@ lazy val mqttEvents = (project in file("modules/mqtt-events"))
     )
   )
   .dependsOn(events, mqttClient, model)
+
+lazy val websocketEvents = (project in file("modules/websocket-events"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-websocket-events",
+    libraryDependencies ++= Seq(
+      "org.http4s"   %% "http4s-circe"  % http4sVer,
+      "org.http4s"   %% "http4s-core"   % http4sVer,
+      "org.http4s"   %% "http4s-dsl"    % http4sVer,
+      "org.http4s"   %% "http4s-server" % http4sVer,
+      "org.tpolecat" %% "natchez-core"  % natchezVer
+    )
+  )
+  .dependsOn(arrow, events, model)
+
+lazy val eventDrivenSwitches = (project in file("modules/event-driven-switches"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-event-driven-switches",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "mapref" % maprefVer)
+  )
+  .dependsOn(events, model, switch, tracedSwitch)
+
+lazy val eventDrivenRemoteControls = (project in file("modules/event-driven-remote-controls"))
+  .settings(commonSettings)
+  .settings(name := "controller-event-driven-remote-controls")
+  .dependsOn(events, model, remoteControl)
+
+lazy val eventDrivenActivity = (project in file("modules/event-driven-activity"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-event-driven-activity",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "mapref" % maprefVer)
+  )
+  .dependsOn(events, model, activity)
+
+lazy val eventDrivenDeviceRename = (project in file("modules/event-driven-device-rename"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-event-driven-device-rename",
+    libraryDependencies ++= Seq("io.chrisdavenport" %% "mapref" % maprefVer)
+  )
+  .dependsOn(events, model, dynamicDiscovery)
 
 lazy val kafkaEvents = (project in file("modules/kafka-events"))
   .settings(commonSettings)

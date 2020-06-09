@@ -117,13 +117,13 @@ object KodiDevice {
           SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${deviceName.value}_playpause"))
 
         private def updateSwitches(action: F[Unit], switches: List[(SwitchKey, State, String)]) = {
-          def publish(exitCase: Option[Throwable]) = switches.parTraverse_ {
+          def publish(exitCase: Option[String]) = switches.parTraverse_ {
             case (switchKey, state, switchType) =>
               switchEventPublisher.publish1(SwitchStateUpdateEvent(switchKey, state, exitCase))
           }
 
           (action *> publish(None)).handleErrorWith { th =>
-            publish(Some(th))
+            publish(Some(th.getMessage))
           }
         }
 
