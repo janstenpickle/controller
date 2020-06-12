@@ -9,7 +9,7 @@ import cats.syntax.either._
 import eu.timepit.refined._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.api.error.ControlError
+import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.RemoteCommandSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import natchez.{Trace, TraceValue}

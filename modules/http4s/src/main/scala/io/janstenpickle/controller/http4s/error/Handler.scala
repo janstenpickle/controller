@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.error
+package io.janstenpickle.controller.http4s.error
 
 import cats.effect.Sync
 import cats.mtl.ApplicativeHandle

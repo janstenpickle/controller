@@ -5,7 +5,6 @@ import java.time.Instant
 import cats.Apply
 import cats.data.NonEmptyList
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
-import cats.syntax.apply._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.core.ExtruderErrors
@@ -17,7 +16,8 @@ import io.janstenpickle.controller.`macro`.MacroErrors
 import io.janstenpickle.controller.api.service.ConfigServiceErrors
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.context.ContextErrors
-import io.janstenpickle.controller.errors.ErrorHandler
+import io.janstenpickle.controller.http4s.error
+import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.kodi.KodiErrors
 import io.janstenpickle.controller.model.{Room, State}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
@@ -29,7 +29,8 @@ class ErrorInterpreter[F[_]: Apply](
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
   logger: Logger[F]
-) extends MacroErrors[F]
+) extends error.BaseErrorInterpreter[F]
+    with MacroErrors[F]
     with SwitchErrors[F]
     with RemoteControlErrors[F]
     with ContextErrors[F]
@@ -37,20 +38,7 @@ class ErrorInterpreter[F[_]: Apply](
     with PollingSwitchErrors[F]
     with ExtruderErrors[F]
     with ConfigServiceErrors[F]
-    with KodiErrors[F]
-    with ErrorHandler[F] {
-
-  private def raise[A](error: ControlError): F[A] =
-    error match {
-      case ControlError.InvalidInput(_) => fr.raise(error)
-      case ControlError.Missing(_) => fr.raise(error)
-      case ControlError.Internal(message) => logger.warn(message) *> fr.raise(error)
-      case e @ ControlError.Combined(_, _) if e.isSevere => logger.warn(e.message) *> fr.raise(error)
-      case ControlError.Combined(_, _) => fr.raise(error)
-    }
-
-  override def handle[A](fa: F[A])(f: Throwable => A): F[A] = ah.handle(fa)(f)
-  override def handleWith[A](fa: F[A])(f: Throwable => F[A]): F[A] = ah.handleWith(fa)(f)
+    with KodiErrors[F] {
 
   override def missingMacro[A](name: NonEmptyString): F[A] =
     raise(ControlError.Missing(s"Macro '$name' not found"))

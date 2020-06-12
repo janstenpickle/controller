@@ -30,7 +30,8 @@ import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery
 import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, SwitchKey}
+import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, DiscoveredDeviceValue, SwitchKey}
+import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.switches.store.SwitchStateStore
 import natchez.Trace
 
@@ -55,6 +56,7 @@ object BroadlinkDiscovery {
     workBlocker: Blocker,
     discoveryBlocker: Blocker,
     switchStateStore: SwitchStateStore[F],
+    store: RemoteCommandStore[F, CommandPayload],
     nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
@@ -164,11 +166,15 @@ object BroadlinkDiscovery {
           }
       }
 
-    val onRemoteDiscovered: Pipe[F, BroadlinkDevice[F], Unit] = _.map {
+    val onRemoteDiscovered: Pipe[F, BroadlinkDevice[F], Unit] = _.flatMap {
       case BroadlinkDevice.Remote(remote) =>
-        Some(RemoteEvent.RemoteAddedEvent(remote.name, eventSource))
-      case _ => None
-    }.unNone.through(remoteEventPublisher.pipe)
+        Stream.evals(store.listCommands.map { commands =>
+          RemoteEvent.RemoteAddedEvent(remote.name, eventSource) :: commands.map[RemoteEvent] { commandKey =>
+            RemoteEvent.RemoteLearntCommand(remote.name, commandKey.device, commandKey.source, commandKey.name)
+          }
+        })
+      case _ => Stream.empty
+    }.through(remoteEventPublisher.pipe)
 
     val onSwitchDiscovered: Pipe[F, BroadlinkDevice[F], Unit] = _.evalMap {
       case BroadlinkDevice.Switch(switch) =>

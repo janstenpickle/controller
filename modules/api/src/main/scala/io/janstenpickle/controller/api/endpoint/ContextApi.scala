@@ -10,8 +10,8 @@ import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.instances._
 import io.circe.refined._
-import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.context.Context
+import io.janstenpickle.controller.http4s.error.ControlError
 import org.http4s.{HttpRoutes, Response}
 
 class ContextApi[F[_]: Sync](context: Context[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {

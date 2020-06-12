@@ -12,7 +12,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import extruder.circe.instances._
 import extruder.refined._
 import io.circe.refined._
-import io.janstenpickle.controller.api.error.ControlError
+import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.{State, SwitchKey}
 import io.janstenpickle.controller.switch.Switches
 import org.http4s.{EntityEncoder, HttpRoutes, Response}

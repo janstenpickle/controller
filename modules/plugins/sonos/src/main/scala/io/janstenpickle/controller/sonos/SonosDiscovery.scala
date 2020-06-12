@@ -181,7 +181,16 @@ object SonosDiscovery {
           SonosRemoteConfigSource.deviceToRemote(config.remote, config.activityConfig.name, config.allRooms, dev)
         }.map(r => RemoteAddedEvent(r, eventSource)).through(configEventPublisher.pipe)
 
-        val onDeviceDiscovered: Pipe[F, SonosDevice[F], Unit] = _.broadcastThrough(addedSwitches, addedRemotes)
+        val cmds = SonosRemoteControl.commands[F]
+
+        val addedCommands: Pipe[F, SonosDevice[F], Unit] = _.flatMap { dev =>
+          Stream.emits(cmds.keys.toList.map[RemoteEvent] { cmd =>
+            RemoteEvent.RemoteLearntCommand(config.remote, dev.name, CommandSource, cmd)
+          })
+        }.through(remoteEventPublisher.pipe)
+
+        val onDeviceDiscovered: Pipe[F, SonosDevice[F], Unit] =
+          _.broadcastThrough(addedSwitches, addedRemotes, addedCommands)
 
         val onDeviceUpdate: Pipe[F, SonosDevice[F], Unit] = _.evalMap(deviceUpdate).through(configEventPublisher.pipe)
 

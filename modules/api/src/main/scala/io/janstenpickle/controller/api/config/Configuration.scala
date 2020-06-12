@@ -1,19 +1,13 @@
 package io.janstenpickle.controller.api.config
 
-import java.io.File
 import java.net.InetAddress
 import java.nio.file.{Path, Paths}
 
-import cats.effect.{Blocker, ContextShift, Sync}
-import cats.syntax.flatMap._
+import cats.Eq
+import cats.instances.all._
 import com.github.mob41.blapi.mac.Mac
-import com.typesafe.config.ConfigFactory
-import eu.timepit.refined.refineMV
-import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.core.{ExtruderErrors, Parser}
-import extruder.typesafe._
-import extruder.refined._
+import eu.timepit.refined.cats._
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.events.kafka.KafkaPubSub
@@ -23,13 +17,13 @@ import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.{Room, SwitchKey}
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
+import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
 import io.janstenpickle.controller.tplink.TplinkComponents
 import io.janstenpickle.deconz.DeconzBridge
 
 import scala.concurrent.duration._
-import scala.util.Try
 
 object Configuration {
   case class Config(
@@ -40,7 +34,7 @@ object Configuration {
     sonos: SonosComponents.Config,
     kodi: KodiComponents.Config,
     config: ConfigData,
-    server: Server,
+    server: Server.Config,
     activity: Activity,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
     homekit: ControllerHomekitServer.Config,
@@ -48,6 +42,13 @@ object Configuration {
     mqtt: Mqtt,
     kafka: Option[KafkaPubSub.Config]
   )
+
+  object Config {
+    implicit val pathEq: Eq[Path] = Eq.by(_.toString)
+    implicit val macEq: Eq[Mac] = Eq.by(_.getMacString)
+    implicit val inetAddressEq: Eq[InetAddress] = Eq.by(_.getHostAddress)
+    implicit val configEq: Eq[Configuration.Config] = cats.derived.semi.eq[Configuration.Config]
+  }
 
   case class Mqtt(client: Option[Fs2MqttClient.Config], events: MqttEvents.Config)
 
@@ -63,23 +64,4 @@ object Configuration {
     dependentSwitches: Map[NonEmptyString, SwitchKey] = Map.empty,
     polling: SwitchesForRemote.PollingConfig
   )
-
-  case class Server(
-    host: NonEmptyString = refineMV("0.0.0.0"),
-    port: PortNumber = refineMV(8090),
-    responseHeaderTimeout: FiniteDuration = 4.seconds,
-    idleTimeout: FiniteDuration = 5.seconds
-  )
-
-  implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
-  implicit val macParser: Parser[Mac] = Parser.fromTry(mac => Try(new Mac(mac)))
-  implicit val inetAddressParser: Parser[InetAddress] = Parser.fromTry(addr => Try(InetAddress.getByName(addr)))
-
-  def load[F[_]: Sync: ContextShift: ExtruderErrors](blocker: Blocker, config: Option[File] = None): F[Config] =
-    blocker
-      .delay {
-        val tsConfig = ConfigFactory.load()
-        config.fold(tsConfig)(f => ConfigFactory.load(ConfigFactory.parseFile(f)).withFallback(tsConfig))
-      }
-      .flatMap(decodeF[F, Config](_))
 }

@@ -17,7 +17,7 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.KodiDiscovery.KodiInstance
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
-import io.janstenpickle.controller.model.{Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote}
+import io.janstenpickle.controller.model.{Button, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.schedule.Scheduler
 import natchez.Trace
@@ -91,6 +91,7 @@ object KodiComponents {
           KodiActivityConfigSource(config.activityConfig, discovery),
           KodiRemoteConfigSource(config.remote, config.activityConfig.name, discovery, remotesCache),
           ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]],
+          ConfigSource.empty[F, String, Button]
         )
     else
       Resource.pure[F, Components[F]](Monoid[Components[F]].empty)

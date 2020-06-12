@@ -11,13 +11,12 @@ import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import javax.jmdns.{JmDNS, ServiceInfo}
 
-import scala.collection.JavaConverters._
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 object Advertiser {
-  final val ServiceType: String = "_controller._tcp.local."
 
-  def apply[F[_]: Concurrent: Timer](host: String, port: PortNumber): Resource[F, F[Unit]] =
+  def apply[F[_]: Concurrent: Timer](host: String, port: PortNumber, serviceType: ServiceType): Resource[F, F[Unit]] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
       val resource = Resource
         .make(
@@ -36,7 +35,7 @@ object Advertiser {
             val props = Map.empty[String, String]
 
             val service = ServiceInfo
-              .create(ServiceType, host, port.value, 1, 1, props.asJava)
+              .create(serviceType.toString, host, port.value, 1, 1, props.asJava)
 
             jmdns.registerService(service)
           }

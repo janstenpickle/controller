@@ -13,6 +13,24 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
 
 object TplinkRemoteControl {
+  def commands[F[_]](device: TplinkDevice.SmartBulb[F]): Map[NonEmptyString, F[Unit]] =
+    (if (device.dimmable)
+       Map(Commands.BrightnessUp -> device.brightnessUp, Commands.BrightnessDown -> device.brightnessDown)
+     else Map.empty[NonEmptyString, F[Unit]]) ++ (
+      if (device.colourTemp)
+        Map(NonEmptyString("temp_up") -> device.tempUp, NonEmptyString("temp_down") -> device.tempDown)
+      else Map.empty[NonEmptyString, F[Unit]]
+    ) ++ (
+      if (device.colourTemp)
+        Map(
+          NonEmptyString("hue_up") -> device.hueUp,
+          NonEmptyString("hue_down") -> device.hueUp,
+          NonEmptyString("saturation_up") -> device.saturationUp,
+          NonEmptyString("saturation_down") -> device.saturationDown
+        )
+      else Map.empty[NonEmptyString, F[Unit]]
+    )
+
   def apply[F[_]: Monad](
     remote: NonEmptyString,
     discovery: TplinkDiscovery[F],
@@ -21,23 +39,6 @@ object TplinkRemoteControl {
     RemoteControl
       .evented(
         RemoteControl.traced(new RemoteControl[F] {
-          private def commands(device: TplinkDevice.SmartBulb[F]): Map[NonEmptyString, F[Unit]] =
-            (if (device.dimmable)
-               Map(Commands.BrightnessUp -> device.brightnessUp, Commands.BrightnessDown -> device.brightnessDown)
-             else Map.empty[NonEmptyString, F[Unit]]) ++ (
-              if (device.colourTemp)
-                Map(NonEmptyString("temp_up") -> device.tempUp, NonEmptyString("temp_down") -> device.tempDown)
-              else Map.empty[NonEmptyString, F[Unit]]
-            ) ++ (
-              if (device.colourTemp)
-                Map(
-                  NonEmptyString("hue_up") -> device.hueUp,
-                  NonEmptyString("hue_down") -> device.hueUp,
-                  NonEmptyString("saturation_up") -> device.saturationUp,
-                  NonEmptyString("saturation_down") -> device.saturationDown
-                )
-              else Map.empty[NonEmptyString, F[Unit]]
-            )
 
           def devices: F[Map[(NonEmptyString, DeviceType), TplinkDevice.SmartBulb[F]]] =
             trace.span("tplinkListDevices") {

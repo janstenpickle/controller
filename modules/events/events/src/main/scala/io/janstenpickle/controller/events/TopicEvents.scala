@@ -1,9 +1,8 @@
-package io.janstenpickle.controller.api.environment
+package io.janstenpickle.controller.events
 
 import cats.Parallel
 import cats.effect.{Clock, Concurrent}
 import cats.syntax.parallel._
-import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.model.event._
 
 object TopicEvents {

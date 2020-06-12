@@ -26,7 +26,8 @@ object KafkaSubscriber {
   def resource[F[_]: ConcurrentEffect: ContextShift: Timer, V](
     topic: NonEmptyString,
     settings: F[ConsumerSettings[F, Option[V], Option[V]]],
-    headerFilter: Map[String, String]
+    headerMatchesFilter: Map[String, String],
+    headerNonMatchesFilter: Map[String, String]
   ): Resource[F, EventSubscriber[F, V]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
     def accumulate(
       consumer: KafkaConsumer[F, Option[V], Option[V]]
@@ -98,14 +99,15 @@ object KafkaSubscriber {
     } yield
       new EventSubscriber[F, V] {
         override def subscribeEvent: Stream[F, Event[V]] =
-          queue.dequeue.map(makeEvent(headerFilter)).unNone
+          queue.dequeue.map(makeEvent(headerMatchesFilter, headerNonMatchesFilter)).unNone
       }
   }
 
   def stream[F[_]: ConcurrentEffect: ContextShift: Timer, V](
     topic: NonEmptyString,
     settings: F[ConsumerSettings[F, Option[V], Option[V]]],
-    headerFilter: Map[String, String]
+    headerMatchesFilter: Map[String, String],
+    headerNonMatchesFilter: Map[String, String]
   ): EventSubscriber[F, V] =
     new EventSubscriber[F, V] {
       override def subscribeEvent: Stream[F, Event[V]] =
@@ -114,17 +116,20 @@ object KafkaSubscriber {
           .flatMap(consumerStream(_))
           .evalTap(_.subscribeTo(topic.value))
           .flatMap(_.stream)
-          .map(makeEvent(headerFilter))
+          .map(makeEvent(headerMatchesFilter, headerNonMatchesFilter))
           .unNone
     }
 
-  private def makeEvent[F[_], V](
-    headerFilter: Map[String, String]
-  )(r: CommittableConsumerRecord[F, Option[V], Option[V]]): Option[Event[V]] = {
+  private def makeEvent[F[_], V](headerMatchesFilter: Map[String, String], headerNonMatchesFilter: Map[String, String])(
+    r: CommittableConsumerRecord[F, Option[V], Option[V]]
+  ): Option[Event[V]] = {
 
-    val matchesFilter = headerFilter.forall {
+    val matchesFilter = headerMatchesFilter.forall {
       case (k, v) =>
         r.record.headers.withKey(k).map(_.as[String]).contains(v)
+    } && headerNonMatchesFilter.forall {
+      case (k, v) =>
+        !r.record.headers.withKey(k).map(_.as[String]).contains(v)
     }
 
     if (matchesFilter)

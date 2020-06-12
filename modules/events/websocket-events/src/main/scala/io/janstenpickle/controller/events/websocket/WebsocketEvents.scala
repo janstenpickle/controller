@@ -17,11 +17,14 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import org.http4s.{HttpRoutes, Request}
+import fs2.Stream
+import cats.instances.list._
 
 object WebsocketEvents {
   def subscribe[F[_]: Applicative: Defer, G[_]: Applicative, A: Encoder](
     path: String,
-    subscriber: EventSubscriber[F, A]
+    subscriber: EventSubscriber[F, A],
+    state: Option[F[List[A]]] = None
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
     val dsl = new Http4sDsl[F] {}
     import dsl._
@@ -29,7 +32,9 @@ object WebsocketEvents {
     def toWebsocket(request: Request[F]) = {
       val lowerName: F ~> G = liftLower.lower(request.uri.path)
 
-      val stream = subscriber.subscribe
+      val source = state.fold(subscriber.subscribe)(Stream.evals(_) ++ subscriber.subscribe)
+
+      val stream = source
         .map { a =>
           Text(a.asJson.noSpaces)
         }

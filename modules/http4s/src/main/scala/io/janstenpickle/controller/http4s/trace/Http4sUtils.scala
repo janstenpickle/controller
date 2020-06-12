@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.trace
+package io.janstenpickle.controller.http4s.trace
 
 import natchez.{Kernel, TraceValue}
 import org.http4s.{Header, Headers, Request, Response}

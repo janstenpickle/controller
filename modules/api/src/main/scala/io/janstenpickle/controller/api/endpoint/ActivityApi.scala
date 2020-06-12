@@ -6,8 +6,8 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.circe.refined._
 import io.janstenpickle.controller.activity.Activity
-import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.{Activity => ActivityModel}
 import org.http4s.{EntityDecoder, HttpRoutes}
 

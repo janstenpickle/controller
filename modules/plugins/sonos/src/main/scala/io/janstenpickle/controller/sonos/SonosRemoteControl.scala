@@ -15,6 +15,17 @@ import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlEr
 import natchez.Trace
 
 object SonosRemoteControl {
+  def commands[F[_]]: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
+    Map(
+      (NonEmptyString("play"), _.play),
+      (NonEmptyString("pause"), _.pause),
+      (Commands.PlayPause, _.playPause),
+      (Commands.VolUp, _.volumeUp),
+      (Commands.VolDown, _.volumeDown),
+      (Commands.Next, _.next),
+      (Commands.Previous, _.previous)
+    )
+
   def apply[F[_]: Parallel](
     remote: NonEmptyString,
     combinedDeviceName: NonEmptyString,
@@ -58,21 +69,12 @@ object SonosRemoteControl {
               }
             }
 
-            private val commands: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
-              Map(
-                (NonEmptyString("play"), _.play),
-                (NonEmptyString("pause"), _.pause),
-                (Commands.PlayPause, _.playPause),
-                (Commands.VolUp, _.volumeUp),
-                (Commands.VolDown, _.volumeDown),
-                (Commands.Next, _.next),
-                (Commands.Previous, _.previous)
-              )
-
             override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
               trace.put("error" -> true, "reason" -> "learning not supported") *> errors.learningNotSupported(
                 remoteName
               )
+
+            private val cmds = commands[F]
 
             override def sendCommand(
               source: Option[RemoteCommandSource],
@@ -87,7 +89,7 @@ object SonosRemoteControl {
                   case Some(device) =>
                     device.isController.flatMap { isController =>
                       trace.put("controller" -> isController) *> {
-                        commands.get(name) match {
+                        cmds.get(name) match {
                           case None => errors.commandNotFound(remoteName, deviceName, name)
                           case Some(command) => command(device)
                         }
@@ -102,7 +104,7 @@ object SonosRemoteControl {
                   device.isController.flatMap { isController =>
                     trace
                       .put("controller" -> isController)
-                      .as(commands.keys.toList.map { command =>
+                      .as(cmds.keys.toList.map { command =>
                         model.RemoteCommand(remoteName, CommandSource, deviceName, command)
                       })
                   }

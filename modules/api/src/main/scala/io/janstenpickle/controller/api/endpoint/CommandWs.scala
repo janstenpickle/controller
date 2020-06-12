@@ -3,7 +3,6 @@ package io.janstenpickle.controller.api.endpoint
 import cats.effect.Concurrent
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import fs2.concurrent.Queue
-import io.janstenpickle.controller.api.error.ControlError
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import natchez.Trace
 import org.http4s.HttpRoutes
@@ -21,6 +20,7 @@ import io.circe.generic.extras.semiauto._
 import io.circe.refined._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import io.janstenpickle.controller.http4s.error.ControlError
 
 class CommandWs[F[_], G[_]: Concurrent](publisher: EventPublisher[G, CommandEvent])(
   implicit F: Concurrent[F],

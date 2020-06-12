@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.trace
+package io.janstenpickle.controller.http4s.trace
 
 import cats.data.{Kleisli, OptionT}
 import cats.effect.{Bracket, Sync}
@@ -6,7 +6,7 @@ import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{~>, Applicative}
-import io.janstenpickle.controller.api.trace.Http4sUtils._
+import io.janstenpickle.controller.http4s.trace.Http4sUtils._
 import natchez.TraceValue.BooleanValue
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client

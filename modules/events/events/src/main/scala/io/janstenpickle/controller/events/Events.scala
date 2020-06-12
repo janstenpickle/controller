@@ -1,8 +1,7 @@
-package io.janstenpickle.controller.api.environment
+package io.janstenpickle.controller.events
 
 import cats.effect.Bracket
 import cats.{~>, Applicative, Defer}
-import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.model.event._
 
 case class Events[F[_]](

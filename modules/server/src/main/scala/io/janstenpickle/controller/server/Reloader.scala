@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api
+package io.janstenpickle.controller.server
 
 import cats.effect.{Concurrent, ExitCode, Timer}
 import cats.syntax.applicative._
@@ -47,7 +47,7 @@ object Reloader {
       reload <- Stream.eval(SignallingRef[F, Boolean](false))
       signal <- Stream.eval(SignallingRef[F, Boolean](false))
       stop <- Stream.eval(SignallingRef[F, Boolean](false))
-      logger <- Stream.eval(Slf4jLogger.fromClass[F](getClass))
+      logger <- Stream.eval(Slf4jLogger.create[F])
       code <- repeatStream(reload, signal, logger).concurrently(processSignal(reload, signal, stop)).interruptWhen(stop)
     } yield code
   }

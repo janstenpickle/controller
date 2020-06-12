@@ -1,20 +1,19 @@
-package io.janstenpickle.controller.api.environment
+package io.janstenpickle.controller.events.kafka.events
 
 import cats.Parallel
 import cats.effect.{ConcurrentEffect, ContextShift, Resource, Timer}
 import cats.instances.list._
+import cats.syntax.applicativeError._
 import eu.timepit.refined.refineMV
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.kafka._
-import io.janstenpickle.controller.events.EventPubSub
-import io.janstenpickle.controller.events.kafka.KafkaPubSub
-import io.janstenpickle.controller.events.kafka.events._
-import io.janstenpickle.controller.model.event._
-import cats.syntax.applicativeError._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.janstenpickle.controller.events.kafka.KafkaPubSub
+import io.janstenpickle.controller.events.{EventPubSub, Events}
+import io.janstenpickle.controller.model.event._
 import org.apache.kafka.clients.admin.NewTopic
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object KafkaEvents {
   case class Topics(
@@ -45,12 +44,19 @@ object KafkaEvents {
       )(Events[F])
 
   def create[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
+    instance: String,
     config: KafkaPubSub.Config
-  ): Resource[F, Events[F]] =
+  ): Resource[F, Events[F]] = {
+    val instanceHeader = "instance" -> instance
+    val updatedConfig = config.copy(
+      staticHeaders = config.staticHeaders + instanceHeader,
+      headerNonMatchesFilter = config.headerNonMatchesFilter + instanceHeader
+    )
+
     for {
       logger <- Resource.liftF(Slf4jLogger.create[F])
       admin <- adminClientResource(
-        AdminClientSettings[F].withBootstrapServers(config.bootstrapServers.toList.mkString(","))
+        AdminClientSettings[F].withBootstrapServers(updatedConfig.bootstrapServers.toList.mkString(","))
       )
       topics = Topics()
       _ <- Resource.liftF(
@@ -71,7 +77,8 @@ object KafkaEvents {
           )
           .handleError(th => logger.warn(th)("Failed to create Kafka topics"))
       )
-      events <- apply[F](Config(config, topics))
+      events <- apply[F](Config(updatedConfig, topics))
     } yield events
+  }
 
 }

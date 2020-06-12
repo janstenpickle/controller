@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.trace
 
-import cats.{Applicative, Monad, Parallel}
+import cats.data.EitherT
+import cats.{Applicative, Functor, Monad, Parallel}
 import cats.effect.Resource
 import cats.kernel.{Monoid, Semigroup}
 import cats.syntax.apply._
@@ -8,9 +9,20 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.semigroup._
 import cats.instances.unit._
-import natchez.{EntryPoint, Kernel, Span, TraceValue}
+import natchez.{EntryPoint, Kernel, Span, Trace, TraceValue}
 
 trait Instances extends LowPriorityInstances {
+
+  implicit def eitherTTrace[F[_]: Functor, E](implicit trace: Trace[F]): Trace[EitherT[F, E, *]] =
+    new Trace[EitherT[F, E, *]] {
+      override def put(fields: (String, TraceValue)*): EitherT[F, E, Unit] =
+        EitherT.liftF(trace.put(fields: _*))
+
+      override def kernel: EitherT[F, E, Kernel] = EitherT.liftF(trace.kernel)
+
+      override def span[A](name: String)(k: EitherT[F, E, A]): EitherT[F, E, A] =
+        EitherT(trace.span(name)(k.value))
+    }
 
   implicit def entryPointSemigroup[F[_]: Monad]: Semigroup[EntryPoint[F]] = new Semigroup[EntryPoint[F]] {
     override def combine(x: EntryPoint[F], y: EntryPoint[F]): EntryPoint[F] = new EntryPoint[F] {

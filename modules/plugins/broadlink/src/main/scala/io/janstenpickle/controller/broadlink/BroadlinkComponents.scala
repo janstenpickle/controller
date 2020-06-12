@@ -51,6 +51,7 @@ object BroadlinkComponents {
             workBlocker,
             discoveryBlocker,
             switchStore,
+            remoteStore,
             nameMapping,
             remoteEventPublisher,
             switchEventPublisher,

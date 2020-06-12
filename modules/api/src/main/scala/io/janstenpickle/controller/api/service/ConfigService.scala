@@ -13,7 +13,7 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.store.MacroStore
 import io.janstenpickle.controller.activity.store.ActivityStore
 import io.janstenpickle.controller.api.validation.ConfigValidation
-import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
+import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource, WritableConfigSource}
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.Button.{
   ContextIcon,
@@ -30,20 +30,17 @@ import natchez.Trace
 
 import scala.collection.immutable.ListMap
 
-class ConfigService[F[_]: Parallel] private (
-  activity: WritableConfigSource[F, String, Activity],
-  button: WritableConfigSource[F, String, Button],
-  remote: WritableConfigSource[F, NonEmptyString, Remote],
-  macros: MacroStore[F],
-  activityStore: ActivityStore[F],
+abstract class ConfigService[F[_]: Parallel](
+  activity: ConfigSource[F, String, Activity],
+  button: ConfigSource[F, String, Button],
+  remote: ConfigSource[F, NonEmptyString, Remote],
+  loadMacro: NonEmptyString => F[Option[NonEmptyList[Command]]],
+  loadActivity: Room => F[Option[NonEmptyString]],
   switches: Switches[F],
-  validation: ConfigValidation[F],
-  configEventPublisher: EventPublisher[F, ConfigEvent],
   logger: Logger[F]
 )(implicit F: MonadError[F, Throwable], errors: ConfigServiceErrors[F], trace: Trace[F]) {
-  import ConfigService._
 
-  private def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, default: A, op: State => A): F[A] =
+  protected def doIfPresent[A](device: NonEmptyString, name: NonEmptyString, default: A, op: State => A): F[A] =
     switches.list.flatMap { switchSet =>
       if (switchSet.contains(SwitchKey(device, name))) F.handleErrorWith(switches.getState(device, name).map(op)) {
         err =>
@@ -51,15 +48,15 @@ class ConfigService[F[_]: Parallel] private (
       } else F.pure(default)
     }
 
-  private def macroSwitchState(device: NonEmptyString, name: NonEmptyString): F[Option[Boolean]] =
+  protected def macroSwitchState(device: NonEmptyString, name: NonEmptyString): F[Option[Boolean]] =
     doIfPresent[Option[Boolean]](device, name, None, s => Some(s.isOn))
 
   /*
    Go through all the macro commands to see if one is a switch
    Use the state of that switch if only one command is a switch, otherwise return nothing
    */
-  private def macroSwitchStateIfPresent(macroName: NonEmptyString): F[Option[Boolean]] =
-    macros.loadMacro(macroName).flatMap {
+  protected def macroSwitchStateIfPresent(macroName: NonEmptyString): F[Option[Boolean]] =
+    loadMacro(macroName).flatMap {
       case None => F.pure(None)
       case Some(commands) =>
         commands
@@ -78,10 +75,10 @@ class ConfigService[F[_]: Parallel] private (
           }
     }
 
-  private def contextSwitchStateIfPresent(name: NonEmptyString, room: Option[Room]): F[Option[Boolean]] =
+  protected def contextSwitchStateIfPresent(name: NonEmptyString, room: Option[Room]): F[Option[Boolean]] =
     (for {
       r <- OptionT.fromOption[F](room)
-      a <- OptionT(activityStore.loadActivity(r))
+      a <- OptionT(loadActivity(r))
       act <- OptionT(activity.getValue(a.value))
       button <- OptionT.fromOption[F](act.contextButtons.find(_.name == name))
       state <- button match {
@@ -90,7 +87,7 @@ class ConfigService[F[_]: Parallel] private (
       }
     } yield state).value
 
-  private def addSwitchState[G[_]: Traverse](buttons: G[Button]): F[G[Button]] = buttons.parTraverse {
+  protected def addSwitchState[G[_]: Traverse](buttons: G[Button]): F[G[Button]] = buttons.parTraverse {
     case button: SwitchIcon => doIfPresent(button.device, button.name, button, state => button.copy(isOn = state.isOn))
     case button: SwitchLabel => doIfPresent(button.device, button.name, button, state => button.copy(isOn = state.isOn))
     case macroButton: MacroIcon =>
@@ -104,12 +101,11 @@ class ConfigService[F[_]: Parallel] private (
     case button: Any => F.pure(button)
   }
 
-  private def addActiveActivity(activities: ConfigResult[String, Activity]): F[ConfigResult[String, Activity]] =
+  protected def addActiveActivity(activities: ConfigResult[String, Activity]): F[ConfigResult[String, Activity]] =
     activities.values.toList
       .parTraverse {
         case (k, activity) =>
-          activityStore
-            .loadActivity(activity.room)
+          loadActivity(activity.room)
             .map(
               _.fold(activity)(
                 active =>
@@ -126,6 +122,74 @@ class ConfigService[F[_]: Parallel] private (
   def getActivities: F[ConfigResult[String, Activity]] = trace.span("get.activities") {
     activity.getConfig.flatMap(addActiveActivity)
   }
+
+  def getRemotes: F[ConfigResult[NonEmptyString, Remote]] = trace.span("get.remotes") {
+    remote.getConfig.flatMap { remotes =>
+      remotes.values.toList
+        .parTraverse {
+          case (k, remote) =>
+            addSwitchState(remote.buttons).map(b => k -> remote.copy(buttons = b))
+        }
+        .map(rs => remotes.copy(values = ListMap.from(rs.sortBy(_._2.order).reverse)))
+    }
+  }
+
+  def getCommonButtons: F[ConfigResult[String, Button]] = trace.span("get.commonButtons") {
+    button.getConfig.flatMap { buttons =>
+      addSwitchState(buttons.values.values.toList).map { bs =>
+        buttons.copy(
+          values = ListMap.from(
+            bs.map { b =>
+                s"${b.room.getOrElse("all")}-${b.name}" -> b
+              }
+              .sortBy(_._2.order)
+              .reverse
+          )
+        )
+      }
+    }
+  }
+
+  implicit val ord: Ordering[Int] = new Ordering[Int] {
+    override def compare(x: Int, y: Int): Int = if (x < y) 1 else if (x > y) -1 else 0
+  }
+
+  def getRooms: F[Rooms] = trace.span("get.rooms") {
+    List(
+      trace.span("get.remotes") { remote.getConfig.map(r => r.values.values.flatMap(_.rooms) -> r.errors) },
+      trace.span("get.activities") { activity.getConfig.map(a => a.values.values.map(_.room) -> a.errors) },
+      trace.span("get.common.buttons") { button.getConfig.map(b => b.values.values.flatMap(_.room) -> b.errors) }
+    ).parSequence.map { data =>
+      val (remotes, errors) = data.unzip
+
+      Rooms(
+        remotes.flatten
+          .groupBy(identity)
+          .view
+          .mapValues(_.size)
+          .toList
+          .sortBy(_._2)
+          .map(_._1),
+        errors.flatten
+      )
+    }
+  }
+
+}
+
+class WritableConfigService[F[_]: Parallel](
+  activity: WritableConfigSource[F, String, Activity],
+  button: WritableConfigSource[F, String, Button],
+  remote: WritableConfigSource[F, NonEmptyString, Remote],
+  macros: MacroStore[F],
+  activityStore: ActivityStore[F],
+  switches: Switches[F],
+  validation: ConfigValidation[F],
+  configEventPublisher: EventPublisher[F, ConfigEvent],
+  logger: Logger[F]
+)(implicit F: MonadError[F, Throwable], errors: ConfigServiceErrors[F], trace: Trace[F])
+    extends ConfigService[F](activity, button, remote, macros.loadMacro, activityStore.loadActivity, switches, logger) {
+  import ConfigService._
 
   def addActivity(a: Activity): F[ConfigResult[String, Activity]] = trace.span("add.activity") {
     val activityKey = s"${a.room}-${a.name}"
@@ -169,17 +233,6 @@ class ConfigService[F[_]: Parallel] private (
     }
   }
 
-  def getRemotes: F[ConfigResult[NonEmptyString, Remote]] = trace.span("get.remotes") {
-    remote.getConfig.flatMap { remotes =>
-      remotes.values.toList
-        .parTraverse {
-          case (k, remote) =>
-            addSwitchState(remote.buttons).map(b => k -> remote.copy(buttons = b))
-        }
-        .map(rs => remotes.copy(values = ListMap.from(rs.sortBy(_._2.order).reverse)))
-    }
-  }
-
   def addRemote(r: Remote): F[ConfigResult[NonEmptyString, Remote]] = trace.span("add.remote") {
     remote.getValue(r.name).flatMap {
       case Some(_) => errors.remoteAlreadyExists(r.name)
@@ -205,22 +258,6 @@ class ConfigService[F[_]: Parallel] private (
       if (remotes.values.keySet.contains(r))
         remote.deleteItem(r).flatTap(_ => configEventPublisher.publish1(ConfigEvent.RemoteRemovedEvent(r, eventSource)))
       else errors.remoteMissing[ConfigResult[NonEmptyString, Remote]](r)
-    }
-  }
-
-  def getCommonButtons: F[ConfigResult[String, Button]] = trace.span("get.commonButtons") {
-    button.getConfig.flatMap { buttons =>
-      addSwitchState(buttons.values.values.toList).map { bs =>
-        buttons.copy(
-          values = ListMap.from(
-            bs.map { b =>
-                s"${b.room.getOrElse("all")}-${b.name}" -> b
-              }
-              .sortBy(_._2.order)
-              .reverse
-          )
-        )
-      }
     }
   }
 
@@ -264,34 +301,32 @@ class ConfigService[F[_]: Parallel] private (
       }
     }
 
-  implicit val ord: Ordering[Int] = new Ordering[Int] {
-    override def compare(x: Int, y: Int): Int = if (x < y) 1 else if (x > y) -1 else 0
-  }
-
-  def getRooms: F[Rooms] = trace.span("get.rooms") {
-    List(
-      trace.span("get.remotes") { remote.getConfig.map(r => r.values.values.flatMap(_.rooms) -> r.errors) },
-      trace.span("get.activities") { activity.getConfig.map(a => a.values.values.map(_.room) -> a.errors) },
-      trace.span("get.common.buttons") { button.getConfig.map(b => b.values.values.flatMap(_.room) -> b.errors) }
-    ).parSequence.map { data =>
-      val (remotes, errors) = data.unzip
-
-      Rooms(
-        remotes.flatten
-          .groupBy(identity)
-          .view
-          .mapValues(_.size)
-          .toList
-          .sortBy(_._2)
-          .map(_._1),
-        errors.flatten
-      )
-    }
-  }
 }
 
 object ConfigService {
   final val eventSource: String = "configService"
+
+  def apply[F[_]: Sync: Parallel: Trace: ConfigServiceErrors](
+    activity: ConfigSource[F, String, Activity],
+    button: ConfigSource[F, String, Button],
+    remote: ConfigSource[F, NonEmptyString, Remote],
+    macros: ConfigSource[F, NonEmptyString, NonEmptyList[Command]],
+    currentActivity: ConfigSource[F, Room, NonEmptyString],
+    switches: Switches[F],
+  ): F[ConfigService[F]] =
+    Slf4jLogger
+      .create[F]
+      .map(
+        new ConfigService[F](
+          activity,
+          button,
+          remote,
+          name => macros.getConfig.map(_.values.get(name)),
+          room => currentActivity.getConfig.map(_.values.get(room)),
+          switches,
+          _
+        ) {}
+      )
 
   def apply[F[_]: Sync: Parallel: Trace: ConfigServiceErrors](
     activity: WritableConfigSource[F, String, Activity],
@@ -302,11 +337,11 @@ object ConfigService {
     switches: Switches[F],
     validation: ConfigValidation[F],
     configEventPublisher: EventPublisher[F, ConfigEvent]
-  ): F[ConfigService[F]] =
+  ): F[WritableConfigService[F]] =
     Slf4jLogger
-      .fromClass[F](this.getClass)
+      .create[F]
       .map(
-        new ConfigService[F](
+        new WritableConfigService[F](
           activity,
           button,
           remote,

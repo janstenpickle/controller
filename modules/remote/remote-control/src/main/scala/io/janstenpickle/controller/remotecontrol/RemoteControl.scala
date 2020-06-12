@@ -59,28 +59,23 @@ object RemoteControl {
     underlying: RemoteControl[F],
     eventPublisher: EventPublisher[F, RemoteEvent]
   ): F[RemoteControl[F]] =
-    underlying.listCommands
-      .flatMap(_.traverse { command =>
-        eventPublisher
-          .publish1(RemoteEvent.RemoteLearntCommand(command.remote, command.device, command.source, command.name))
-      })
-      .as(new RemoteControl[F] {
-        override def remoteName: NonEmptyString = underlying.remoteName
+    Applicative[F].pure(new RemoteControl[F] {
+      override def remoteName: NonEmptyString = underlying.remoteName
 
-        override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-          underlying.learn(device, name) *> eventPublisher
-            .publish1(RemoteEvent.RemoteLearntCommand(remoteName, device, None, name))
+      override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
+        underlying.learn(device, name) *> eventPublisher
+          .publish1(RemoteEvent.RemoteLearntCommand(remoteName, device, None, name))
 
-        override def sendCommand(
-          source: Option[RemoteCommandSource],
-          device: NonEmptyString,
-          name: NonEmptyString
-        ): F[Unit] =
-          underlying.sendCommand(source, device, name) *> eventPublisher
-            .publish1(RemoteEvent.RemoteSendCommandEvent(RemoteCommand(remoteName, source, device, name)))
+      override def sendCommand(
+        source: Option[RemoteCommandSource],
+        device: NonEmptyString,
+        name: NonEmptyString
+      ): F[Unit] =
+        underlying.sendCommand(source, device, name) *> eventPublisher
+          .publish1(RemoteEvent.RemoteSendCommandEvent(RemoteCommand(remoteName, source, device, name)))
 
-        override def listCommands: F[List[RemoteCommand]] = underlying.listCommands
-      })
+      override def listCommands: F[List[RemoteCommand]] = underlying.listCommands
+    })
 
   def empty[F[_]](
     remote: NonEmptyString

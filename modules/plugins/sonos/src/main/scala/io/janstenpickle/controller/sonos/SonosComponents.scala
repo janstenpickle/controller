@@ -12,7 +12,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
-import io.janstenpickle.controller.model.{Command, Remote}
+import io.janstenpickle.controller.model.{Button, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
@@ -81,7 +81,8 @@ object SonosComponents {
           Monoid[Scheduler[F]].empty,
           activityConfig,
           remoteConfig,
-          ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]]
+          ConfigSource.empty[F, NonEmptyString, NonEmptyList[Command]],
+          ConfigSource.empty[F, String, Button]
         )
       } else
       Resource.pure[F, Components[F]](Monoid[Components[F]].empty)

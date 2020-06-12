@@ -243,7 +243,16 @@ object TplinkDiscovery {
         .map(_.map(ConfigEvent.RemoteAddedEvent(_, eventSource)))
     }.unNone.through(configEventPublisher.pipe)
 
-    val onDeviceAdded: Pipe[F, TplinkDevice[F], Unit] = _.broadcastThrough(switchAdded, remoteConfigAdded)
+    val remoteCommandsAdded: Pipe[F, TplinkDevice[F], Unit] = _.flatMap {
+      case dev: TplinkDevice.SmartBulb[F] if dev.room.isDefined =>
+        Stream.emits(TplinkRemoteControl.commands(dev).keys.toList.map[RemoteEvent] { cmd =>
+          RemoteEvent.RemoteLearntCommand(config.remoteName, dev.name, CommandSource, cmd)
+        })
+      case _ => Stream.empty
+    }.through(remoteEventPublisher.pipe)
+
+    val onDeviceAdded: Pipe[F, TplinkDevice[F], Unit] =
+      _.broadcastThrough(switchAdded, remoteConfigAdded, remoteCommandsAdded)
 
     val switchRemoved: Pipe[F, TplinkDevice[F], Unit] = _.map { device =>
       SwitchEvent.SwitchRemovedEvent(SwitchKey(device.device, device.name))

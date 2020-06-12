@@ -63,7 +63,8 @@ object KodiDiscovery {
   private def onDeviceAdded[F[_]: Concurrent: Clock: Trace](
     config: KodiComponents.Config,
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    switchEventPublisher: EventPublisher[F, SwitchEvent]
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    remoteEventPublisher: EventPublisher[F, RemoteEvent]
   ): Pipe[F, KodiDevice[F], Unit] = stream => {
 
     val addedSwitches: Pipe[F, KodiDevice[F], Unit] = _.flatMap { dev =>
@@ -83,7 +84,13 @@ object KodiDiscovery {
       KodiRemoteConfigSource.deviceToRemotes(config.remote, config.activityConfig.name, _)
     ).flatMap(Stream.emits).map(r => RemoteAddedEvent(r, eventSource)).through(configEventPublisher.pipe)
 
-    stream.broadcastThrough(addedSwitches, addedRemotes)
+    val learntCommands: Pipe[F, KodiDevice[F], Unit] = _.flatMap { device =>
+      Stream.emits(KodiRemoteControl.commands[F].keys.toList.map { cmd =>
+        RemoteEvent.RemoteLearntCommand(config.remote, device.name, KodiRemoteControl.CommandSource, cmd)
+      })
+    }.through(remoteEventPublisher.pipe)
+
+    stream.broadcastThrough(addedSwitches, addedRemotes, learntCommands)
   }
 
   private def onDeviceRemoved[F[_]: Concurrent: Clock: Trace](
@@ -162,7 +169,10 @@ object KodiDiscovery {
       _ <- Resource.make(disc.devices.flatMap { discovered =>
         Stream
           .fromIterator[F](discovered.devices.values.iterator)
-          .broadcastThrough(onDeviceAdded(config, configEventPublisher, switchEventPublisher), deviceDiscovered)
+          .broadcastThrough(
+            onDeviceAdded(config, configEventPublisher, switchEventPublisher, remoteEventPublisher),
+            deviceDiscovered
+          )
           .compile
           .drain *> remoteEventPublisher.publish1(
           RemoteEvent.RemoteAddedEvent(KodiRemoteControl.RemoteName, eventSource)
@@ -329,7 +339,7 @@ object KodiDiscovery {
       config = config.polling,
       doDiscovery = discover,
       onDevicesUpdate = (_, _) => F.unit,
-      onDeviceDiscovered = onDeviceAdded(config, configEventPublisher, switchEventPublisher),
+      onDeviceDiscovered = onDeviceAdded(config, configEventPublisher, switchEventPublisher, remoteEventPublisher),
       onDeviceRemoved = onDeviceRemoved(config, configEventPublisher, switchEventPublisher),
       onDeviceUpdate = onDeviceUpdate(config, configEventPublisher),
       discoveryEventProducer = discoveryEventPublisher,

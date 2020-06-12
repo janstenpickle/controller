@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.kodi
 
-import cats.{Monad, Parallel}
+import cats.{FlatMap, Monad, Parallel}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -15,6 +15,16 @@ object KodiRemoteControl {
   final val RemoteName = NonEmptyString("kodi")
   final val CommandSource = Some(RemoteCommandSource(NonEmptyString("kodi"), NonEmptyString("programatic")))
 
+  def commands[F[_]: FlatMap]: Map[NonEmptyString, KodiDevice[F] => F[Unit]] =
+    Map[NonEmptyString, KodiDevice[F] => F[Unit]](
+      ScanVideoLibrary -> (_.scanVideoLibrary),
+      PlayPause -> (dev => dev.isPlaying.flatMap(p => dev.setPlaying(!p))),
+      VolUp -> (_.volumeUp),
+      VolDown -> (_.volumeDown)
+    ) ++ InputCommands.map { cmd =>
+      cmd -> ((device: KodiDevice[F]) => device.sendInputAction(cmd))
+    }.toMap
+
   def apply[F[_]: Trace](
     discovery: KodiDiscovery[F],
     eventPublisher: EventPublisher[F, RemoteEvent]
@@ -26,15 +36,7 @@ object KodiRemoteControl {
             override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
               errors.learningNotSupported(RemoteName)
 
-            private val commands: Map[NonEmptyString, KodiDevice[F] => F[Unit]] =
-              Map[NonEmptyString, KodiDevice[F] => F[Unit]](
-                ScanVideoLibrary -> (_.scanVideoLibrary),
-                PlayPause -> (dev => dev.isPlaying.flatMap(p => dev.setPlaying(!p))),
-                VolUp -> (_.volumeUp),
-                VolDown -> (_.volumeDown)
-              ) ++ InputCommands.map { cmd =>
-                cmd -> ((device: KodiDevice[F]) => device.sendInputAction(cmd))
-              }.toMap
+            private val cmds = commands[F]
 
             override def sendCommand(
               source: Option[RemoteCommandSource],
@@ -42,7 +44,7 @@ object KodiRemoteControl {
               name: NonEmptyString
             ): F[Unit] =
               discovery.devices.flatMap { devices =>
-                (devices.devices.get(device), commands.get(name)) match {
+                (devices.devices.get(device), cmds.get(name)) match {
                   case (Some(client), Some(command)) => command(client)
                   case _ => errors.commandNotFound(RemoteName, device, name)
                 }
@@ -52,7 +54,7 @@ object KodiRemoteControl {
               discovery.devices.map { devices =>
                 (for {
                   instance <- devices.devices.keys
-                  command <- commands.keys
+                  command <- cmds.keys
                 } yield RemoteCommand(RemoteName, CommandSource, instance, command)).toList
               }
 

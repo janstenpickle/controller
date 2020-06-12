@@ -16,7 +16,8 @@ object KafkaPubSub {
   case class Config(
     bootstrapServers: NonEmptyList[NonEmptyString],
     staticHeaders: Map[String, String] = Map.empty,
-    headerFilter: Map[String, String] = Map.empty
+    headerMatchesFilter: Map[String, String] = Map.empty,
+    headerNonMatchesFilter: Map[String, String] = Map.empty
   )
 
   def apply[F[_]: ConcurrentEffect: ContextShift: Timer, V: ToOption](
@@ -45,9 +46,9 @@ object KafkaPubSub {
       new EventPubSub[F, V] {
         override def publisher: EventPublisher[F, V] = pub
         override def subscriberResource: Resource[F, EventSubscriber[F, V]] =
-          KafkaSubscriber.resource(topic, consumer, config.headerFilter)
+          KafkaSubscriber.resource(topic, consumer, config.headerMatchesFilter, config.headerNonMatchesFilter)
         override def subscriberStream: EventSubscriber[F, V] =
-          KafkaSubscriber.stream(topic, consumer, config.headerFilter)
+          KafkaSubscriber.stream(topic, consumer, config.headerMatchesFilter, config.headerNonMatchesFilter)
       }
     }
   }

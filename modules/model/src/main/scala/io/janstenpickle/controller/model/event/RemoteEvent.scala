@@ -22,6 +22,8 @@ object RemoteEvent {
     command: NonEmptyString
   ) extends RemoteEvent
 
+  // TODO add remote forgot command
+
   implicit val toOption: ToOption[RemoteEvent] = ToOption.instance {
     case _: RemoteRemovedEvent => None
     case e: Any => Some(e)
