@@ -8,7 +8,7 @@ import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Pipe
 import fs2.kafka._
-import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.events.{Event, EventPublisher}
 import io.janstenpickle.controller.model.event.ToOption
 
 object KafkaPublisher {
@@ -42,6 +42,13 @@ object KafkaPublisher {
             }
             .through(produce(settings, producer))
             .map(_ => ())
+
+        // FIXME put time and meta in headers
+        override def publish1Event(a: Event[V]): F[Unit] = ???
+
+        override def eventPipe: Pipe[F, Event[V], Unit] = ???
+
+        override def updateSource(source: String): EventPublisher[F, V] = ???
       }
     }
 }

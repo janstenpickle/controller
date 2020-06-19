@@ -3,7 +3,7 @@ package io.janstenpickle.controller.api.endpoint
 import cats.effect.Sync
 import cats.syntax.flatMap._
 import io.janstenpickle.controller.schedule.Scheduler
-import io.janstenpickle.controller.schedule.model._
+import io.janstenpickle.controller.schedule.model.Schedule
 import org.http4s.HttpRoutes
 
 class ScheduleApi[F[_]: Sync](scheduler: Scheduler[F]) extends Common[F] {

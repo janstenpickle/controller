@@ -12,14 +12,19 @@ trait EventSubscriber[F[_], A] { outer =>
   def subscribeEvent: Stream[F, Event[A]]
   def map[B](f: A => B): EventSubscriber[F, B] = new EventSubscriber[F, B] {
     override def subscribeEvent: Stream[F, Event[B]] = outer.subscribeEvent.map { event =>
-      Event(f(event.value), event.time)
+      Event(f(event.value), event.time, event.source)
     }
   }
   def collect[B](pf: PartialFunction[A, B]): EventSubscriber[F, B] = new EventSubscriber[F, B] {
     override def subscribeEvent: Stream[F, Event[B]] =
       outer.subscribeEvent.map { event =>
-        pf.andThen(Option(_)).applyOrElse(event.value, (_: A) => Option.empty[B]).map(Event(_, event.time))
+        pf.andThen(Option(_))
+          .applyOrElse(event.value, (_: A) => Option.empty[B])
+          .map(Event(_, event.time, event.source))
       }.unNone
+  }
+  def filterEvent(f: Event[A] => Boolean): EventSubscriber[F, A] = new EventSubscriber[F, A] {
+    override def subscribeEvent: Stream[F, Event[A]] = outer.subscribeEvent.filter(f)
   }
   def mapK[G[_]](fk: F ~> G): EventSubscriber[G, A] = EventSubscriber.mapK(fk)(this)
 }

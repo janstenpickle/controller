@@ -4,6 +4,7 @@ import cats.effect.{Bracket, Clock, Concurrent, Resource}
 import cats.syntax.functor._
 import cats.{~>, Applicative, Defer}
 import fs2.concurrent.Topic
+import natchez.Trace
 
 trait EventPubSub[F[_], A] { outer =>
   def publisher: EventPublisher[F, A]
@@ -15,10 +16,10 @@ trait EventPubSub[F[_], A] { outer =>
 
 object EventPubSub {
 
-  def topicNonBlocking[F[_]: Concurrent: Clock, A](maxQueued: Int): F[EventPubSub[F, A]] =
+  def topicNonBlocking[F[_]: Concurrent: Clock: Trace, A](maxQueued: Int, source: String): F[EventPubSub[F, A]] =
     Topic[F, Option[Event[A]]](None).map { topic =>
       new EventPubSub[F, A] {
-        override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic)
+        override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic, source)
         override def subscriberResource: Resource[F, EventSubscriber[F, A]] =
           EventSubscriber.resourceFromTopicNonBlocking(topic, maxQueued)
 
@@ -27,10 +28,10 @@ object EventPubSub {
       }
     }
 
-  def topicBlocking[F[_]: Concurrent: Clock, A](maxQueued: Int): F[EventPubSub[F, A]] =
+  def topicBlocking[F[_]: Concurrent: Clock: Trace, A](maxQueued: Int, source: String): F[EventPubSub[F, A]] =
     Topic[F, Option[Event[A]]](None).map { topic =>
       new EventPubSub[F, A] {
-        override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic)
+        override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic, source)
         override def subscriberResource: Resource[F, EventSubscriber[F, A]] =
           EventSubscriber.resourceFromTopicBlocking(topic, maxQueued)
 

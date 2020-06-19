@@ -13,7 +13,7 @@ object RemoteEvent {
 
   case class RemoteRemovedEvent(remoteName: NonEmptyString, eventSource: String) extends RemoteEvent
 
-  case class RemoteSendCommandEvent(command: RemoteCommand) extends RemoteEvent
+  case class RemoteSentCommandEvent(command: RemoteCommand) extends RemoteEvent
 
   case class RemoteLearntCommand(
     remoteName: NonEmptyString,

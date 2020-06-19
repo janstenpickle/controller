@@ -19,7 +19,7 @@ import io.janstenpickle.controller.model.event.RemoteEvent.{
   RemoteAddedEvent,
   RemoteLearntCommand,
   RemoteRemovedEvent,
-  RemoteSendCommandEvent
+  RemoteSentCommandEvent
 }
 
 object KafkaRemoteEventPubSub {
@@ -33,7 +33,7 @@ object KafkaRemoteEventPubSub {
       case e @ RemoteRemovedEvent(_, _) => deriveConfiguredCodec[RemoteRemovedEvent].apply(e).noSpacesSortKeys
       case RemoteLearntCommand(remoteName, remoteDevice, source, command) =>
         s"learn-$remoteName-$remoteDevice-$source-$command"
-      case RemoteSendCommandEvent(RemoteCommand(remote, source, device, name)) => s"send-$remote-$source-$device-$name"
+      case RemoteSentCommandEvent(RemoteCommand(remote, source, device, name)) => s"send-$remote-$source-$device-$name"
     }
 
   implicit def remoteEventKeyDeserializer[F[_]: Sync]: Deserializer[F, Option[RemoteEvent]] =

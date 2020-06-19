@@ -19,6 +19,7 @@ val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.1.2"
+val sttpWebsocketClientVer = "2.0.0"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
@@ -114,10 +115,10 @@ lazy val root = (project in file("."))
     server
   )
 
-lazy val api = (project in file("modules/api"))
+lazy val allInOne = (project in file("modules/all-in-one"))
   .settings(commonSettings)
   .settings(
-    name := "controller-api",
+    name := "controller-all-in-one",
     packageName in Docker := "controller",
     dockerRepository := Some("janstenpickle"),
     dockerUpdateLatest := true,
@@ -186,6 +187,7 @@ lazy val api = (project in file("modules/api"))
     }
   )
   .dependsOn(
+    api,
     advertiser,
     arrow,
     tplink,
@@ -217,12 +219,97 @@ lazy val api = (project in file("modules/api"))
     mqttEvents,
     cronScheduler,
     deconzBridge,
-    eventDrivenSwitches,
+    eventDrivenComponents,
     websocketEvents,
     discoveryConfig,
-    server
+    server,
+    websocketClientEvents
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
+
+lazy val api = (project in file("modules/api"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-api",
+    libraryDependencies ++= Seq(
+      "eu.timepit"        %% "refined-cats"         % refinedVer,
+      "io.extruder"       %% "extruder-cats-effect" % extruderVer,
+      "io.chrisdavenport" %% "log4cats-slf4j"       % log4catsVer,
+      "org.http4s"        %% "http4s-server"        % http4sVer,
+      "org.http4s"        %% "http4s-circe"         % http4sVer,
+      "org.http4s"        %% "http4s-core"          % http4sVer,
+      "org.http4s"        %% "http4s-dsl"           % http4sVer,
+      "org.typelevel"     %% "cats-mtl-core"        % catsMtlVer,
+      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+    )
+  )
+  .dependsOn(
+    arrow,
+    http4s,
+    trace,
+    events,
+    remoteControl,
+    switch,
+    `macro`,
+    context,
+    activity,
+    configSource,
+    model,
+    dynamicDiscovery,
+    schedule
+  )
+
+lazy val coordinator = (project in file("modules/coordinator"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-coordinator",
+    libraryDependencies ++= Seq(
+      "eu.timepit"        %% "refined-cats"              % refinedVer,
+      "io.extruder"       %% "extruder-cats-effect"      % extruderVer,
+      "io.extruder"       %% "extruder-circe"            % extruderVer,
+      "io.extruder"       %% "extruder-refined"          % extruderVer,
+      "io.extruder"       %% "extruder-typesafe"         % extruderVer,
+      "ch.qos.logback"    % "logback-classic"            % "1.2.3",
+      "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.0",
+      "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
+      "org.http4s"        %% "http4s-circe"              % http4sVer,
+      "org.http4s"        %% "http4s-core"               % http4sVer,
+      "org.http4s"        %% "http4s-dsl"                % http4sVer,
+      "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
+      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
+      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+    )
+  )
+  .dependsOn(
+    api,
+    advertiser,
+    server,
+    websocketEvents,
+    trace,
+    prometheusTrace,
+    eventCommands,
+    remoteControl,
+    remoteConfig,
+    remoteStore,
+    switchStore,
+    switchConfig,
+    virtualSwitch,
+    multiSwitch,
+    stats,
+    prometheusStats,
+    prometheusTrace,
+    trace,
+    circeConfigSource,
+    gitRemoteStore,
+    `macro`,
+    macroConfig,
+    context,
+    activity,
+    activityConfig,
+    cronScheduler,
+    eventDrivenComponents
+  )
 
 lazy val server = (project in file("modules/server"))
   .settings(commonSettings)
@@ -243,7 +330,7 @@ lazy val server = (project in file("modules/server"))
       "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer
     )
   )
-  .dependsOn(advertiser, poller, arrow, http4s, websocketEvents, components)
+  .dependsOn(advertiser, poller, arrow, http4s, websocketEvents, components, trace)
 
 lazy val http4s = (project in file("modules/http4s"))
   .settings(commonSettings)
@@ -292,10 +379,22 @@ lazy val errors = (project in file("modules/errors"))
   .settings(commonSettings)
   .settings(name := "controller-errors")
 
-lazy val components = (project in file("modules/components"))
+lazy val components = (project in file("modules/components/components"))
   .settings(commonSettings)
   .settings(name := "controller-components")
   .dependsOn(model, configSource, remoteControl, schedule, switch, dynamicDiscovery)
+
+lazy val eventDrivenComponents = (project in file("modules/components/event-driven-components"))
+  .settings(commonSettings)
+  .settings(name := "controller-event-driven-components")
+  .dependsOn(
+    components,
+    events,
+    eventDrivenRemoteControls,
+    eventDrivenSwitches,
+    eventDrivenActivity,
+    eventDrivenDeviceRename
+  )
 
 lazy val configSource = (project in file("modules/config/config-source"))
   .settings(commonSettings)
@@ -369,12 +468,13 @@ lazy val events = (project in file("modules/events/events"))
     libraryDependencies ++= Seq(
       "org.typelevel"     %% "cats-effect"    % catsEffectVer,
       "co.fs2"            %% "fs2-core"       % fs2Ver,
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "org.tpolecat"      %% "natchez-core"   % natchezVer
     )
   )
-  .dependsOn(model, errors)
+  .dependsOn(arrow, model, errors)
 
-lazy val componentsEventsState = (project in file("modules/events/components-events-state"))
+lazy val componentsEventsState = (project in file("modules/components/components-events-state"))
   .settings(commonSettings)
   .settings(
     name := "controller-components-events-state",
@@ -395,7 +495,7 @@ lazy val eventDrivenConfigSource = (project in file("modules/events/event-driven
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
-  .dependsOn(configSource, events, model)
+  .dependsOn(configSource, tracedConfigSource, events, model)
 
 lazy val tracedRemote = (project in file("modules/remote/trace-remote"))
   .settings(commonSettings)
@@ -509,7 +609,7 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
       "eu.timepit"                   %% "refined-cats"                  % refinedVer,
       "org.typelevel"                %% "kittens"                       % kittensVer,
       "io.chrisdavenport"            %% "log4cats-slf4j"                % log4catsVer,
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % "2.0.0",
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % sttpWebsocketClientVer,
       "io.circe"                     %% "circe-parser"                  % circeVer,
       "io.circe"                     %% "circe-generic"                 % circeVer,
       "org.tpolecat"                 %% "natchez-core"                  % natchezVer
@@ -725,6 +825,27 @@ lazy val sonos = (project in file("modules/plugins/sonos"))
     dynamicDiscovery
   )
 
+lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-plugin-kodi-server",
+    libraryDependencies ++= Seq(
+      "org.http4s"     %% "http4s-jdk-http-client" % "0.3.0",
+      "ch.qos.logback" % "logback-classic"         % "1.2.3"
+    )
+  )
+  .dependsOn(
+    kodi,
+    advertiser,
+    server,
+    websocketClientEvents,
+    trace,
+    prometheusTrace,
+    eventCommands,
+    extruder,
+    discoveryConfig
+  )
+
 lazy val kodi = (project in file("modules/plugins/kodi"))
   .settings(commonSettings)
   .settings(
@@ -826,6 +947,17 @@ lazy val websocketEvents = (project in file("modules/events/websocket-events"))
   )
   .dependsOn(arrow, events, model, componentsEventsState)
 
+lazy val websocketClientEvents = (project in file("modules/events/websocket-client-events"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-websocket-client-events",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % sttpWebsocketClientVer,
+      "org.tpolecat"                 %% "natchez-core"                  % natchezVer
+    )
+  )
+  .dependsOn(arrow, events, model, componentsEventsState)
+
 lazy val eventDrivenSwitches = (project in file("modules/switch/event-driven-switches"))
   .settings(commonSettings)
   .settings(
@@ -837,7 +969,7 @@ lazy val eventDrivenSwitches = (project in file("modules/switch/event-driven-swi
 lazy val eventDrivenRemoteControls = (project in file("modules/remote/event-driven-remote-controls"))
   .settings(commonSettings)
   .settings(name := "controller-event-driven-remote-controls")
-  .dependsOn(events, model, remoteControl)
+  .dependsOn(events, model, remoteControl, eventDrivenConfigSource)
 
 lazy val eventDrivenActivity = (project in file("modules/activity/event-driven-activity"))
   .settings(commonSettings)

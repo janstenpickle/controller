@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.environment
+package io.janstenpickle.controller.allinone.environment
 
 import java.net.http.HttpClient
 import java.util.concurrent.Executor
@@ -6,7 +6,7 @@ import java.util.concurrent.Executor
 import cats.effect.{Blocker, Clock, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.syntax.semigroup._
 import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
-import io.janstenpickle.controller.api.config.Configuration
+import io.janstenpickle.controller.allinone.config.Configuration
 import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.trace.instances._
@@ -18,6 +18,7 @@ import org.http4s.client.Client
 import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
 import org.http4s.metrics.prometheus.Prometheus
+
 object Resources {
 
   private final val serviceName = "controller"

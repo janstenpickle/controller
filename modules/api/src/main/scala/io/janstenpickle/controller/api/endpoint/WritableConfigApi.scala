@@ -1,35 +1,20 @@
 package io.janstenpickle.controller.api.endpoint
 
+import cats.Semigroupal
 import cats.data.ValidatedNel
 import cats.effect.{Concurrent, Timer}
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
-import cats.syntax.apply._
 import cats.syntax.either._
 import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.{~>, Semigroupal}
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
-import fs2.Stream
-import io.circe.Encoder
 import io.circe.refined._
-import io.circe.syntax._
 import io.janstenpickle.controller.api.service.WritableConfigService
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.configsource.ConfigResult
-import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.http4s.error.ControlError
-import io.janstenpickle.controller.http4s.trace.Http4sUtils
 import io.janstenpickle.controller.model._
-import io.janstenpickle.controller.model.event.ConfigEvent._
-import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, ConfigEvent, SwitchEvent}
 import natchez.Trace
 import org.http4s._
-import org.http4s.server.websocket.WebSocketBuilder
-import org.http4s.websocket.WebSocketFrame.Text
-
-import scala.concurrent.duration._
 
 class WritableConfigApi[F[_]: Timer](service: WritableConfigService[F])(
   implicit F: Concurrent[F],

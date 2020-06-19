@@ -30,10 +30,14 @@ object KafkaEvents {
 
   def apply[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](config: Config): Resource[F, Events[F]] =
     Parallel
-      .parMap7[Resource[F, *], EventPubSub[F, RemoteEvent], EventPubSub[F, SwitchEvent], EventPubSub[F, ConfigEvent], EventPubSub[
+      .parMap8[Resource[F, *], String, EventPubSub[F, RemoteEvent], EventPubSub[F, SwitchEvent], EventPubSub[
         F,
-        DeviceDiscoveryEvent
-      ], EventPubSub[F, ActivityUpdateEvent], EventPubSub[F, MacroEvent], EventPubSub[F, CommandEvent], Events[F]](
+        ConfigEvent
+      ], EventPubSub[F, DeviceDiscoveryEvent], EventPubSub[F, ActivityUpdateEvent], EventPubSub[F, MacroEvent], EventPubSub[
+        F,
+        CommandEvent
+      ], Events[F]](
+        Resource.pure[F, String](""), // FIXME proper source
         KafkaRemoteEventPubSub[F](config.topics.remoteTopic, config.kafka),
         KafkaSwitchEventPubSub[F](config.topics.switchTopic, config.kafka),
         KafkaConfigEventPubSub[F](config.topics.configTopic, config.kafka),

@@ -16,7 +16,7 @@ import io.circe.Encoder
 import io.circe.refined._
 import io.circe.syntax._
 import io.janstenpickle.controller.api.ValidatingOptionalQueryParamDecoderMatcher
-import io.janstenpickle.controller.api.service.{ConfigService, WritableConfigService}
+import io.janstenpickle.controller.api.service.ConfigService
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.ConfigResult
 import io.janstenpickle.controller.events.EventPubSub
@@ -26,9 +26,9 @@ import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.model.event.ConfigEvent._
 import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, ConfigEvent, SwitchEvent}
 import natchez.Trace
+import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
-import org.http4s._
 
 import scala.concurrent.duration._
 

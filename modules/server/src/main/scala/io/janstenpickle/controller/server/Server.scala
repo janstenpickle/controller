@@ -1,27 +1,28 @@
 package io.janstenpickle.controller.server
 
-import java.util.concurrent.Executors
+import java.net.InetAddress
+import java.util.concurrent.{Executors, ThreadFactory}
 
-import cats.{Eq, MonadError}
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
-import com.typesafe.config.Config
+import cats.syntax.flatMap._
+import cats.syntax.semigroupk._
+import cats.{Applicative, Eq, MonadError}
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import extruder.cats.effect.EffectValidation
 import extruder.core.{Decoder, Settings, ValidationErrorsToThrowable}
 import extruder.data.ValidationErrors
-import io.janstenpickle.controller.server.Reloader.ExitSignal
 import fs2.Stream
+import io.janstenpickle.controller.server.Reloader.ExitSignal
 import io.prometheus.client.CollectorRegistry
 import org.http4s.HttpRoutes
-import org.http4s.metrics.prometheus.Prometheus
+import org.http4s.metrics.prometheus.{Prometheus, PrometheusExportService}
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.server.middleware.{CORS, CORSConfig, GZip, Metrics}
 import org.http4s.syntax.all._
 
 import scala.concurrent.duration._
-import cats.syntax.flatMap._
 
 object Server {
   case class Config(
@@ -39,9 +40,23 @@ object Server {
       )
     )
 
-  def apply[F[_]: ConcurrentEffect: ContextShift: Timer, A: Eq](
+  def blocker[F[_]: Sync](name: String): Resource[F, Blocker] =
+    Blocker.fromExecutorService(Sync[F].delay(Executors.newCachedThreadPool(new ThreadFactory {
+      def newThread(r: Runnable) = {
+        val t = new Thread(r, s"$name-blocker")
+        t.setDaemon(true)
+        t
+      }
+    })))
+
+  def hostname[F[_]: Sync](config: Option[NonEmptyString]): F[String] =
+    config
+      .map(_.value)
+      .orElse(Option(System.getenv("HOSTNAME")).filter(_.nonEmpty))
+      .fold(Sync[F].delay(InetAddress.getLocalHost.getHostName))(host => Applicative[F].pure(host))
+
+  def apply[F[_]: ConcurrentEffect: ContextShift: Timer, A <: ServerConfig: Eq](
     configFile: Option[String],
-    serverConfig: A => Config,
     services: (A, ExitSignal[F]) => Stream[F, (HttpRoutes[F], CollectorRegistry, Option[Stream[F, Unit]])]
   )(implicit decoder: Decoder[EffectValidation[F, *], Settings, A, com.typesafe.config.Config]): Stream[F, ExitCode] = {
     def server(
@@ -52,6 +67,7 @@ object Server {
       signal: ExitSignal[F]
     ): Stream[F, ExitCode] =
       for {
+        _ <- Stream.resource(PrometheusExportService.addDefaults[F](registry))
         prometheus <- Stream.resource(Prometheus.metricsOps(registry))
         instrumentedRoutes = Metrics(prometheus)(routes)
         exit <- Stream.eval(Ref[F].of(ExitCode.Success))
@@ -65,7 +81,9 @@ object Server {
           .bindHttp(config.port.value, config.host.value)
           .withResponseHeaderTimeout(config.responseHeaderTimeout)
           .withIdleTimeout(config.idleTimeout)
-          .withHttpApp(CORS(GZip(instrumentedRoutes.orNotFound), corsConfig))
+          .withHttpApp(
+            CORS(GZip((instrumentedRoutes <+> PrometheusExportService.service[F](registry)).orNotFound), corsConfig)
+          )
           .serveWhile(signal, exit)
       } yield exitCode
 
@@ -82,7 +100,7 @@ object Server {
         conf <- Stream.eval(configOrError(getConfig()))
         (routes, registry, concurrent) <- services(conf, signal)
 
-        svr = server(serverConfig(conf), registry, routes, blocker, signal)
+        svr = server(conf.server, registry, routes, blocker, signal)
         exitCode <- concurrent.fold(svr)(svr.concurrently)
       } yield exitCode
     }

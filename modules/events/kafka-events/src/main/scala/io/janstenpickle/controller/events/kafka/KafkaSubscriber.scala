@@ -143,7 +143,8 @@ object KafkaSubscriber {
                 .orElse(r.record.timestamp.logAppendTime)
                 .orElse(r.record.timestamp.unknownTime)
                 .getOrElse(0)
-            )
+            ),
+            "" // FIXME get source from header
           )
         )
     else None

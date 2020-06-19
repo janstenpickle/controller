@@ -38,8 +38,14 @@ object KodiRemoteConfigSource {
       colored: Boolean = false
     ) = RemoteLabel(remoteName, CommandSource, device, command, label, Some(newRow), Some(colored), None, None)
 
-    def switchIcon(name: NonEmptyString, icon: NonEmptyString, isOn: Boolean, newRow: Boolean = false): SwitchIcon =
-      SwitchIcon(name, remoteName, icon, isOn, Some(newRow), None, None, None)
+    def switchIcon(
+      name: NonEmptyString,
+      device: NonEmptyString,
+      icon: NonEmptyString,
+      isOn: Boolean,
+      newRow: Boolean = false
+    ): SwitchIcon =
+      SwitchIcon(name, device, icon, isOn, Some(newRow), None, None, None)
 
     def mainTemplate(device: NonEmptyString, isPlaying: Boolean): List[Button] =
       List(
@@ -52,6 +58,7 @@ object KodiRemoteConfigSource {
         remoteIcon(device, Commands.Back, NonEmptyString("undo")),
         switchIcon(
           NonEmptyString.unsafeFrom(s"${device.value}_playpause"),
+          device,
           if (isPlaying) NonEmptyString("pause") else NonEmptyString("play_arrow"),
           isPlaying
         ),
@@ -64,6 +71,7 @@ object KodiRemoteConfigSource {
       remoteLabel(device, Commands.OSD, NonEmptyString("OSD"), colored = true),
       switchIcon(
         NonEmptyString.unsafeFrom(s"${device.value}_mute"),
+        device,
         if (isMuted) NonEmptyString("volume_up") else NonEmptyString("volume_off"),
         isMuted,
         newRow = true

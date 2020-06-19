@@ -72,7 +72,7 @@ object RemoteControl {
         name: NonEmptyString
       ): F[Unit] =
         underlying.sendCommand(source, device, name) *> eventPublisher
-          .publish1(RemoteEvent.RemoteSendCommandEvent(RemoteCommand(remoteName, source, device, name)))
+          .publish1(RemoteEvent.RemoteSentCommandEvent(RemoteCommand(remoteName, source, device, name)))
 
       override def listCommands: F[List[RemoteCommand]] = underlying.listCommands
     })

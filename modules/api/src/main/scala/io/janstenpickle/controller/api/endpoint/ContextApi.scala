@@ -8,7 +8,6 @@ import cats.syntax.either._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.circe.instances._
 import io.circe.refined._
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.http4s.error.ControlError

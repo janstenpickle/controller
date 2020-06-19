@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api
+package io.janstenpickle.controller.allinone
 
 import java.net.InetAddress
 import java.nio.file.{Path, Paths}
@@ -7,10 +7,10 @@ import cats.{~>, Id}
 import cats.effect.{ExitCode, IO, IOApp}
 import com.github.mob41.blapi.mac.Mac
 import extruder.core.Parser
-import io.janstenpickle.controller.api.config.Configuration.Config
+import io.janstenpickle.controller.allinone.config.Configuration.Config
 import extruder.typesafe._
 import extruder.refined._
-import io.janstenpickle.controller.api.environment.Module
+import io.janstenpickle.controller.allinone.environment.Module
 import fs2.Stream
 
 import scala.concurrent.Future
@@ -29,7 +29,6 @@ object Main extends IOApp {
     io.janstenpickle.controller.server
       .Server[IO, Config](
         args.headOption,
-        _.server,
         (config, signal) =>
           Stream
             .resource(Module.components[IO](config))

@@ -5,6 +5,7 @@ import cats.{~>, Applicative, Defer}
 import io.janstenpickle.controller.model.event._
 
 case class Events[F[_]](
+  source: String,
   remote: EventPubSub[F, RemoteEvent],
   switch: EventPubSub[F, SwitchEvent],
   config: EventPubSub[F, ConfigEvent],
@@ -15,6 +16,7 @@ case class Events[F[_]](
 ) {
   def mapK[G[_]: Defer: Applicative](fk: F ~> G, gk: G ~> F)(implicit F: Bracket[F, Throwable]): Events[G] =
     Events(
+      source,
       remote.mapK(fk, gk),
       switch.mapK(fk, gk),
       config.mapK(fk, gk),

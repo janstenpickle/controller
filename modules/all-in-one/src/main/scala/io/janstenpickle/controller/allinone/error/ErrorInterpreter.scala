@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.error
+package io.janstenpickle.controller.allinone.error
 
 import java.time.Instant
 

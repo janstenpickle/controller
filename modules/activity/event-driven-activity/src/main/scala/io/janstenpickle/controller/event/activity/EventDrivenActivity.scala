@@ -3,25 +3,38 @@ package io.janstenpickle.controller.event.activity
 import cats.Applicative
 import cats.effect.syntax.concurrent._
 import cats.effect.{Concurrent, Resource, Timer}
+import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
 import io.chrisdavenport.mapref.MapRef
 import io.janstenpickle.controller.activity.Activity
+import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.events.syntax.stream._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, CommandEvent}
+import natchez.TraceValue.StringValue
+import natchez.{Trace, TraceValue}
 
 import scala.concurrent.duration._
 
 object EventDrivenActivity {
-  def apply[F[_]: Concurrent: Timer](
+  def apply[F[_]: Concurrent: Timer, G[_]](
     activityUpdates: EventSubscriber[F, ActivityUpdateEvent],
-    commandPublisher: EventPublisher[F, CommandEvent]
+    commandPublisher: EventPublisher[F, CommandEvent],
+    source: String,
+  )(
+    implicit trace: Trace[F],
+    liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, Activity[F]] = {
 
+    def fields[A](room: Room, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
+      trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
+
     def listen(current: MapRef[F, Room, Option[NonEmptyString]]) =
-      activityUpdates.subscribe.evalMap {
-        case ActivityUpdateEvent(room, name, None) => current(room).set(Some(name))
+      activityUpdates.filterEvent(_.source != source).subscribeEvent.evalMapTrace("set.activity") {
+        case ActivityUpdateEvent(room, name, None) =>
+          fields(room, "activity" -> name.value)(current(room).set(Some(name)))
         case _ => Applicative[F].unit
       }
 
@@ -39,9 +52,12 @@ object EventDrivenActivity {
     } yield
       new Activity[F] {
         override def setActivity(room: Room, name: NonEmptyString): F[Unit] =
-          commandPublisher.publish1(CommandEvent.ActivityCommand(room, name))
+          trace.span("send.set.activity")(
+            fields(room, "activity" -> name.value)(commandPublisher.publish1(CommandEvent.ActivityCommand(room, name)))
+          )
 
-        override def getActivity(room: Room): F[Option[NonEmptyString]] = current(room).get
+        override def getActivity(room: Room): F[Option[NonEmptyString]] =
+          trace.span("get.activity")(fields(room)(current(room).get))
       }
   }
 }

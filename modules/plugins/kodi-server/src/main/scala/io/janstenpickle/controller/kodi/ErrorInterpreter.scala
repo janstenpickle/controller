@@ -1,0 +1,66 @@
+package io.janstenpickle.controller.kodi
+
+import cats.Apply
+import cats.mtl.{ApplicativeHandle, FunctorRaise}
+import eu.timepit.refined.types.net.PortNumber
+import eu.timepit.refined.types.string.NonEmptyString
+import io.chrisdavenport.log4cats.Logger
+import io.janstenpickle.controller.`macro`.MacroErrors
+import io.janstenpickle.controller.http4s.error
+import io.janstenpickle.controller.http4s.error.ControlError
+import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
+import io.janstenpickle.controller.switch.SwitchErrors
+
+class ErrorInterpreter[F[_]: Apply](
+  implicit
+  fr: FunctorRaise[F, ControlError],
+  ah: ApplicativeHandle[F, ControlError],
+  logger: Logger[F]
+) extends error.BaseErrorInterpreter[F]
+    with RemoteControlErrors[F]
+    with KodiErrors[F]
+    with SwitchErrors[F]
+    with MacroErrors[F] {
+  override def commandNotFound[A](remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Command '$name' for device '$device' on remote '$remote' not found"))
+
+  override def learnFailure[A](remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[A] =
+    raise(ControlError.Internal(s"Failed to learn command '$name' for device '$device' on remote '$remote'"))
+
+  override def missingRemote[A](name: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Remote '$name' not found"))
+
+  override def learningNotSupported[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Remote '$remote' does not support learning mode"))
+
+  private def kodiString(kodi: NonEmptyString, host: NonEmptyString, port: PortNumber): String =
+    s"Kodi '${kodi.value}' at '${host.value}:${port.value}'"
+
+  override def rpcError[A](
+    kodi: NonEmptyString,
+    host: NonEmptyString,
+    port: PortNumber,
+    code: Int,
+    message: String
+  ): F[A] =
+    raise(ControlError.Internal(s"${kodiString(kodi, host, port)} responded with an error '$message', code '$code'"))
+
+  override def missingResult[A](kodi: NonEmptyString, host: NonEmptyString, port: PortNumber): F[A] =
+    raise(ControlError.Internal(s"${kodiString(kodi, host, port)} responded with an invalid object"))
+
+  override def missingSwitch[A](device: NonEmptyString, name: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Switch of type '$device' named '$name' not found"))
+
+  override def missingMacro[A](name: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Macro '$name' not found"))
+
+  override def macroAlreadyExists[A](name: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Macro '$name' already exists"))
+}
+
+object ErrorInterpreter {
+  implicit def default[F[_]: Apply: Logger](
+    implicit fr: FunctorRaise[F, ControlError],
+    ah: ApplicativeHandle[F, ControlError]
+  ): ErrorInterpreter[F] = new ErrorInterpreter[F]()
+}

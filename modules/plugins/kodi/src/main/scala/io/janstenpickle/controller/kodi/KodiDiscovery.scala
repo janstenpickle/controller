@@ -33,7 +33,7 @@ import MetadataConstants._
 import fs2.{Pipe, Stream}
 import io.circe.Json
 import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.kodi.config.KodiRemoteConfigSource
+import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
 import io.janstenpickle.controller.model.event.ConfigEvent.{RemoteAddedEvent, RemoteRemovedEvent}
 import io.janstenpickle.controller.model.event.SwitchEvent.{
@@ -90,7 +90,15 @@ object KodiDiscovery {
       })
     }.through(remoteEventPublisher.pipe)
 
-    stream.broadcastThrough(addedSwitches, addedRemotes, learntCommands)
+    val addedActivities: Pipe[F, KodiDevice[F], Unit] = _.map { dev =>
+      ConfigEvent
+        .ActivityAddedEvent(
+          KodiActivityConfigSource.deviceToActivity(config.activityConfig, dev.name, dev),
+          eventSource
+        )
+    }.through(configEventPublisher.pipe)
+
+    stream.broadcastThrough(addedSwitches, addedRemotes, learntCommands, addedActivities)
   }
 
   private def onDeviceRemoved[F[_]: Concurrent: Clock: Trace](
@@ -109,7 +117,11 @@ object KodiDiscovery {
       KodiRemoteConfigSource.deviceToRemotes(config.remote, config.activityConfig.name, _)
     ).flatMap(Stream.emits).map(r => RemoteRemovedEvent(r.name, eventSource)).through(configEventPublisher.pipe)
 
-    stream.broadcastThrough(removedSwitches, removedRemotes)
+    val removedActivities: Pipe[F, KodiDevice[F], Unit] = _.map { dev =>
+      ConfigEvent.ActivityRemovedEvent(dev.room, config.activityConfig.name, eventSource)
+    }.through(configEventPublisher.pipe)
+
+    stream.broadcastThrough(removedSwitches, removedRemotes, removedActivities)
   }
 
   def static[F[_]: Parallel: Trace: KodiErrors: Clock, G[_]: Timer: Concurrent](

@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.config
+package io.janstenpickle.controller.allinone.config
 
 import java.net.InetAddress
 import java.nio.file.{Path, Paths}
@@ -17,7 +17,7 @@ import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.{Room, SwitchKey}
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
-import io.janstenpickle.controller.server.Server
+import io.janstenpickle.controller.server.{Server, ServerConfig}
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
 import io.janstenpickle.controller.tplink.TplinkComponents
@@ -41,7 +41,7 @@ object Configuration {
     deconz: Option[DeconzBridge.DeconzApiConfig],
     mqtt: Mqtt,
     kafka: Option[KafkaPubSub.Config]
-  )
+  ) extends ServerConfig
 
   object Config {
     implicit val pathEq: Eq[Path] = Eq.by(_.toString)

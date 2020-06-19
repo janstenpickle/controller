@@ -1,4 +1,4 @@
-package io.janstenpickle.controller.api.environment
+package io.janstenpickle.controller.allinone.environment
 
 import java.net.InetAddress
 import java.util.concurrent.{Executors, ThreadFactory}
@@ -26,17 +26,17 @@ import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.store.{ActivityStore, TracedActivityStore}
 import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
-import io.janstenpickle.controller.advertiser.Advertiser
-import io.janstenpickle.controller.api.config.Configuration
+import io.janstenpickle.controller.advertiser.{Advertiser, ServiceType}
+import io.janstenpickle.controller.allinone.config.Configuration
 import io.janstenpickle.controller.api.endpoint._
-import io.janstenpickle.controller.api.error.ErrorInterpreter
+import io.janstenpickle.controller.allinone.error.ErrorInterpreter
 import io.janstenpickle.controller.api.service.ConfigService
 import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.context.Context
-import io.janstenpickle.controller.event.switch.EventDrivenSwitches
+import io.janstenpickle.controller.event.switch.EventDrivenSwitchProvider
 import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.events.websocket.ServerWs
@@ -56,11 +56,17 @@ import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.deconz.DeconzBridge
 import io.janstenpickle.deconz.action.CommandEventProcessor
 import io.janstenpickle.controller.`macro`.store.TracedMacroStore
+import io.janstenpickle.controller.allinone.config.Configuration.Config
+import io.janstenpickle.controller.components.events.EventDrivenComponents
+import io.janstenpickle.controller.event.config.EventDrivenConfigSource
+import io.janstenpickle.controller.event.remotecontrol.EventDrivenRemoteControls
 import io.janstenpickle.controller.events.kafka.events.KafkaEvents
 import io.janstenpickle.controller.events.{Bridge, Events, TopicEvents}
 import io.janstenpickle.controller.http4s.client.EitherTClient
 import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
-import io.janstenpickle.controller.model.event.RemoteEvent
+import io.janstenpickle.controller.model.Remote
+import io.janstenpickle.controller.model.event.{ConfigEvent, RemoteEvent}
+import io.janstenpickle.controller.server.Server
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
@@ -71,18 +77,13 @@ import org.http4s.{HttpRoutes, Request, Response}
 import io.janstenpickle.controller.trace.instances._
 
 import scala.concurrent.Future
+import scala.concurrent.duration._
 
 object Module {
   type Homekit[F[_]] = Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]]
 
-  def hostname[F[_]: Sync](config: Option[NonEmptyString]): F[String] =
-    config
-      .map(_.value)
-      .orElse(Option(System.getenv("HOSTNAME")).filter(_.nonEmpty))
-      .fold(Sync[F].delay(InetAddress.getLocalHost.getHostName))(host => Applicative[F].pure(host))
-
   def configOrError[F[_]](
-    result: F[Either[ValidationErrors, Configuration.Config]]
+    result: F[Either[ValidationErrors, Config]]
   )(implicit F: MonadError[F, Throwable]): F[Configuration.Config] =
     result.flatMap(
       _.fold[F[Configuration.Config]](
@@ -100,27 +101,25 @@ object Module {
       ep <- Resources.entryPoint[F](registry, blocker)
       client <- Resources.httpClient[F](registry, blocker)
       mqtt <- Resources.mqttClient[F](config.mqtt)
-      host <- Resource.liftF(hostname(config.hostname))
-      topicEvents <- Resource.liftF(TopicEvents[F])
-      _ <- config.kafka.fold(Resource.pure[F, Unit](()))(
-        KafkaEvents
-          .create[F](host, _)
-          .flatMap { kafkaEvents =>
-            Bridge(kafkaEvents, topicEvents)
-          }
-          .void
-      )
-      cs <- components(config, ep, client, topicEvents, mqtt, registry)
-    } yield cs
+      host <- Resource.liftF(Server.hostname(config.hostname))
+//      _ <- config.kafka.fold(Resource.pure[F, Unit](()))(
+//        KafkaEvents
+//          .create[F](host, _)
+//          .flatMap { kafkaEvents =>
+//            Bridge(kafkaEvents, topicEvents)
+//          }
+//          .void
+//      )
+      (routes, homekit) <- components(config, ep, client, mqtt, registry)
+    } yield (routes, registry, homekit)
 
   def components[F[_]: ContextShift: Timer: Parallel](
     config: Configuration.Config,
     ep: EntryPoint[F],
     client: Client[F],
-    events: Events[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
-  )(implicit F: ConcurrentEffect[F]): Resource[F, (HttpRoutes[F], CollectorRegistry, Homekit[F])] = {
+  )(implicit F: ConcurrentEffect[F]): Resource[F, (HttpRoutes[F], Homekit[F])] = {
     type G[A] = Kleisli[F, Span[F], A]
 
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
@@ -130,30 +129,32 @@ object Module {
       name => λ[G ~> F](ga => ep.root(name).use(ga.run))
     )
 
-    eitherTComponents[G, F](
-      config,
-      ep.lowerT(client),
-      events.mapK(lift, liftLower.lower),
-      mqtt.map(_.mapK(lift, liftLower.lower)),
-      registry
-    ).mapK(liftLower.lower)
+    implicit val liftLowerContext: ContextualLiftLower[F, G, (String, Map[String, String])] =
+      ContextualLiftLower[F, G, (String, Map[String, String])](lift, _ => lift)(
+        λ[G ~> F](_.run(EmptyTrace.emptySpan)), {
+          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, Kernel(headers)).use(ga.run))
+        }
+      )
+
+    eitherTComponents[G, F](config, ep.lowerT(client), mqtt.map(_.mapK(lift, liftLower.lower)), registry)
+      .mapK(liftLower.lower)
       .map {
-        case (routes, registry, homekit) =>
-          (ep.liftT(routes), registry, homekit)
+        case (routes, homekit) =>
+          (ep.liftT(routes), homekit)
       }
   }
 
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: ConcurrentEffect: ContextShift: Timer](
     config: Configuration.Config,
     client: Client[F],
-    events: Events[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
     implicit F: Concurrent[F],
     trace: Trace[F],
-    invk: ContextualLiftLower[M, F, String]
-  ): Resource[F, (HttpRoutes[F], CollectorRegistry, Homekit[M])] = {
+    liftLower: ContextualLiftLower[M, F, String],
+    liftLowerContext: ContextualLiftLower[M, F, (String, Map[String, String])]
+  ): Resource[F, (HttpRoutes[F], Homekit[M])] = {
     type G[A] = EitherT[F, ControlError, A]
 
     val lift = λ[F ~> G](EitherT.liftF(_))
@@ -161,25 +162,21 @@ object Module {
     val lower =
       λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
 
-    implicit val cInvK: ContextualLiftLower[M, G, String] = invk.imapK[G](lift)(lower)
+    implicit val ll: ContextualLiftLower[M, G, String] = liftLower.imapK[G](lift)(lower)
+    implicit val llc: ContextualLiftLower[M, G, (String, Map[String, String])] = liftLowerContext.imapK[G](lift)(lower)
 
     Resource
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
-        tracedComponents[G, M](
-          config,
-          EitherTClient[F, ControlError](client),
-          events.mapK(lift, lower),
-          mqtt.map(_.mapK(lift, lower)),
-          registry
-        ).map {
-          case (routes, registry, homekit) =>
-            val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
-              OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
-            }
+        tracedComponents[G, M](config, EitherTClient[F, ControlError](client), mqtt.map(_.mapK(lift, lower)), registry)
+          .map {
+            case (routes, homekit) =>
+              val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
+                OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
+              }
 
-            (r, registry, homekit)
-        }
+              (r, homekit)
+          }
       }
       .mapK(lower)
   }
@@ -187,7 +184,6 @@ object Module {
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: ConcurrentEffect: ContextShift: Timer](
     config: Configuration.Config,
     client: Client[F],
-    events: Events[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
@@ -195,27 +191,21 @@ object Module {
     trace: Trace[F],
     errors: ErrorInterpreter[F],
     ah: ApplicativeHandle[F, ControlError],
-    liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, (HttpRoutes[F], CollectorRegistry, Homekit[G])] = {
-    type ConfigResult[A] = EffectValidation[F, A]
-
-    def makeBlocker(name: String) =
-      Blocker.fromExecutorService(F.delay(Executors.newCachedThreadPool(new ThreadFactory {
-        def newThread(r: Runnable) = {
-          val t = new Thread(r, s"$name-blocker")
-          t.setDaemon(true)
-          t
-        }
-      })))
+    liftLower: ContextualLiftLower[G, F, String],
+    liftLowerContext: ContextualLiftLower[G, F, (String, Map[String, String])]
+  ): Resource[F, (HttpRoutes[F], Homekit[G])] = {
 
     for {
-      discoveryBlocker <- makeBlocker("discovery")
-      workBlocker <- makeBlocker("work")
-      _ <- PrometheusExportService.addDefaults[F](registry)
+      discoveryBlocker <- Server.blocker[F]("discovery")
+      workBlocker <- Server.blocker[F]("work")
+
+      events <- Resource.liftF(TopicEvents[F])
 
       _ <- mqtt.fold(Resource.pure[F, Unit](()))(
         MqttEvents[F](config.mqtt.events, events.switch, events.config, events.remote, events.command, _)
       )
+
+      eventComponents <- EventDrivenComponents(events, 5.seconds)
 
       _ <- MultiSwitchEventListenter(events.switch, events.config)
 
@@ -306,19 +296,21 @@ object Module {
           config.config.writeTimeout
         )
 
-      components <- ComponentsEnv.create[F, G](
-        config,
-        client,
-        commandStore,
-        switchStateFileStore,
-        discoveryMappingConfig,
-        workBlocker,
-        discoveryBlocker,
-        events.remote.publisher,
-        events.switch.publisher,
-        events.config.publisher,
-        events.discovery.publisher
-      )
+      components <- ComponentsEnv
+        .create[F, G](
+          config,
+          client,
+          commandStore,
+          switchStateFileStore,
+          discoveryMappingConfig,
+          workBlocker,
+          discoveryBlocker,
+          events.remote.publisher,
+          events.switch.publisher,
+          events.config.publisher,
+          events.discovery.publisher
+        )
+        .map(_ |+| eventComponents)
 
       combinedActivityConfig = WritableConfigSource.combined(activityConfig, components.activityConfig)
       combinedRemoteConfig = WritableConfigSource.combined(remoteConfig, components.remoteConfig)
@@ -364,12 +356,12 @@ object Module {
           buttonConfig = buttonConfig,
           remoteConfig = combinedRemoteConfig,
           scheduler = components.scheduler |+| cronScheduler,
-          switches = combinedSwitchProvider |+| multiSwitchProvider,
+          switches = combinedSwitchProvider |+| multiSwitchProvider
         )
 
       switches = Switches[F](allComponents.switches)
 
-      mac = Macro[F](macroStore, components.remotes, switches, events.`macro`.publisher)
+      mac = Macro[F](macroStore, allComponents.remotes, switches, events.`macro`.publisher)
 
       activity = Activity.dependsOnSwitch[F](
         config.activity.dependentSwitches,
@@ -388,37 +380,34 @@ object Module {
           macroStore,
           activityStore,
           switches,
-          new ConfigValidation(combinedActivityConfig, components.remotes, macroStore, switches),
+          new ConfigValidation(combinedActivityConfig, allComponents.remotes, macroStore, switches),
           events.config.publisher
         )
       )
 
-      context = Context[F](activity, mac, components.remotes, switches, combinedActivityConfig)
+      context = Context[F](activity, mac, allComponents.remotes, switches, combinedActivityConfig)
 
-      _ <- EventCommands(events.command.subscriberStream, context, mac, activity, components.remotes, components.rename)
+      _ <- EventCommands[F, G](
+        events.command.subscriberStream.filterEvent(_.source != events.source),
+        context,
+        mac,
+        activity,
+        allComponents.remotes,
+        components.rename
+      )
 
       actionProcessor <- Resource.liftF(CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
 
-      host <- Resource.liftF(hostname[F](config.hostname))
+      host <- Resource.liftF(Server.hostname[F](config.hostname))
 
-//      _ <- Advertiser[F](host, config.server.port)
+      _ <- Advertiser[F](host, config.server.port, ServiceType.Coordinator)
     } yield {
 
       val router =
         Router(
-          "/events" -> ServerWs.forComponents[F, G](
-            allComponents,
-            "api",
-            events.config.subscriberStream,
-            events.remote.subscriberStream,
-            events.switch.subscriberStream,
-            events.`macro`.subscriberStream,
-            events.activity.subscriberStream,
-            events.discovery.subscriberStream,
-            events.command.publisher
-          ),
-          "/control/remote" -> new RemoteApi[F](components.remotes).routes,
+          "/events" -> ServerWs.receive[F, G](events),
+          "/control/remote" -> new RemoteApi[F](allComponents.remotes).routes,
           "/control/switch" -> new SwitchApi[F](switches).routes,
           "/control/macro" -> new MacroApi[F](mac).routes,
           "/control/activity" -> new ActivityApi[F](activity, allComponents.activityConfig).routes,
@@ -428,8 +417,7 @@ object Module {
           "/config" -> new WritableConfigApi[F](configService).routes,
           "/discovery" -> new RenameApi[F](allComponents.rename).routes,
           "/schedule" -> new ScheduleApi[F](allComponents.scheduler).routes,
-          "/" -> new ControllerUi[F](workBlocker).routes,
-          "/" -> PrometheusExportService.service[F](registry)
+          "/" -> new ControllerUi[F](workBlocker).routes
         )
 
       val homekit = ControllerHomekitServer
@@ -454,7 +442,7 @@ object Module {
         }
         .map(_.translate(liftLower.lower("homekit")))
 
-      (router, registry, homekit)
+      (router, homekit)
     }
   }
 }

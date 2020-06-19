@@ -6,10 +6,7 @@ import cats.syntax.flatMap._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.circe.{CirceSettings, _}
-import extruder.core.{Decoder, Encoder, ValidationErrorsToThrowable}
-import extruder.data.Validation
-import io.circe.Json
+import org.http4s.Response
 import org.http4s.circe._
 import org.http4s.dsl.Http4sDsl
 import org.http4s.{DecodeResult, EntityDecoder, EntityEncoder, InvalidMessageBodyFailure, Response}

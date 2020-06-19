@@ -9,13 +9,10 @@ import cats.syntax.functor._
 import eu.timepit.refined._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.string.NonEmptyString
-import extruder.circe.instances._
-import extruder.refined._
-import io.circe.refined._
 import io.janstenpickle.controller.http4s.error.ControlError
-import io.janstenpickle.controller.model.{State, SwitchKey}
+import io.janstenpickle.controller.model.State
 import io.janstenpickle.controller.switch.Switches
-import org.http4s.{EntityEncoder, HttpRoutes, Response}
+import org.http4s.{HttpRoutes, Response}
 
 class SwitchApi[F[_]: Sync](switches: Switches[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {
   def refineOrBadReq(device: String, name: String)(

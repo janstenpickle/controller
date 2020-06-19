@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.context
 
-import cats.{FlatMap, Monad}
+import cats.{Applicative, FlatMap, Monad}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
@@ -18,6 +18,10 @@ trait Context[F[_]] {
 }
 
 object Context {
+  def noop[F[_]: Applicative]: Context[F] = new Context[F] {
+    override def action(room: Room, name: NonEmptyString): F[Unit] = Applicative[F].unit
+  }
+
   def apply[F[_]: Monad](
     activities: Activity[F],
     macros: Macro[F],

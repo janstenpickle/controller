@@ -3,7 +3,7 @@ package io.janstenpickle.controller.advertiser
 sealed trait ServiceType {
   protected val value: String
 
-  override val toString: String = s"$value._tcp.local."
+  override def toString: String = s"_$value._tcp.local."
 }
 
 object ServiceType {

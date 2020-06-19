@@ -21,19 +21,19 @@ object KodiSwitchProvider {
     def meta(t: String) =
       SwitchMetadata(room = Some(dev.room.value), manufacturer = Some("Kodi"), id = Some(s"${dev.key.deviceId}:$t"))
     Map(
-      SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_playpause")) ->
+      SwitchKey(dev.name, NonEmptyString.unsafeFrom(s"${dev.name.value}_playpause")) ->
         EventingSwitch(TracedSwitch(new Switch[F] {
-          override def name: NonEmptyString = dev.name
-          override def device: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_playpause")
+          override def name: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_playpause")
+          override def device: NonEmptyString = dev.name
           override def getState: F[State] = dev.isPlaying.map(if (_) State.On else State.Off)
           override def switchOn: F[Unit] = dev.setPlaying(true)
           override def switchOff: F[Unit] = dev.setPlaying(false)
           override def metadata: SwitchMetadata = meta("playpause")
         }), eventPublisher),
-      SwitchKey(deviceName, NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")) -> EventingSwitch(
+      SwitchKey(dev.name, NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")) -> EventingSwitch(
         TracedSwitch(new Switch[F] {
-          override def name: NonEmptyString = dev.name
-          override def device: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")
+          override def name: NonEmptyString = NonEmptyString.unsafeFrom(s"${dev.name.value}_mute")
+          override def device: NonEmptyString = dev.name
           override def getState: F[State] = dev.isMuted.map(if (_) State.On else State.Off)
           override def switchOn: F[Unit] = dev.setMuted(true)
           override def switchOff: F[Unit] = dev.setMuted(false)

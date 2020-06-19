@@ -3,7 +3,7 @@ package io.janstenpickle.controller.activity
 import cats.effect.{Clock, ExitCase}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
-import cats.{Apply, MonadError, Parallel}
+import cats.{Applicative, Apply, MonadError, Parallel}
 import cats.syntax.applicativeError._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
@@ -26,6 +26,11 @@ object Activity {
     k: F[A]
   )(implicit trace: Trace[F]): F[A] = trace.span(name) {
     trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
+  }
+
+  def noop[F[_]: Applicative]: Activity[F] = new Activity[F] {
+    override def setActivity(room: Room, name: NonEmptyString): F[Unit] = Applicative[F].unit
+    override def getActivity(room: Room): F[Option[NonEmptyString]] = Applicative[F].pure(None)
   }
 
   def apply[F[_]: Clock](

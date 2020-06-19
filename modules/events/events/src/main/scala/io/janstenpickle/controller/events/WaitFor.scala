@@ -14,7 +14,7 @@ object WaitFor {
     es: EventSubscriber[F, A]
   )(fa: F[B], timeout: FiniteDuration)(pf: PartialFunction[A, F[Boolean]]): F[Option[B]] =
     for {
-      fiber <- es.subscribe.evalMap(pf.lift(_).sequence).unNone.takeWhile(!_).interruptAfter(timeout).compile.last.start
+      fiber <- es.subscribe.evalMap(pf.lift(_).sequence).unNone.takeWhile(!_).compile.last.timeout(timeout).start
       a <- fa
       result <- fiber.join
     } yield result.as(a)

@@ -1,10 +1,10 @@
-package io.janstenpickle.controller.api.environment
+package io.janstenpickle.controller.allinone.environment
 
 import cats.Parallel
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
-import io.janstenpickle.controller.api.config.Configuration.Config
+import io.janstenpickle.controller.allinone.config.Configuration.Config
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.components.Components
