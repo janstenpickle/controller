@@ -1,8 +1,6 @@
 package io.janstenpickle.controller.events.websocket
 
-import java.time.Instant
-import java.util.concurrent.TimeUnit
-
+import cats.effect.concurrent.Deferred
 import cats.effect.{Clock, Concurrent}
 import cats.instances.list._
 import cats.syntax.flatMap._
@@ -42,21 +40,12 @@ object WebsocketEventsServer {
   def send[F[_]: Concurrent: Clock, G[_]: Applicative, A: Encoder](
     path: String,
     subscriber: EventSubscriber[F, A],
-    state: Option[(String, F[List[A]])] = None
+    state: Option[Deferred[F, F[List[Event[A]]]]] = None
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
     val out =
       state
-        .fold(subscriber.subscribeEvent.drop(1)) {
-          case (source, state) =>
-            Stream
-              .eval(Clock[F].realTime(TimeUnit.MILLISECONDS).flatMap { millis =>
-                trace.kernel.map(millis -> _)
-              })
-              .flatMap {
-                case (millis, kernel) =>
-                  val time = Instant.ofEpochMilli(millis)
-                  Stream.evals(state).map(a => Event(a, time, source, kernel.toHeaders))
-              } ++ subscriber.subscribeEvent.drop(1)
+        .fold(subscriber.subscribeEvent.drop(1)) { state =>
+          Stream.evals(state.get.flatten) ++ subscriber.subscribeEvent.drop(1)
         }
         .map(_.asJson.noSpacesSortKeys)
 

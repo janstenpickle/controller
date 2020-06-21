@@ -4,6 +4,7 @@ import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.cache.Cache
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.event.config.EventDrivenConfigSource
 import io.janstenpickle.controller.events.EventSubscriber
@@ -24,11 +25,11 @@ object EventDrivenRemoteConfigSource {
 
     EventDrivenConfigSource[F, G, ConfigEvent, NonEmptyString, Remote](subscriber, "remote", source) {
       case ConfigEvent.RemoteAddedEvent(remote, _) =>
-        (state: Map[NonEmptyString, Remote]) =>
-          span("remote.config.added", remote.name)(state.updated(remote.name, remote))
+        (state: Cache[F, NonEmptyString, Remote]) =>
+          span("remote.config.added", remote.name)(state.set(remote.name, remote))
       case ConfigEvent.RemoteRemovedEvent(name, _) =>
-        (state: Map[NonEmptyString, Remote]) =>
-          span("remote.config.removed", name)(state.removed(name))
+        (state: Cache[F, NonEmptyString, Remote]) =>
+          span("remote.config.removed", name)(state.remove(name))
     }
   }
 }

@@ -1,15 +1,14 @@
 package io.janstenpickle.controller.coordinator.environment
 
 import cats.data.{EitherT, Kleisli, OptionT}
-import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.effect.syntax.concurrent._
+import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.flatMap._
 import cats.syntax.monoid._
 import cats.{~>, Applicative, ApplicativeError, Parallel}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.Activity
@@ -42,7 +41,6 @@ import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
-import natchez.jaeger.Jaeger
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
@@ -61,14 +59,23 @@ object Module {
   def entryPoint[F[_]: Sync: ContextShift: Clock](
     registry: CollectorRegistry,
     blocker: Blocker
-  ): Resource[F, EntryPoint[F]] =
-    Jaeger.entryPoint[F](serviceName) { c =>
-      Sync[F].delay {
-        c.withSampler(SamplerConfiguration.fromEnv)
-          .withReporter(ReporterConfiguration.fromEnv)
-          .getTracer
-      }
-    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+  ): Resource[F, EntryPoint[F]] = PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+
+//    Jaeger.entryPoint[F](serviceName) { c =>
+//      Sync[F].delay {
+//        c.withSampler(SamplerConfiguration.fromEnv)
+//          .withReporter(ReporterConfiguration.fromEnv)
+//          .getTracer
+//      }
+//    }
+//    PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+//    Jaeger.entryPoint[F](serviceName) { c =>
+//      Sync[F].delay {
+//        c.withSampler(SamplerConfiguration.fromEnv)
+//          .withReporter(ReporterConfiguration.fromEnv)
+//          .getTracer
+//      }
+//    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     config: Configuration.Config
@@ -309,6 +316,6 @@ object Module {
         "/config" -> new WritableConfigApi[F](configService).routes,
         "/discovery" -> new RenameApi[F](allComponents.rename).routes,
         "/schedule" -> new ScheduleApi[F](allComponents.scheduler).routes,
-        "/" -> new ControllerUi[F](workBlocker).routes
+        "/" -> new ControllerUi[F](workBlocker, config.frontendPath).routes
       )
 }

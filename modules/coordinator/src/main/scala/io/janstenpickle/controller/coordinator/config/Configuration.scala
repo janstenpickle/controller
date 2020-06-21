@@ -19,7 +19,8 @@ object Configuration {
     config: ConfigData,
     virtualSwitch: VirtualSwitch,
     activity: Activity,
-    server: Server.Config
+    server: Server.Config,
+    frontendPath: Option[Path]
   ) extends ServerConfig
 
   object Config {

@@ -1,11 +1,14 @@
 package io.janstenpickle.controller.kodi
 
 import cats.Apply
+import cats.data.NonEmptyList
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.Logger
 import io.janstenpickle.controller.`macro`.MacroErrors
+import io.janstenpickle.controller.api.service.ConfigServiceErrors
+import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.http4s.error
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
@@ -20,7 +23,8 @@ class ErrorInterpreter[F[_]: Apply](
     with RemoteControlErrors[F]
     with KodiErrors[F]
     with SwitchErrors[F]
-    with MacroErrors[F] {
+    with MacroErrors[F]
+    with ConfigServiceErrors[F] {
   override def commandNotFound[A](remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[A] =
     raise(ControlError.Missing(s"Command '$name' for device '$device' on remote '$remote' not found"))
 
@@ -56,6 +60,34 @@ class ErrorInterpreter[F[_]: Apply](
 
   override def macroAlreadyExists[A](name: NonEmptyString): F[A] =
     raise(ControlError.InvalidInput(s"Macro '$name' already exists"))
+
+  override def configValidationFailed[A](failures: NonEmptyList[ConfigValidation.ValidationFailure]): F[A] =
+    raise(ControlError.InvalidInput(s"Failed to validate configuration\n ${failures.toList.mkString("\n")}"))
+
+  override def remoteAlreadyExists[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Remote '$remote' already exists"))
+
+  override def remoteMissing[A](remote: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Remote '$remote' not found"))
+
+  override def buttonMissing[A](button: String): F[A] =
+    raise(ControlError.Missing(s"Button '$button' not found"))
+
+  override def activityMissing[A](activity: NonEmptyString): F[A] =
+    raise(ControlError.Missing(s"Activity '$activity' not found"))
+
+  override def activityInUse[A](activity: NonEmptyString, remotes: List[NonEmptyString]): F[A] =
+    raise(
+      ControlError.InvalidInput(
+        s"Cannot delete activity '$activity' because it is use in the following remotes ${remotes.mkString(",")}"
+      )
+    )
+
+  override def activityAlreadyExists[A](room: NonEmptyString, name: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Activity '$name' in room '$room' already exists"))
+
+  override def buttonAlreadyExists[A](button: NonEmptyString): F[A] =
+    raise(ControlError.InvalidInput(s"Button '$button' already exists"))
 }
 
 object ErrorInterpreter {

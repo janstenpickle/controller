@@ -4,6 +4,7 @@ import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.cache.Cache
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.event.config.EventDrivenConfigSource
 import io.janstenpickle.controller.events.EventSubscriber
@@ -29,13 +30,13 @@ object EventDrivenActivityConfigSource {
 
     EventDrivenConfigSource[F, G, ConfigEvent, String, Activity](subscriber, "activity", source) {
       case ConfigEvent.ActivityAddedEvent(activity, _) =>
-        (state: Map[String, Activity]) =>
+        (state: Cache[F, String, Activity]) =>
           span("activity.config.added", activity.name, activity.room)(
-            state.updated(s"${activity.room}-${activity.name}", activity)
+            state.set(s"${activity.room}-${activity.name}", activity)
           )
       case ConfigEvent.ActivityRemovedEvent(room, name, _) =>
-        (state: Map[String, Activity]) =>
-          span("activity.config.removed", name, room)(state - s"$room-$name")
+        (state: Cache[F, String, Activity]) =>
+          span("activity.config.removed", name, room)(state.remove(s"$room-$name"))
     }
   }
 }

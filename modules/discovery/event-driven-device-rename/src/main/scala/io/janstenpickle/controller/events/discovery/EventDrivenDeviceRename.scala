@@ -9,6 +9,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import fs2.Stream
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.cache.{Cache, CacheResource}
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.events.syntax.all._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
@@ -23,7 +24,8 @@ object EventDrivenDeviceRename {
     discoveryEvents: EventSubscriber[F, DeviceDiscoveryEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
-    commandTimeout: FiniteDuration
+    commandTimeout: FiniteDuration,
+    cacheTimeout: FiniteDuration = 20.minutes
   )(
     implicit trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
@@ -35,35 +37,33 @@ object EventDrivenDeviceRename {
       }
 
     def listen(
-      unmapped: Ref[F, Map[DiscoveredDeviceKey, Map[String, String]]],
-      mapped: Ref[F, Map[DiscoveredDeviceKey, DiscoveredDeviceValue]]
+      unmapped: Cache[F, DiscoveredDeviceKey, Map[String, String]],
+      mapped: Cache[F, DiscoveredDeviceKey, DiscoveredDeviceValue]
     ) =
       discoveryEvents.filterEvent(_.source != source).subscribeEvent.evalMapTrace("discovery.receive") {
         case DeviceDiscoveryEvent.UnmappedDiscovered(key, metadata) =>
-          span("discovery.discovered.unmapped", key)(
-            unmapped.update(_.updated(key, metadata)) >> mapped.update(_ - key)
-          )
+          span("discovery.discovered.unmapped", key)(unmapped.set(key, metadata) >> mapped.remove(key))
         case DeviceDiscoveryEvent.DeviceDiscovered(key, value) =>
           span(
             "discovery.discovered.mapped",
             key,
             "device.name" -> value.name.value,
             "device.room" -> value.room.fold("")(_.value)
-          )(unmapped.update(_ - key) >> mapped.update(_.updated(key, value)))
+          )(unmapped.remove(key) >> mapped.set(key, value))
         case DeviceDiscoveryEvent.DeviceRename(key, value) =>
           span(
             "discovery.rename",
             key,
             "device.name" -> value.name.value,
             "device.room" -> value.room.fold("")(_.value)
-          )(unmapped.update(_ - key) >> mapped.update(_.updated(key, value)))
+          )(unmapped.remove(key) >> mapped.set(key, value))
         case DeviceDiscoveryEvent.DeviceRemoved(key) =>
-          span("discovery.remove", key)(unmapped.update(_ - key) >> mapped.update(_ - key))
+          span("discovery.remove", key)(unmapped.remove(key) >> mapped.remove(key))
       }
 
     def listener(
-      unmapped: Ref[F, Map[DiscoveredDeviceKey, Map[String, String]]],
-      mapped: Ref[F, Map[DiscoveredDeviceKey, DiscoveredDeviceValue]]
+      unmapped: Cache[F, DiscoveredDeviceKey, Map[String, String]],
+      mapped: Cache[F, DiscoveredDeviceKey, DiscoveredDeviceValue]
     ): Resource[F, F[Unit]] =
       Stream
         .retry(listen(unmapped, mapped).compile.drain, 5.seconds, _ + 1.second, Int.MaxValue)
@@ -72,8 +72,8 @@ object EventDrivenDeviceRename {
         .background
 
     for {
-      unmapped <- Resource.liftF(Ref.of[F, Map[DiscoveredDeviceKey, Map[String, String]]](Map.empty))
-      mapped <- Resource.liftF(Ref.of[F, Map[DiscoveredDeviceKey, DiscoveredDeviceValue]](Map.empty))
+      unmapped <- CacheResource.caffeine[F, DiscoveredDeviceKey, Map[String, String]](cacheTimeout)
+      mapped <- CacheResource.caffeine[F, DiscoveredDeviceKey, DiscoveredDeviceValue](cacheTimeout)
       _ <- listener(unmapped, mapped)
     } yield
       DeviceRename
@@ -87,14 +87,14 @@ object EventDrivenDeviceRename {
                   }
 
               (for {
-                um <- unmapped.get
-                m <- mapped.get
+                um <- unmapped.getAll
+                m <- mapped.getAll
               } yield (um.keySet ++ m.keySet).contains(k)).ifM(doRename, Applicative[F].pure(None))
             }
 
-            override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = unmapped.get
+            override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] = unmapped.getAll
 
-            override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] = mapped.get
+            override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] = mapped.getAll
           },
           source
         )

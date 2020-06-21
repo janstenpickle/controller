@@ -5,6 +5,7 @@ import java.util.concurrent.{Executor, Executors, ThreadFactory}
 
 import cats.data.{EitherT, Kleisli, OptionT}
 import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.flatMap._
 import cats.syntax.semigroup._
@@ -17,7 +18,7 @@ import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.advertiser.{Advertiser, Discoverer, JmDNSResource, ServiceType}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.cache.monitoring.CacheCollector
+//import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.TopicEvents
@@ -27,6 +28,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.http4s.client.EitherTClient
 import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
 import io.janstenpickle.controller.http4s.trace.implicits._
+import io.janstenpickle.controller.plugin.api.PluginApi
 import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.trace.EmptyTrace
@@ -47,7 +49,7 @@ object Module {
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
       val registry = new CollectorRegistry(true)
-      registry.register(new CacheCollector())
+//      registry.register(new CacheCollector())
       registry
     })(r => Sync[F].delay(r.clear()))
 
@@ -55,13 +57,14 @@ object Module {
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    Jaeger.entryPoint[F](serviceName) { c =>
-      Sync[F].delay {
-        c.withSampler(SamplerConfiguration.fromEnv)
-          .withReporter(ReporterConfiguration.fromEnv)
-          .getTracer
-      }
-    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+    PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+//    Jaeger.entryPoint[F](serviceName) { c =>
+//      Sync[F].delay {
+//        c.withSampler(SamplerConfiguration.fromEnv)
+//          .withReporter(ReporterConfiguration.fromEnv)
+//          .getTracer
+//      }
+//    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
     registry: CollectorRegistry,
@@ -158,7 +161,8 @@ object Module {
     config: Configuration.Config,
     client: Client[F]
   )(
-    implicit liftLower: ContextualLiftLower[G, F, String],
+    implicit ah: ApplicativeHandle[F, ControlError],
+    liftLower: ContextualLiftLower[G, F, String],
     liftLowerContext: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, HttpRoutes[F]] = {
     def makeBlocker(name: String) =
@@ -229,6 +233,7 @@ object Module {
       )
 
       _ <- Advertiser[F](jmdns, config.server.port, ServiceType.Plugin, NonEmptyString("Kodi"))
-    } yield HttpRoutes.empty[F]
+      api <- Resource.liftF(PluginApi[F, G](events, components, switches, mac))
+    } yield api
   }
 }

@@ -1,5 +1,3 @@
-import com.typesafe.sbt.packager.docker.DockerPermissionStrategy
-
 val catsVer = "2.1.1"
 val catsEffectVer = "2.1.3"
 val catsMtlVer = "0.7.1"
@@ -70,6 +68,41 @@ val commonSettings = Seq(
     }
   },
   publishArtifact in packageDoc := false
+)
+
+val graalSettings = Seq(
+  graalVMNativeImageOptions ++= Seq(
+    "--verbose",
+    "--no-server",
+    "--no-fallback",
+    "--enable-http",
+    "--enable-https",
+    "--enable-all-security-services",
+    "--report-unsupported-elements-at-runtime",
+    "--allow-incomplete-classpath",
+    "-Djava.net.preferIPv4Stack=true",
+    "-H:IncludeResources='.*'",
+    "-H:+ReportExceptionStackTraces",
+    "-H:+ReportUnsupportedElementsAtRuntime",
+    "-H:+TraceClassInitialization",
+    "-H:+PrintClassInitialization",
+    "-H:+RemoveSaturatedTypeFlows",
+    "-H:+StackTrace",
+    "-H:+JNI",
+    "-H:-SpawnIsolates",
+    "-H:-UseServiceLoaderFeature",
+    "-H:ConfigurationFileDirectories=../../native-image/",
+    "--install-exit-handlers",
+    "--initialize-at-build-time=scala.runtime.Statics$VM",
+    "--initialize-at-build-time=scala.Symbol$",
+    "--initialize-at-build-time=ch.qos.logback",
+    "--initialize-at-build-time=org.slf4j.LoggerFactory",
+    "--initialize-at-run-time=org.slf4j.impl.StaticLoggerBinder",
+    "--initialize-at-run-time=io.netty.channel.ChannelHandlerMask",
+    "--initialize-at-build-time=io.grpc.okhttp",
+    "--initialize-at-build-time=io.grpc.okhttp.OkHttpChannelProvider",
+    "--initialize-at-build-time=io.grpc.internal.DnsNameResolverProvider",
+  )
 )
 
 lazy val root = (project in file("."))
@@ -144,40 +177,6 @@ lazy val allInOne = (project in file("modules/all-in-one"))
       "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
       ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
     ),
-    graalVMNativeImageOptions ++= Seq(
-      "--verbose",
-      "--no-server",
-      "--no-fallback",
-      "--static",
-      "--enable-http",
-      "--enable-https",
-      "--enable-all-security-services",
-      "--report-unsupported-elements-at-runtime",
-      "--allow-incomplete-classpath",
-      "-H:+ReportExceptionStackTraces",
-      "-H:+ReportUnsupportedElementsAtRuntime",
-      "-H:+TraceClassInitialization",
-      "-H:+PrintClassInitialization",
-      "-H:+RemoveSaturatedTypeFlows",
-      "-H:+StackTrace",
-      "-H:+JNI",
-      "-H:-SpawnIsolates",
-      "-H:-UseServiceLoaderFeature",
-      "-H:ReflectionConfigurationFiles=../../../../reflection.json",
-      "--install-exit-handlers",
-      "--initialize-at-build-time=scala.runtime.Statics$VM",
-      "--initialize-at-build-time=ch.qos.logback.classic.Logger",
-      "--initialize-at-build-time=ch.qos.logback.core.status.StatusBase",
-      "--initialize-at-build-time=ch.qos.logback.classic.Level",
-      "--initialize-at-build-time=ch.qos.logback.core.spi.AppenderAttachableImpl",
-      "--initialize-at-build-time=ch.qos.logback.core.status.InfoStatus",
-      "--initialize-at-build-time=ch.qos.logback.core.status.ErrorStatus",
-      "--initialize-at-build-time=org.slf4j.impl.StaticLoggerBinder",
-      "--initialize-at-build-time=ch.qos.logback.core.CoreConstants",
-      "--initialize-at-build-time=org.slf4j.LoggerFactory",
-      "--initialize-at-run-time=io.netty.util.internal.logging.Log4JLogger",
-      "--initialize-at-build-time=scala.Symbol$"
-    ),
     mappings in Universal := {
       val universalMappings = (mappings in Universal).value
 
@@ -225,7 +224,7 @@ lazy val allInOne = (project in file("modules/all-in-one"))
     server,
     websocketClientEvents
   )
-  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
+  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
 lazy val api = (project in file("modules/api"))
   .settings(commonSettings)
@@ -239,8 +238,7 @@ lazy val api = (project in file("modules/api"))
       "org.http4s"        %% "http4s-circe"         % http4sVer,
       "org.http4s"        %% "http4s-core"          % http4sVer,
       "org.http4s"        %% "http4s-dsl"           % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"        % catsMtlVer,
-      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+      "org.typelevel"     %% "cats-mtl-core"        % catsMtlVer
     )
   )
   .dependsOn(
@@ -259,26 +257,31 @@ lazy val api = (project in file("modules/api"))
     schedule
   )
 
+lazy val pluginApi = (project in file("modules/plugins/api"))
+  .settings(commonSettings)
+  .settings(name := "controller-plugin-api")
+  .dependsOn(api, components)
+
 lazy val coordinator = (project in file("modules/coordinator"))
   .settings(commonSettings)
+  .settings(graalSettings)
   .settings(
     name := "controller-coordinator",
     libraryDependencies ++= Seq(
-      "eu.timepit"        %% "refined-cats"              % refinedVer,
-      "io.extruder"       %% "extruder-cats-effect"      % extruderVer,
-      "io.extruder"       %% "extruder-circe"            % extruderVer,
-      "io.extruder"       %% "extruder-refined"          % extruderVer,
-      "io.extruder"       %% "extruder-typesafe"         % extruderVer,
-      "ch.qos.logback"    % "logback-classic"            % "1.2.3",
-      "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
-      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.0",
-      "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
-      "org.http4s"        %% "http4s-circe"              % http4sVer,
-      "org.http4s"        %% "http4s-core"               % http4sVer,
-      "org.http4s"        %% "http4s-dsl"                % http4sVer,
-      "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
-      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+      "eu.timepit"        %% "refined-cats"                  % refinedVer,
+      "io.extruder"       %% "extruder-cats-effect"          % extruderVer,
+      "io.extruder"       %% "extruder-circe"                % extruderVer,
+      "io.extruder"       %% "extruder-refined"              % extruderVer,
+      "io.extruder"       %% "extruder-typesafe"             % extruderVer,
+      "ch.qos.logback"    % "logback-classic"                % "1.2.3",
+      "io.chrisdavenport" %% "log4cats-slf4j"                % log4catsVer,
+      "org.http4s"        %% "http4s-jdk-http-client"        % "0.3.0",
+      "org.http4s"        %% "http4s-blaze-server"           % http4sVer,
+      "org.http4s"        %% "http4s-circe"                  % http4sVer,
+      "org.http4s"        %% "http4s-core"                   % http4sVer,
+      "org.http4s"        %% "http4s-dsl"                    % http4sVer,
+      "org.http4s"        %% "http4s-prometheus-metrics"     % http4sVer,
+      "org.typelevel"     %% "cats-mtl-core"                 % catsMtlVer,
     )
   )
   .dependsOn(
@@ -308,8 +311,8 @@ lazy val coordinator = (project in file("modules/coordinator"))
     activity,
     activityConfig,
     cronScheduler,
-    eventDrivenComponents
-  )
+    eventDrivenComponents)
+  .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val server = (project in file("modules/server"))
   .settings(commonSettings)
@@ -495,7 +498,7 @@ lazy val eventDrivenConfigSource = (project in file("modules/events/event-driven
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
   )
-  .dependsOn(configSource, tracedConfigSource, events, model)
+  .dependsOn(configSource, cache, tracedConfigSource, events, model)
 
 lazy val tracedRemote = (project in file("modules/remote/trace-remote"))
   .settings(commonSettings)
@@ -774,12 +777,22 @@ lazy val prometheusTrace = (project in file("modules/trace/prometheus-trace"))
     )
   )
 
+lazy val openTelemetryTrace = (project in file("modules/trace/opentelemetry-trace"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-opentelemetry-trace",
+    libraryDependencies ++= Seq(
+      "io.opentelemetry" % "opentelemetry-api" % "0.5.0",
+      "org.tpolecat"     %% "natchez-core"     % natchezVer
+    )
+  )
+
 lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
   .settings(
     name := "controller-cache",
     libraryDependencies ++= Seq(
-      "com.github.cb372" %% "scalacache-cache2k"     % scalaCacheVer,
+      "com.github.cb372" %% "scalacache-caffeine"    % scalaCacheVer,
       "com.github.cb372" %% "scalacache-cats-effect" % scalaCacheVer,
       "io.prometheus"    % "simpleclient_hotspot"    % prometheusVer,
       "org.typelevel"    %% "cats-effect"            % catsEffectVer
@@ -827,6 +840,7 @@ lazy val sonos = (project in file("modules/plugins/sonos"))
 
 lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
   .settings(commonSettings)
+  .settings(graalSettings)
   .settings(
     name := "controller-plugin-kodi-server",
     libraryDependencies ++= Seq(
@@ -835,6 +849,7 @@ lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
     )
   )
   .dependsOn(
+    pluginApi,
     kodi,
     advertiser,
     server,
@@ -845,6 +860,7 @@ lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
     extruder,
     discoveryConfig
   )
+  .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val kodi = (project in file("modules/plugins/kodi"))
   .settings(commonSettings)
@@ -952,8 +968,8 @@ lazy val websocketClientEvents = (project in file("modules/events/websocket-clie
   .settings(
     name := "controller-websocket-client-events",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % sttpWebsocketClientVer,
-      "org.tpolecat"                 %% "natchez-core"                  % natchezVer
+      "org.tpolecat"       %% "natchez-core"  % natchezVer,
+      "org.java-websocket" % "Java-WebSocket" % "1.5.1"
     )
   )
   .dependsOn(arrow, events, model, componentsEventsState)
@@ -964,12 +980,12 @@ lazy val eventDrivenSwitches = (project in file("modules/switch/event-driven-swi
     name := "controller-event-driven-switches",
     libraryDependencies ++= Seq("io.chrisdavenport" %% "mapref" % maprefVer)
   )
-  .dependsOn(events, model, switch, tracedSwitch)
+  .dependsOn(events, cache, model, switch, tracedSwitch)
 
 lazy val eventDrivenRemoteControls = (project in file("modules/remote/event-driven-remote-controls"))
   .settings(commonSettings)
   .settings(name := "controller-event-driven-remote-controls")
-  .dependsOn(events, model, remoteControl, eventDrivenConfigSource)
+  .dependsOn(events, cache, model, remoteControl, eventDrivenConfigSource)
 
 lazy val eventDrivenActivity = (project in file("modules/activity/event-driven-activity"))
   .settings(commonSettings)
@@ -977,7 +993,7 @@ lazy val eventDrivenActivity = (project in file("modules/activity/event-driven-a
     name := "controller-event-driven-activity",
     libraryDependencies ++= Seq("io.chrisdavenport" %% "mapref" % maprefVer)
   )
-  .dependsOn(events, model, activity, eventDrivenConfigSource)
+  .dependsOn(events, cache, model, activity, eventDrivenConfigSource)
 
 lazy val eventDrivenDeviceRename = (project in file("modules/discovery/event-driven-device-rename"))
   .settings(commonSettings)
@@ -985,7 +1001,7 @@ lazy val eventDrivenDeviceRename = (project in file("modules/discovery/event-dri
     name := "controller-event-driven-device-rename",
     libraryDependencies ++= Seq("io.chrisdavenport" %% "mapref" % maprefVer)
   )
-  .dependsOn(events, model, dynamicDiscovery)
+  .dependsOn(events, cache, model, dynamicDiscovery)
 
 lazy val kafkaEvents = (project in file("modules/events/kafka-events"))
   .settings(commonSettings)
@@ -1042,7 +1058,7 @@ lazy val hapJavaSubmodule = (project in file("submodules/HAP-Java"))
     name := "hap-java",
     libraryDependencies ++= Seq(
       "org.slf4j"        % "slf4j-api"       % "1.7.22",
-      "io.netty"         % "netty-all"       % "4.1.43.Final",
+      "io.netty"         % "netty-all"       % "4.1.48.Final",
       "com.nimbusds"     % "srp6a"           % "1.5.2",
       "org.bouncycastle" % "bcprov-jdk15on"  % "1.51",
       "net.vrallev.ecc"  % "ecc-25519-java"  % "1.0.1",

@@ -1,5 +1,7 @@
 package io.janstenpickle.controller.events.websocket
 
+import java.net.URI
+
 import cats.Parallel
 import cats.effect.concurrent.Deferred
 import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
@@ -20,7 +22,6 @@ import io.janstenpickle.controller.model.event.{
   RemoteEvent,
   SwitchEvent
 }
-
 import cats.syntax.functor._
 import natchez.Trace
 
@@ -34,7 +35,7 @@ object ClientWs {
 //      SubscriberState(None, sub)
 //  }
 
-  def receive[F[_]: Concurrent: Parallel: Timer, G[_]: ConcurrentEffect: ContextShift: Timer](
+  def receive[F[_]: Concurrent: Parallel: Timer: ContextShift, G[_]: ConcurrentEffect: Timer](
     host: NonEmptyString,
     port: PortNumber,
     blocker: Blocker,
@@ -47,13 +48,13 @@ object ClientWs {
     commandSubscriber: EventSubscriber[F, CommandEvent]
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] =
     List(
-      WebsocketEventsClient.receive[F, G, ConfigEvent](host, port, "config", blocker, configPublisher),
-      WebsocketEventsClient.receive[F, G, RemoteEvent](host, port, "remote", blocker, remotePublisher),
-      WebsocketEventsClient.receive[F, G, SwitchEvent](host, port, "switch", blocker, switchPublisher),
-      WebsocketEventsClient.receive[F, G, MacroEvent](host, port, "macro", blocker, macroPublisher),
-      WebsocketEventsClient.receive[F, G, ActivityUpdateEvent](host, port, "activity", blocker, activityPublisher),
-      WebsocketEventsClient.receive[F, G, DeviceDiscoveryEvent](host, port, "discovery", blocker, discoveryPublisher),
-      WebsocketEventsClient.send[F, G, CommandEvent](host, port, "command", blocker, commandSubscriber)
+      JavaWebsocket.receive[F, G, ConfigEvent](host, port, "config", blocker, configPublisher),
+      JavaWebsocket.receive[F, G, RemoteEvent](host, port, "remote", blocker, remotePublisher),
+      JavaWebsocket.receive[F, G, SwitchEvent](host, port, "switch", blocker, switchPublisher),
+      JavaWebsocket.receive[F, G, MacroEvent](host, port, "macro", blocker, macroPublisher),
+      JavaWebsocket.receive[F, G, ActivityUpdateEvent](host, port, "activity", blocker, activityPublisher),
+      JavaWebsocket.receive[F, G, DeviceDiscoveryEvent](host, port, "discovery", blocker, discoveryPublisher),
+      JavaWebsocket.send[F, G, CommandEvent](host, port, "command", blocker, commandSubscriber)
     ).parSequence_
 
 //  def sendForComponents[F[_]: Concurrent: Parallel: Timer, G[_]: ConcurrentEffect: ContextShift: Timer](
@@ -119,7 +120,7 @@ object ClientWs {
 //      commandPublisher
 //    )
 
-  def send[F[_]: Concurrent: Parallel: Timer, G[_]: ConcurrentEffect: ContextShift: Timer](
+  def send[F[_]: Concurrent: Parallel: Timer: ContextShift, G[_]: ConcurrentEffect: Timer](
     host: NonEmptyString,
     port: PortNumber,
     blocker: Blocker,
@@ -127,54 +128,26 @@ object ClientWs {
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, EventsState[F]] =
     Resource.liftF(EventsState[F]).flatMap { state =>
       List(
-        WebsocketEventsClient
-          .send[F, G, ConfigEvent](
-            host,
-            port,
-            "config",
-            blocker,
-            events.config.subscriberStream,
-            Some(events.source -> state.config)
-          ),
-        WebsocketEventsClient
-          .send[F, G, RemoteEvent](
-            host,
-            port,
-            "remote",
-            blocker,
-            events.remote.subscriberStream,
-            Some(events.source -> state.remote)
-          ),
-        WebsocketEventsClient
-          .send[F, G, SwitchEvent](
-            host,
-            port,
-            "switch",
-            blocker,
-            events.switch.subscriberStream,
-            Some(events.source -> state.switch)
-          ),
-        WebsocketEventsClient
-          .send[F, G, MacroEvent](
-            host,
-            port,
-            "macro",
-            blocker,
-            events.`macro`.subscriberStream,
-            Some(events.source -> state.`macro`)
-          ),
-        WebsocketEventsClient
+        JavaWebsocket
+          .send[F, G, ConfigEvent](host, port, "config", blocker, events.config.subscriberStream, Some(state.config)),
+        JavaWebsocket
+          .send[F, G, RemoteEvent](host, port, "remote", blocker, events.remote.subscriberStream, Some(state.remote)),
+        JavaWebsocket
+          .send[F, G, SwitchEvent](host, port, "switch", blocker, events.switch.subscriberStream, Some(state.switch)),
+        JavaWebsocket
+          .send[F, G, MacroEvent](host, port, "macro", blocker, events.`macro`.subscriberStream, Some(state.`macro`)),
+        JavaWebsocket
           .send[F, G, ActivityUpdateEvent](host, port, "activity", blocker, events.activity.subscriberStream, None),
-        WebsocketEventsClient
+        JavaWebsocket
           .send[F, G, DeviceDiscoveryEvent](
             host,
             port,
             "discovery",
             blocker,
             events.discovery.subscriberStream,
-            Some(events.source -> state.discovery)
+            Some(state.discovery)
           ),
-        WebsocketEventsClient.receive[F, G, CommandEvent](host, port, "command", blocker, events.command.publisher)
+        JavaWebsocket.receive[F, G, CommandEvent](host, port, "command", blocker, events.command.publisher)
       ).parSequence_.as(state)
     }
 }

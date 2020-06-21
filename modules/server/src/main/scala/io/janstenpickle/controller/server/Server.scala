@@ -67,7 +67,7 @@ object Server {
       signal: ExitSignal[F]
     ): Stream[F, ExitCode] =
       for {
-        _ <- Stream.resource(PrometheusExportService.addDefaults[F](registry))
+//        _ <- Stream.resource(PrometheusExportService.addDefaults[F](registry))
         prometheus <- Stream.resource(Prometheus.metricsOps(registry))
         instrumentedRoutes = Metrics(prometheus)(routes)
         exit <- Stream.eval(Ref[F].of(ExitCode.Success))

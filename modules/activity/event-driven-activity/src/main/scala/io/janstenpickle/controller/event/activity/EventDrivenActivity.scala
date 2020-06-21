@@ -6,9 +6,9 @@ import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
-import io.chrisdavenport.mapref.MapRef
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.cache.{Cache, CacheResource}
 import io.janstenpickle.controller.events.syntax.stream._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Room
@@ -23,6 +23,7 @@ object EventDrivenActivity {
     activityUpdates: EventSubscriber[F, ActivityUpdateEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
+    cacheTimeout: FiniteDuration = 20.minutes
   )(
     implicit trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
@@ -31,14 +32,14 @@ object EventDrivenActivity {
     def fields[A](room: Room, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
       trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
 
-    def listen(current: MapRef[F, Room, Option[NonEmptyString]]) =
+    def listen(current: Cache[F, Room, NonEmptyString]) =
       activityUpdates.filterEvent(_.source != source).subscribeEvent.evalMapTrace("set.activity") {
         case ActivityUpdateEvent(room, name, None) =>
-          fields(room, "activity" -> name.value)(current(room).set(Some(name)))
+          fields(room, "activity" -> name.value)(current.set(room, name))
         case _ => Applicative[F].unit
       }
 
-    def listener(current: MapRef[F, Room, Option[NonEmptyString]]): Resource[F, F[Unit]] =
+    def listener(current: Cache[F, Room, NonEmptyString]): Resource[F, F[Unit]] =
       Stream
         .retry(listen(current).compile.drain, 5.seconds, _ + 1.second, Int.MaxValue)
         .compile
@@ -46,8 +47,7 @@ object EventDrivenActivity {
         .background
 
     for {
-      current <- Resource
-        .liftF[F, MapRef[F, Room, Option[NonEmptyString]]](MapRef.ofConcurrentHashMap[F, Room, NonEmptyString]())
+      current <- CacheResource.caffeine[F, Room, NonEmptyString](cacheTimeout)
       _ <- listener(current)
     } yield
       new Activity[F] {
@@ -57,7 +57,7 @@ object EventDrivenActivity {
           )
 
         override def getActivity(room: Room): F[Option[NonEmptyString]] =
-          trace.span("get.activity")(fields(room)(current(room).get))
+          trace.span("get.activity")(fields(room)(current.get(room)))
       }
   }
 }
