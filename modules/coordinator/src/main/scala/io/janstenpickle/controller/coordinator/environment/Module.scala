@@ -186,6 +186,7 @@ object Module {
       )
 
       components <- EventDrivenComponents(events, 10.seconds)
+
       (
         activityConfig,
         buttonConfig,
@@ -309,7 +310,7 @@ object Module {
         "/control/remote" -> new RemoteApi[F](allComponents.remotes).routes,
         "/control/switch" -> new SwitchApi[F](switches).routes,
         "/control/macro" -> new MacroApi[F](mac).routes,
-        "/control/activity" -> new ActivityApi[F](activity, allComponents.activityConfig).routes,
+        "/control/activity" -> new ActivityApi[F](activity, combinedActivityConfig).routes,
         "/control/context" -> new ContextApi[F](context).routes,
         "/command" -> new CommandWs[F, G](events.command.publisher.mapK(liftLower.lower, liftLower.lift)).routes,
         "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,

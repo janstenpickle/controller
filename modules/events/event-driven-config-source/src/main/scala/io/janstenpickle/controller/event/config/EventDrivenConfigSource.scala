@@ -22,7 +22,7 @@ object EventDrivenConfigSource {
     subscriber: EventSubscriber[F, A],
     name: String,
     source: String,
-    cacheTimeout: FiniteDuration = 20.minutes
+    cacheTimeout: FiniteDuration
   )(pf: PartialFunction[A, Cache[F, K, V] => F[Unit]])(
     implicit trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]

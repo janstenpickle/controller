@@ -101,7 +101,7 @@ val graalSettings = Seq(
     "--initialize-at-run-time=io.netty.channel.ChannelHandlerMask",
     "--initialize-at-build-time=io.grpc.okhttp",
     "--initialize-at-build-time=io.grpc.okhttp.OkHttpChannelProvider",
-    "--initialize-at-build-time=io.grpc.internal.DnsNameResolverProvider",
+    "--initialize-at-build-time=io.grpc.internal.DnsNameResolverProvider"
   )
 )
 
@@ -127,6 +127,7 @@ lazy val root = (project in file("."))
     pollingSwitch,
     kodi,
     sonos,
+    sonosServer,
     switch,
     sonosClientSubmodule,
     virtualSwitch,
@@ -268,20 +269,20 @@ lazy val coordinator = (project in file("modules/coordinator"))
   .settings(
     name := "controller-coordinator",
     libraryDependencies ++= Seq(
-      "eu.timepit"        %% "refined-cats"                  % refinedVer,
-      "io.extruder"       %% "extruder-cats-effect"          % extruderVer,
-      "io.extruder"       %% "extruder-circe"                % extruderVer,
-      "io.extruder"       %% "extruder-refined"              % extruderVer,
-      "io.extruder"       %% "extruder-typesafe"             % extruderVer,
-      "ch.qos.logback"    % "logback-classic"                % "1.2.3",
-      "io.chrisdavenport" %% "log4cats-slf4j"                % log4catsVer,
-      "org.http4s"        %% "http4s-jdk-http-client"        % "0.3.0",
-      "org.http4s"        %% "http4s-blaze-server"           % http4sVer,
-      "org.http4s"        %% "http4s-circe"                  % http4sVer,
-      "org.http4s"        %% "http4s-core"                   % http4sVer,
-      "org.http4s"        %% "http4s-dsl"                    % http4sVer,
-      "org.http4s"        %% "http4s-prometheus-metrics"     % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"                 % catsMtlVer,
+      "eu.timepit"        %% "refined-cats"              % refinedVer,
+      "io.extruder"       %% "extruder-cats-effect"      % extruderVer,
+      "io.extruder"       %% "extruder-circe"            % extruderVer,
+      "io.extruder"       %% "extruder-refined"          % extruderVer,
+      "io.extruder"       %% "extruder-typesafe"         % extruderVer,
+      "ch.qos.logback"    % "logback-classic"            % "1.2.3",
+      "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.0",
+      "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
+      "org.http4s"        %% "http4s-circe"              % http4sVer,
+      "org.http4s"        %% "http4s-core"               % http4sVer,
+      "org.http4s"        %% "http4s-dsl"                % http4sVer,
+      "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
+      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer
     )
   )
   .dependsOn(
@@ -311,7 +312,8 @@ lazy val coordinator = (project in file("modules/coordinator"))
     activity,
     activityConfig,
     cronScheduler,
-    eventDrivenComponents)
+    eventDrivenComponents
+  )
   .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val server = (project in file("modules/server"))
@@ -838,6 +840,26 @@ lazy val sonos = (project in file("modules/plugins/sonos"))
     dynamicDiscovery
   )
 
+lazy val sonosServer = (project in file("modules/plugins/sonos-server"))
+  .settings(commonSettings)
+  .settings(graalSettings)
+  .settings(
+    name := "controller-plugin-sonos-server",
+    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+  )
+  .dependsOn(
+    pluginApi,
+    sonos,
+    advertiser,
+    server,
+    websocketClientEvents,
+    trace,
+    prometheusTrace,
+    eventCommands,
+    extruder
+  )
+  .enablePlugins(GraalVMNativeImagePlugin)
+
 lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
   .settings(commonSettings)
   .settings(graalSettings)
@@ -1024,7 +1046,7 @@ lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
     organization := "com.vmichalak",
     name := "sonos-controller",
     libraryDependencies ++= Seq(
-      "com.squareup.okhttp3" % "okhttp"                         % "3.9.0",
+      "com.squareup.okhttp3" % "okhttp"                         % "4.7.2",
       "org.apache.commons"   % "commons-text"                   % "1.1",
       "junit"                % "junit"                          % "4.11" % Test,
       "org.mockito"          % "mockito-core"                   % "1.10.8" % Test,
