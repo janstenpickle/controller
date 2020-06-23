@@ -22,4 +22,11 @@ object ContextualLiftLower {
       override val lower: G ~> F = gf
       override val lift: F ~> G = fg
     }
+
+  implicit def noop[F[_], A]: ContextualLiftLower[F, F, A] = new ContextualLiftLower[F, F, A] {
+    override def lower(a: A): F ~> F = λ[F ~> F](a => a)
+    override def lift(a: A): F ~> F = λ[F ~> F](a => a)
+    override def lower: F ~> F = λ[F ~> F](a => a)
+    override def lift: F ~> F = λ[F ~> F](a => a)
+  }
 }

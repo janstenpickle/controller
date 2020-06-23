@@ -312,7 +312,9 @@ lazy val coordinator = (project in file("modules/coordinator"))
     activity,
     activityConfig,
     cronScheduler,
-    eventDrivenComponents
+    eventDrivenComponents,
+    traceWebsocketCompleter,
+    catsEffectTraceNatchez
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -789,6 +791,59 @@ lazy val openTelemetryTrace = (project in file("modules/trace/opentelemetry-trac
     )
   )
 
+lazy val catsEffectTraceModel = (project in file("modules/trace/cats-effect-model"))
+  .settings(commonSettings)
+  .settings(
+    name := "cats-effect-trace-model",
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-core"    % catsVer,
+      "com.beachape"  %% "enumeratum"   % "1.6.1",
+      "commons-codec" % "commons-codec" % "1.14"
+    )
+  )
+
+lazy val catsEffectTrace = (project in file("modules/trace/cats-effect"))
+  .settings(commonSettings)
+  .settings(name := "cats-effect-trace", libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % catsEffectVer))
+  .dependsOn(catsEffectTraceModel)
+
+lazy val catsEffectTraceNatchez = (project in file("modules/trace/cats-effect-natchez"))
+  .settings(commonSettings)
+  .settings(
+    name := "cats-effect-trace-natchez",
+    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+  )
+  .dependsOn(catsEffectTrace)
+
+lazy val catsEffectTraceAvro = (project in file("modules/trace/cats-effect-trace-avro"))
+  .settings(commonSettings)
+  .settings(
+    name := "cats-effect-trace-avro",
+    libraryDependencies ++= Seq(
+      "com.github.fd4s" %% "vulcan"            % "1.1.0",
+      "com.github.fd4s" %% "vulcan-generic"    % "1.1.0",
+      "com.github.fd4s" %% "vulcan-enumeratum" % "1.1.0"
+    )
+  )
+  .dependsOn(catsEffectTraceModel)
+
+lazy val traceWebsocketCompleter = (project in file("modules/trace/cats-effect-trace-websocket-completer"))
+  .settings(commonSettings)
+  .settings(name := "cats-effect-trace-websocket-completer")
+  .dependsOn(catsEffectTrace, catsEffectTraceAvro, websocketClient)
+
+lazy val traceWebsocketServer = (project in file("modules/trace/cats-effect-trace-websocket-server"))
+  .settings(commonSettings)
+  .settings(
+    name := "cats-effect-trace-websocket-server",
+    libraryDependencies ++= Seq(
+      "org.http4s" %% "http4s-core"         % http4sVer,
+      "org.http4s" %% "http4s-dsl"          % http4sVer,
+      "org.http4s" %% "http4s-blaze-server" % http4sVer,
+    )
+  )
+  .dependsOn(catsEffectTraceAvro)
+
 lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
   .settings(
@@ -994,7 +1049,7 @@ lazy val websocketClientEvents = (project in file("modules/events/websocket-clie
       "org.java-websocket" % "Java-WebSocket" % "1.5.1"
     )
   )
-  .dependsOn(arrow, events, model, componentsEventsState)
+  .dependsOn(arrow, events, model, componentsEventsState, websocketClient)
 
 lazy val eventDrivenSwitches = (project in file("modules/switch/event-driven-switches"))
   .settings(commonSettings)
@@ -1039,6 +1094,18 @@ lazy val kafkaEvents = (project in file("modules/events/kafka-events"))
     )
   )
   .dependsOn(events, model)
+
+lazy val websocketClient = (project in file("modules/websocket-client"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-websocket-client",
+    libraryDependencies ++= Seq(
+      "org.typelevel"      %% "cats-effect"   % catsEffectVer,
+      "co.fs2"             %% "fs2-core"      % fs2Ver,
+      "org.java-websocket" % "Java-WebSocket" % "1.5.1"
+    )
+  )
+  .dependsOn(arrow)
 
 lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
   .settings(commonSettings)

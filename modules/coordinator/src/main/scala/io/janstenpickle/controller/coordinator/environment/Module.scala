@@ -39,6 +39,8 @@ import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitc
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.trace.completer.websocket.WebSocketClientCompleter
+import io.janstenpickle.trace.natchez.CatsEffectTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez.{EntryPoint, Kernel, Span, Trace}
@@ -56,10 +58,15 @@ object Module {
       new CollectorRegistry(true)
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: Sync: ContextShift: Clock](
+  def entryPoint[F[_]: ConcurrentEffect: ContextShift: Timer](
     registry: CollectorRegistry,
     blocker: Blocker
-  ): Resource[F, EntryPoint[F]] = PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+  ): Resource[F, EntryPoint[F]] =
+    WebSocketClientCompleter[F]("localhost", 9999, 20000, blocker).flatMap { completer =>
+      PrometheusTracer
+        .entryPoint[F](serviceName, registry, blocker)
+        .map(_ |+| CatsEffectTracer.entryPoint[F](completer))
+    }
 
 //    Jaeger.entryPoint[F](serviceName) { c =>
 //      Sync[F].delay {

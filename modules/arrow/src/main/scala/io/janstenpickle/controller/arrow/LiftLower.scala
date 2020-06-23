@@ -16,4 +16,9 @@ object LiftLower {
     override val lower: G ~> F = gf
     override val lift: F ~> G = fg
   }
+
+  implicit def noop[F[_]]: LiftLower[F, F] = new LiftLower[F, F] {
+    override def lower: F ~> F = λ[F ~> F](a => a)
+    override def lift: F ~> F = λ[F ~> F](a => a)
+  }
 }
