@@ -313,7 +313,7 @@ lazy val coordinator = (project in file("modules/coordinator"))
     activityConfig,
     cronScheduler,
     eventDrivenComponents,
-    traceWebsocketCompleter,
+    traceJaegerCompleter,
     catsEffectTraceNatchez
   )
   .enablePlugins(GraalVMNativeImagePlugin)
@@ -612,17 +612,16 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
   .settings(
     name := "controller-deconz-bridge",
     libraryDependencies ++= Seq(
-      "eu.timepit"                   %% "refined"                       % refinedVer,
-      "eu.timepit"                   %% "refined-cats"                  % refinedVer,
-      "org.typelevel"                %% "kittens"                       % kittensVer,
-      "io.chrisdavenport"            %% "log4cats-slf4j"                % log4catsVer,
-      "com.softwaremill.sttp.client" %% "async-http-client-backend-fs2" % sttpWebsocketClientVer,
-      "io.circe"                     %% "circe-parser"                  % circeVer,
-      "io.circe"                     %% "circe-generic"                 % circeVer,
-      "org.tpolecat"                 %% "natchez-core"                  % natchezVer
+      "eu.timepit"        %% "refined"        % refinedVer,
+      "eu.timepit"        %% "refined-cats"   % refinedVer,
+      "org.typelevel"     %% "kittens"        % kittensVer,
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "io.circe"          %% "circe-parser"   % circeVer,
+      "io.circe"          %% "circe-generic"  % circeVer,
+      "org.tpolecat"      %% "natchez-core"   % natchezVer
     )
   )
-  .dependsOn(arrow, events, model, circeConfigSource)
+  .dependsOn(arrow, events, model, circeConfigSource, websocketClient)
 
 lazy val tracedSwitch = (project in file("modules/switch/trace-switch"))
   .settings(commonSettings)
@@ -832,17 +831,29 @@ lazy val traceWebsocketCompleter = (project in file("modules/trace/cats-effect-t
   .settings(name := "cats-effect-trace-websocket-completer")
   .dependsOn(catsEffectTrace, catsEffectTraceAvro, websocketClient)
 
+lazy val traceJaegerCompleter = (project in file("modules/trace/cats-effect-trace-jaeger-completer"))
+  .settings(commonSettings)
+  .settings(
+    name := "cats-effect-trace-jaeger-completer",
+    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "io.jaegertracing" % "jaeger-thrift" % "1.2.0")
+  )
+  .dependsOn(catsEffectTrace)
+
 lazy val traceWebsocketServer = (project in file("modules/trace/cats-effect-trace-websocket-server"))
   .settings(commonSettings)
+  .settings(graalSettings)
   .settings(
     name := "cats-effect-trace-websocket-server",
     libraryDependencies ++= Seq(
-      "org.http4s" %% "http4s-core"         % http4sVer,
-      "org.http4s" %% "http4s-dsl"          % http4sVer,
-      "org.http4s" %% "http4s-blaze-server" % http4sVer,
+      "org.http4s"       %% "http4s-core"         % http4sVer,
+      "org.http4s"       %% "http4s-dsl"          % http4sVer,
+      "org.http4s"       %% "http4s-blaze-server" % http4sVer,
+      "ch.qos.logback"   % "logback-classic"      % "1.2.3",
+      "io.jaegertracing" % "jaeger-thrift"        % "1.2.0"
     )
   )
   .dependsOn(catsEffectTraceAvro)
+  .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
@@ -935,7 +946,9 @@ lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
     prometheusTrace,
     eventCommands,
     extruder,
-    discoveryConfig
+    discoveryConfig,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 

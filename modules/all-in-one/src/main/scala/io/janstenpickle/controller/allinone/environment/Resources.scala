@@ -7,7 +7,6 @@ import cats.effect.{Blocker, Clock, ConcurrentEffect, ContextShift, Resource, Sy
 import cats.syntax.semigroup._
 import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
 import io.janstenpickle.controller.allinone.config.Configuration
-import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
@@ -26,7 +25,6 @@ object Resources {
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
       val registry = new CollectorRegistry(true)
-      registry.register(new CacheCollector())
       registry
     })(r => Sync[F].delay(r.clear()))
 

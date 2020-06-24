@@ -1,5 +1,6 @@
 package io.janstenpickle.deconz
 
+import java.net.URI
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
@@ -12,6 +13,7 @@ import cats.syntax.functor._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
+import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.Decoder
 import io.circe.generic.auto._
@@ -22,13 +24,12 @@ import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.CommandEvent
+import io.janstenpickle.controller.websocket.client.JavaWebSocketClient
 import io.janstenpickle.deconz.action.{ActionProcessor, CommandEventProcessor}
 import io.janstenpickle.deconz.config.CirceButtonMappingConfigSource
 import io.janstenpickle.deconz.model.ButtonAction.fromInt
 import io.janstenpickle.deconz.model.{ButtonAction, Event}
 import natchez.Trace
-import sttp.client._
-import sttp.client.asynchttpclient.fs2.{AsyncHttpClientFs2Backend, Fs2WebSocketHandler, Fs2WebSockets}
 
 import scala.concurrent.duration._
 
@@ -62,81 +63,71 @@ object DeconzBridge {
       _ <- apply[F, G](config.api, actionProcessor, blocker)
     } yield ()
 
-  def apply[F[_], G[_]: ContextShift](config: DeconzApiConfig, processor: ActionProcessor[F], blocker: Blocker)(
+  def apply[F[_]: Concurrent: ContextShift: Timer, G[_]](
+    config: DeconzApiConfig,
+    processor: ActionProcessor[F],
+    blocker: Blocker
+  )(
     implicit F: Sync[F],
     G: ConcurrentEffect[G],
     liftLower: ContextualLiftLower[G, F, String],
-    timer: Timer[G],
     trace: Trace[F]
-  ): Resource[F, Unit] =
-    Resource
-      .liftF(Slf4jLogger.create[G])
-      .flatMap { logger =>
-        Resource
-          .liftF(AsyncHttpClientFs2Backend[G]())
-          .flatMap { implicit backend =>
-            def websocket: G[Unit] =
-              blocker
-                .blockOn(
-                  basicRequest
-                    .get(uri"ws://${config.host}:${config.port}")
-                    .openWebsocketF(Fs2WebSocketHandler[G]())
-                    .flatMap { response =>
-                      Fs2WebSockets.handleSocketThroughTextPipe(response.result)(
-                        _.map(parse(_).flatMap(_.as[Event]).toOption).unNone
-                          .evalMapAccumulate[G, Map[(String, Boolean), Long], List[(String, ButtonAction)]](
-                            Map.empty[(String, Boolean), Long]
-                          )(
-                            (started, event) =>
-                              event.state.buttonevent match {
-                                case ButtonAction.LongPressOnStart =>
-                                  timer.clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
-                                    started.updated((event.id, true), ts) -> List.empty
-                                  }
-                                case ButtonAction.LongPressOnStop =>
-                                  timer.clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
-                                    (started - (event.id -> true)) -> started
-                                      .get((event.id, true))
-                                      .map { start =>
-                                        (event.id, ButtonAction.LongPressOn((ts - start).millis))
-                                      }
-                                      .toList
-                                  }
-                                case ButtonAction.LongPressOffStart =>
-                                  timer.clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
-                                    started.updated((event.id, false), ts) -> List.empty
-                                  }
-                                case ButtonAction.LongPressOffStop =>
-                                  timer.clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
-                                    (started - (event.id -> false)) -> started
-                                      .get((event.id, false))
-                                      .map { start =>
-                                        (event.id, ButtonAction.LongPressOff((ts - start).millis))
-                                      }
-                                      .toList
-                                  }
-                                case _ => G.pure(started -> List(event.id -> event.state.buttonevent))
-                            }
-                          )
-                          .flatMap { case (_, events) => Stream.emits(events) }
-                          .evalMap {
-                            case (id, event) =>
-                              liftLower.lower("deconz.event")(processor.process(id, event).handleErrorWith { th =>
-                                trace.put("error" -> true, "message" -> th.getMessage) >> logger
-                                  .mapK(liftLower.lift)
-                                  .warn(th)("Processor failed to do handle deconz event")
-                              })
-                          }
-                          .as(Right(""))
-                      )
-                    }
-                )
-                .handleErrorWith { th =>
-                  logger.error(th)("Deconz websocket failed, restarting") >> timer.sleep(10.seconds) >> websocket
-                } >> websocket
+  ): Resource[F, Unit] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+    val uri = new URI(s"ws://${config.host}:${config.port}")
 
-            websocket.background.map(_ => ())
+    def recieve(queue: Queue[F, String]): F[Unit] =
+      queue.dequeue
+        .map(parse(_).flatMap(_.as[Event]).toOption)
+        .unNone
+        .evalMapAccumulate[F, Map[(String, Boolean), Long], List[(String, ButtonAction)]](
+          Map.empty[(String, Boolean), Long]
+        )(
+          (started, event) =>
+            event.state.buttonevent match {
+              case ButtonAction.LongPressOnStart =>
+                Timer[F].clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
+                  started.updated((event.id, true), ts) -> List.empty
+                }
+              case ButtonAction.LongPressOnStop =>
+                Timer[F].clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
+                  (started - (event.id -> true)) -> started
+                    .get((event.id, true))
+                    .map { start =>
+                      (event.id, ButtonAction.LongPressOn((ts - start).millis))
+                    }
+                    .toList
+                }
+              case ButtonAction.LongPressOffStart =>
+                Timer[F].clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
+                  started.updated((event.id, false), ts) -> List.empty
+                }
+              case ButtonAction.LongPressOffStop =>
+                Timer[F].clock.realTime(TimeUnit.MILLISECONDS).map { ts =>
+                  (started - (event.id -> false)) -> started
+                    .get((event.id, false))
+                    .map { start =>
+                      (event.id, ButtonAction.LongPressOff((ts - start).millis))
+                    }
+                    .toList
+                }
+              case _ => Applicative[F].pure(started -> List(event.id -> event.state.buttonevent))
           }
-      }
-      .mapK(liftLower.lift)
+        )
+        .flatMap { case (_, events) => Stream.emits(events) }
+        .evalMap {
+          case (id, event) =>
+            processor.process(id, event).handleErrorWith { th =>
+              trace.put("error" -> true, "message" -> th.getMessage) >> logger
+                .warn(th)("Processor failed to do handle deconz event")
+            }
+        }
+        .compile
+        .drain
+
+    for {
+      queue <- Resource.liftF(Queue.unbounded[F, String])
+      _ <- JavaWebSocketClient.receiveString[F, G](uri, blocker, queue.enqueue1)
+      _ <- Stream.retry(recieve(queue), 5.seconds, _ + 1.second, Int.MaxValue).compile.drain.background
+    } yield ()
+  }
 }
