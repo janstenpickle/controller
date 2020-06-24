@@ -17,12 +17,13 @@ import org.apache.avro.io.EncoderFactory
 object WebSocketClientCompleter {
 
   def apply[F[_]: ConcurrentEffect: Timer: ContextShift](
+    serviceName: String,
     host: String,
     port: Int,
     bufferSize: Int,
     blocker: Blocker
   ): Resource[F, SpanCompleter[F]] = {
-    val uri = new URI(s"ws://$host:$port/trace")
+    val uri = new URI(s"ws://$host:$port/trace/$serviceName")
 
     for {
       schema <- Resource.liftF(Sync[F].fromEither(AvroInstances.completedSpanCodec.schema.leftMap(_.throwable)))

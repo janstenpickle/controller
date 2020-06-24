@@ -1,7 +1,5 @@
 package io.janstenpickle.trace.websocket
 
-import java.util.UUID
-
 import cats.effect.Sync
 import cats.syntax.either._
 import cats.syntax.flatMap._
@@ -18,7 +16,7 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Binary
 
-class TraceWs[F[_]: Sync] private (schema: Schema, sink: Pipe[F, CompletedSpan, Unit]) extends Http4sDsl[F] {
+class TraceWs[F[_]: Sync] private (schema: Schema, sink: String => Pipe[F, CompletedSpan, Unit]) extends Http4sDsl[F] {
 
   val pipe: Pipe[F, WebSocketFrame, CompletedSpan] = _.map {
     case Binary(data, true) => Some(data.toArray)
@@ -38,12 +36,12 @@ class TraceWs[F[_]: Sync] private (schema: Schema, sink: Pipe[F, CompletedSpan, 
   }
 
   val routes: HttpRoutes[F] = HttpRoutes.of {
-    case GET -> Root / "trace" =>
-      WebSocketBuilder[F].build(fs2.Stream.empty, pipe.andThen(sink))
+    case GET -> Root / "trace" / serviceName =>
+      WebSocketBuilder[F].build(fs2.Stream.empty, pipe.andThen(sink(serviceName)))
   }
 }
 
 object TraceWs {
-  def apply[F[_]: Sync](sink: Pipe[F, CompletedSpan, Unit]): F[TraceWs[F]] =
+  def apply[F[_]: Sync](sink: String => Pipe[F, CompletedSpan, Unit]): F[TraceWs[F]] =
     Sync[F].fromEither(AvroInstances.completedSpanCodec.schema.leftMap(_.throwable)).map(new TraceWs[F](_, sink))
 }

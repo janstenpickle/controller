@@ -1,32 +1,51 @@
 package io.janstenpickle.trace.websocket
 
+import java.nio.ByteBuffer
+
 import cats.effect.{Blocker, ExitCode, IO, IOApp}
-import com.google.protobuf.{ByteString, Duration, Timestamp}
+import io.jaegertracing.thrift.internal.senders.UdpSender
+import io.jaegertracing.thriftjava.{Process, Span}
 import org.http4s.server.blaze.BlazeServerBuilder
 import org.http4s.syntax.all._
 
-//import scala.concurrent.duration._
-import io.jaegertracing.api_v2.Model._
+import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 
 object TraceListener extends IOApp {
+  val udpSender = new UdpSender()
+
   override def run(args: List[String]): IO[ExitCode] =
     fs2.Stream
-      .eval(TraceWs[IO](_.groupWithin(100, 20.seconds).map { spans =>
-        val x = spans.map { span =>
-          val spanBuilder = Span
-            .newBuilder()
-            .setSpanId(ByteString.copyFrom(span.context.spanId.value))
-            .setTraceId(ByteString.copyFrom(span.context.traceId.value))
-            .setStartTime(Timestamp.newBuilder().setSeconds(span.start / 1000).build())
-            .setDuration(Duration.newBuilder().setSeconds((span.end - span.start) / 1000))
-            .setOperationName(span.name)
-            .set
+      .eval(
+        TraceWs[IO](
+          serviceName =>
+            _.groupWithin(100, 1.seconds).evalMap { spans =>
+              val process = new Process(serviceName)
 
-        }
+              val jaegerSpans = spans.map {
+                span =>
+                  val traceIdBuffer = ByteBuffer.wrap(span.context.traceId.value)
+                  val traceIdLow = traceIdBuffer.getLong
+                  val traceIdHigh = traceIdBuffer.getLong
 
-        io.jaegertracing.api_v2.Model.Batch.newBuilder()
+                  new Span(
+                    traceIdLow,
+                    traceIdHigh,
+                    ByteBuffer.wrap(span.context.spanId.value).getLong,
+                    span.context.parent.map(id => ByteBuffer.wrap(id.value).getLong).getOrElse(0),
+                    span.name,
+                    if (span.context.traceFlags.sampled) 1 else 0,
+                    span.start,
+                    span.end - span.start
+                  )
 
-      }))
+              }
+
+              IO.delay(udpSender.send(process, jaegerSpans.toList.asJava))
+
+          }
+        )
+      )
       .flatMap { ws =>
         fs2.Stream.resource(Blocker[IO]).flatMap { blocker =>
           BlazeServerBuilder[IO](blocker.blockingContext)

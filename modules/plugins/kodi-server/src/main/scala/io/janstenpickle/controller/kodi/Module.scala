@@ -12,12 +12,13 @@ import cats.syntax.semigroup._
 import cats.{~>, Applicative, ApplicativeError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.advertiser.{Advertiser, Discoverer, JmDNSResource, ServiceType}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
+import io.janstenpickle.trace.natchez.CatsEffectTracer
 //import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
@@ -35,7 +36,6 @@ import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
 import io.prometheus.client.CollectorRegistry
-import natchez.jaeger.Jaeger
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client
 import org.http4s.client.jdkhttpclient.JdkHttpClient
@@ -49,22 +49,18 @@ object Module {
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
       val registry = new CollectorRegistry(true)
-//      registry.register(new CacheCollector())
       registry
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: Sync: ContextShift: Clock](
+  def entryPoint[F[_]: Concurrent: ContextShift: Timer](
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
-//    Jaeger.entryPoint[F](serviceName) { c =>
-//      Sync[F].delay {
-//        c.withSampler(SamplerConfiguration.fromEnv)
-//          .withReporter(ReporterConfiguration.fromEnv)
-//          .getTracer
-//      }
-//    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+    JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
+      PrometheusTracer
+        .entryPoint[F](serviceName, registry, blocker)
+        .map(_ |+| CatsEffectTracer.entryPoint[F](completer))
+    }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
     registry: CollectorRegistry,

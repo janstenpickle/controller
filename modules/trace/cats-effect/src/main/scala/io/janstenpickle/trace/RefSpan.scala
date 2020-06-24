@@ -22,7 +22,7 @@ case class RefSpan[F[_]: Sync: Clock] private (
 
   def end(status: SpanStatus): F[Unit] =
     for {
-      now <- Clock[F].realTime(TimeUnit.MILLISECONDS)
+      now <- Clock[F].realTime(TimeUnit.MICROSECONDS)
       attrs <- attributes.get
       completed = CompletedSpan(context, name, kind, start, now, attrs, status)
       _ <- completer.complete(completed)
@@ -40,13 +40,13 @@ object RefSpan {
     for {
       context <- SpanContext.child[F](parent)
       attributesRef <- Ref.of[F, Map[String, TraceValue]](Map.empty)
-      now <- Clock[F].realTime(TimeUnit.MILLISECONDS)
+      now <- Clock[F].realTime(TimeUnit.MICROSECONDS)
     } yield new RefSpan[F](context, name, kind, now, attributesRef, completer)
 
   def root[F[_]: Sync: Clock](name: String, kind: SpanKind, completer: SpanCompleter[F]): F[RefSpan[F]] =
     for {
       context <- SpanContext.root[F]
       attributesRef <- Ref.of[F, Map[String, TraceValue]](Map.empty)
-      now <- Clock[F].realTime(TimeUnit.MILLISECONDS)
+      now <- Clock[F].realTime(TimeUnit.MICROSECONDS)
     } yield RefSpan[F](context, name, kind, now, attributesRef, completer)
 }

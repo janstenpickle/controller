@@ -2,7 +2,7 @@ package io.janstenpickle.controller.coordinator.environment
 
 import cats.data.{EitherT, Kleisli, OptionT}
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.flatMap._
@@ -39,7 +39,7 @@ import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitc
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
-import io.janstenpickle.trace.completer.websocket.WebSocketClientCompleter
+import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
 import io.janstenpickle.trace.natchez.CatsEffectTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
@@ -62,27 +62,11 @@ object Module {
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    WebSocketClientCompleter[F]("localhost", 9999, 20000, blocker).flatMap { completer =>
+    JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
       PrometheusTracer
         .entryPoint[F](serviceName, registry, blocker)
         .map(_ |+| CatsEffectTracer.entryPoint[F](completer))
     }
-
-//    Jaeger.entryPoint[F](serviceName) { c =>
-//      Sync[F].delay {
-//        c.withSampler(SamplerConfiguration.fromEnv)
-//          .withReporter(ReporterConfiguration.fromEnv)
-//          .getTracer
-//      }
-//    }
-//    PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
-//    Jaeger.entryPoint[F](serviceName) { c =>
-//      Sync[F].delay {
-//        c.withSampler(SamplerConfiguration.fromEnv)
-//          .withReporter(ReporterConfiguration.fromEnv)
-//          .getTracer
-//      }
-//    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     config: Configuration.Config
