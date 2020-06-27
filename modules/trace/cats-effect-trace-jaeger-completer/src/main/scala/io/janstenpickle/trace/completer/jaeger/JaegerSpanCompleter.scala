@@ -14,12 +14,16 @@ import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import fs2.Stream
 
+import scala.util.Try
+
 object JaegerSpanCompleter {
   def apply[F[_]: Concurrent: ContextShift: Timer](
     serviceName: String,
     blocker: Blocker,
-    host: String = UdpSender.DEFAULT_AGENT_UDP_HOST,
-    port: Int = UdpSender.DEFAULT_AGENT_UDP_COMPACT_PORT,
+    host: String = Option(System.getenv("JAEGER_AGENT_HOST")).getOrElse(UdpSender.DEFAULT_AGENT_UDP_HOST),
+    port: Int = Option(System.getenv("JAEGER_AGENT_PORT"))
+      .flatMap(p => Try(p.toInt).toOption)
+      .getOrElse(UdpSender.DEFAULT_AGENT_UDP_COMPACT_PORT),
     bufferSize: Int = 2000,
     batchSize: Int = 50,
     batchTimeout: FiniteDuration = 10.seconds
