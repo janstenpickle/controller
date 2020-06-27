@@ -111,21 +111,26 @@ lazy val root = (project in file("."))
   .aggregate(
     advertiser,
     api,
+    allInOne,
+    coordinator,
     model,
     errors,
     components,
     eventCommands,
     remote,
     broadlink,
+    broadlinkServer,
     remoteControl,
     circeConfigSource,
     `macro`,
     context,
     activity,
     tplink,
+    tplinkServer,
     poller,
     pollingSwitch,
     kodi,
+    kodiServer,
     sonos,
     sonosServer,
     switch,
@@ -141,6 +146,7 @@ lazy val root = (project in file("."))
     mqttEvents,
     websocketEvents,
     deconzBridge,
+    deconzServer,
     hapJavaSubmodule,
     eventDrivenSwitches,
     eventDrivenRemoteControls,
@@ -1091,7 +1097,6 @@ lazy val homekit = (project in file("modules/homekit"))
 
 lazy val homekitServer = (project in file("modules/homekit-server"))
   .settings(commonSettings)
-  .settings(graalSettings)
   .settings(
     name := "controller-homekit-server",
     libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
@@ -1105,7 +1110,6 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
     traceJaegerCompleter,
     catsEffectTraceNatchez
   )
-  .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val mqttClient = (project in file("modules/events/mqtt-client"))
   .settings(commonSettings)
