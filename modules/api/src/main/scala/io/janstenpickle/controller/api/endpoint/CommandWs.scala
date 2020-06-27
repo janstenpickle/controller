@@ -32,7 +32,7 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
   trace: Trace[F],
   liftLower: ContextualLiftLower[G, F, String]
 ) extends Common[F] {
-  def pipe(q: Queue[G, String], source: String): Pipe[G, WebSocketFrame, Unit] =
+  def pipe(q: Queue[G, String]): Pipe[G, WebSocketFrame, Unit] =
     _.map {
       case Text(str, _) => Some(str)
       case _ => None
@@ -40,22 +40,21 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
       parse(str).flatMap(_.as[CommandEvent]) match {
         case Left(error) => q.enqueue1(error.getMessage)
         case Right(event) =>
-          Event[G, CommandEvent](event, source).flatMap(publisher.publish1Event) >> q.enqueue1("OK")
+          publisher.publish1(event) >> q.enqueue1("OK")
       }
     }
 
-  def ws(source: String): F[Response[F]] =
+  val ws: F[Response[F]] =
     liftLower
       .lift(for {
         q <- Queue.circularBuffer[G, String](10)
-        ws <- WebSocketBuilder[G].build(q.dequeue.map(Text(_)), pipe(q, source))
+        ws <- WebSocketBuilder[G].build(q.dequeue.map(Text(_)), pipe(q))
       } yield ws)
       .map(_.mapK(liftLower.lift))
 
   object SourceParamDecoder extends OptionalMultiQueryParamDecoderMatcher[String]("source")
 
   val routes: HttpRoutes[F] = HttpRoutes.of {
-    case GET -> Root / "ws" :? SourceParamDecoder(source) =>
-      source.toOption.flatMap(_.headOption).map(F.pure).getOrElse(F.delay(UUID.randomUUID().toString)).flatMap(ws)
+    case GET -> Root / "ws" => ws
   }
 }
