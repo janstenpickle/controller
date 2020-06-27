@@ -20,7 +20,7 @@ object Configuration {
     virtualSwitch: VirtualSwitch,
     activity: Activity,
     server: Server.Config,
-    frontendPath: Option[Path]
+    frontendPath: Option[Path] = Option(System.getenv("CONTROLLER_FRONTEND_PATH")).map(Paths.get(_))
   ) extends ServerConfig
 
   object Config {

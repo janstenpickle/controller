@@ -35,7 +35,8 @@ object Configuration {
     activity: Activity,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
     deconz: Option[DeconzBridge.DeconzApiConfig],
-    kafka: Option[KafkaPubSub.Config]
+    kafka: Option[KafkaPubSub.Config],
+    frontendPath: Option[Path] = Option(System.getenv("CONTROLLER_FRONTEND_PATH")).map(Paths.get(_))
   ) extends ServerConfig
 
   object Config {

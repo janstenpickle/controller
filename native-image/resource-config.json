@@ -3,6 +3,7 @@
     {"pattern":"\\Qapplication.conf\\E"}, 
     {"pattern":"\\Qlogback.xml\\E"}, 
     {"pattern":"\\Qorg/slf4j/impl/StaticLoggerBinder.class\\E"}, 
+    {"pattern":"\\Qstatic/favicon.ico\\E"}, 
     {"pattern":"\\Qstatic/icons.css\\E"}, 
     {"pattern":"\\Qstatic/icons.ttf\\E"}, 
     {"pattern":"\\Qstatic/index.css\\E"}, 

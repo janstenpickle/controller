@@ -350,7 +350,7 @@ object Module {
         "/config" -> new WritableConfigApi[F](configService).routes,
         "/discovery" -> new RenameApi[F](allComponents.rename).routes,
         "/schedule" -> new ScheduleApi[F](allComponents.scheduler).routes,
-        "/" -> new ControllerUi[F](workBlocker).routes
+        "/" -> new ControllerUi[F](workBlocker, config.frontendPath).routes
       )
   }
 }
