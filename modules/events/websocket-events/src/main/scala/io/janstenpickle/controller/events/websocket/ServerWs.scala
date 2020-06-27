@@ -1,10 +1,11 @@
 package io.janstenpickle.controller.events.websocket
 
 import cats.Applicative
-import cats.effect.{Concurrent, Timer}
+import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.semigroupk._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.Events
+import io.janstenpickle.controller.events.components.EventsState
 import io.janstenpickle.controller.model.event.{
   ActivityUpdateEvent,
   CommandEvent,
@@ -18,6 +19,13 @@ import natchez.Trace
 import org.http4s.HttpRoutes
 
 object ServerWs {
+  def apply[F[_]: Concurrent: Timer: Trace, G[_]: Applicative](events: Events[F])(
+    implicit liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, (EventsState[F], HttpRoutes[F])] = send[F, G](events).map {
+    case (state, routes) =>
+      (state, receive[F, G](events) <+> routes)
+  }
+
   def receive[F[_]: Concurrent: Timer: Trace, G[_]: Applicative](
     events: Events[F]
   )(implicit liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
@@ -32,5 +40,26 @@ object ServerWs {
     val commands = WebsocketEventsServer.send[F, G, CommandEvent]("command", events.command.subscriberStream)
 
     config <+> remote <+> switch <+> `macro` <+> activity <+> discovery <+> commands
+  }
+
+  def send[F[_]: Concurrent: Timer: Trace, G[_]: Applicative](events: Events[F])(
+    implicit liftLower: ContextualLiftLower[G, F, String]
+  ): Resource[F, (EventsState[F], HttpRoutes[F])] = Resource.liftF(EventsState[F]).map { state =>
+    val config =
+      WebsocketEventsServer.send[F, G, ConfigEvent]("config", events.config.subscriberStream, Some(state.config))
+    val remote =
+      WebsocketEventsServer.send[F, G, RemoteEvent]("remote", events.remote.subscriberStream, Some(state.remote))
+    val switch =
+      WebsocketEventsServer.send[F, G, SwitchEvent]("switch", events.switch.subscriberStream, Some(state.switch))
+    val `macro` =
+      WebsocketEventsServer.send[F, G, MacroEvent]("macro", events.`macro`.subscriberStream, Some(state.`macro`))
+    val activity =
+      WebsocketEventsServer.send[F, G, ActivityUpdateEvent]("activity", events.activity.subscriberStream, None)
+    val discovery = WebsocketEventsServer
+      .send[F, G, DeviceDiscoveryEvent]("discovery", events.discovery.subscriberStream, Some(state.discovery))
+
+    val commands = WebsocketEventsServer.receive[F, G, CommandEvent]("command", events.command.publisher)
+
+    (state, config <+> remote <+> switch <+> `macro` <+> activity <+> discovery <+> commands)
   }
 }

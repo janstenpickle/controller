@@ -10,6 +10,7 @@ import eu.timepit.refined.types.string.NonEmptyString
 import eu.timepit.refined.cats._
 import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource
+import io.janstenpickle.controller.deconz.DeconzBridge
 import io.janstenpickle.controller.events.kafka.KafkaPubSub
 import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
@@ -21,7 +22,6 @@ import io.janstenpickle.controller.server.{Server, ServerConfig}
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.switch.virtual.SwitchesForRemote
 import io.janstenpickle.controller.tplink.TplinkComponents
-import io.janstenpickle.deconz.DeconzBridge
 
 import scala.concurrent.duration._
 

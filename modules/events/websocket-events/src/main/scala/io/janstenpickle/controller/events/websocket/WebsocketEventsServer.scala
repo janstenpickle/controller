@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.events.websocket
 
 import cats.effect.concurrent.Deferred
-import cats.effect.{Clock, Concurrent}
+import cats.effect.{Concurrent, Timer}
 import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -20,6 +20,8 @@ import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import org.http4s.{HttpRoutes, Request}
 
+import scala.concurrent.duration._
+
 object WebsocketEventsServer {
   def receive[F[_]: Concurrent, G[_]: Applicative, A: Decoder](
     path: String,
@@ -37,15 +39,17 @@ object WebsocketEventsServer {
     make[F, G](path, "publish", pipe, Stream.empty)
   }
 
-  def send[F[_]: Concurrent: Clock, G[_]: Applicative, A: Encoder](
+  def send[F[_]: Concurrent: Timer, G[_]: Applicative, A: Encoder](
     path: String,
     subscriber: EventSubscriber[F, A],
     state: Option[Deferred[F, F[List[Event[A]]]]] = None
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
     val out =
       state
-        .fold(subscriber.subscribeEvent.drop(1)) { state =>
-          Stream.evals(state.get.flatten) ++ subscriber.subscribeEvent.drop(1)
+        .fold(subscriber.subscribeEvent) { state =>
+          val periodic = Stream.awakeEvery[F](10.minutes).flatMap(_ => Stream.evals(state.get.flatten))
+
+          (Stream.evals(state.get.flatten) ++ subscriber.subscribeEvent).merge(periodic)
         }
         .map(_.asJson.noSpacesSortKeys)
 

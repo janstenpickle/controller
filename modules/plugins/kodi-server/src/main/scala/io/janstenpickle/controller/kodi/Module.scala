@@ -19,7 +19,6 @@ import io.janstenpickle.controller.advertiser.{Advertiser, Discoverer, JmDNSReso
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
 import io.janstenpickle.trace.natchez.CatsEffectTracer
-//import io.janstenpickle.controller.cache.monitoring.CacheCollector
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.TopicEvents
@@ -35,6 +34,7 @@ import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.trace.SpanSampler
 import io.prometheus.client.CollectorRegistry
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client
@@ -48,8 +48,7 @@ object Module {
 
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
-      val registry = new CollectorRegistry(true)
-      registry
+      new CollectorRegistry(true)
     })(r => Sync[F].delay(r.clear()))
 
   def entryPoint[F[_]: Concurrent: ContextShift: Timer](
@@ -59,7 +58,7 @@ object Module {
     JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
       PrometheusTracer
         .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| CatsEffectTracer.entryPoint[F](completer))
+        .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
     }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](

@@ -3,16 +3,17 @@ package io.janstenpickle.controller.allinone.environment
 import java.net.http.HttpClient
 import java.util.concurrent.Executor
 
-import cats.effect.{Blocker, Clock, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.syntax.semigroup._
-import io.jaegertracing.Configuration.{ReporterConfiguration, SamplerConfiguration}
 import io.janstenpickle.controller.allinone.config.Configuration
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.trace.SpanSampler
+import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
+import io.janstenpickle.trace.natchez.CatsEffectTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.EntryPoint
-import natchez.jaeger.Jaeger
 import org.http4s.client.Client
 import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
@@ -28,17 +29,15 @@ object Resources {
       registry
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: Sync: ContextShift: Clock](
+  def entryPoint[F[_]: Concurrent: ContextShift: Timer](
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    Jaeger.entryPoint[F](serviceName) { c =>
-      Sync[F].delay {
-        c.withSampler(SamplerConfiguration.fromEnv)
-          .withReporter(ReporterConfiguration.fromEnv)
-          .getTracer
-      }
-    } |+| PrometheusTracer.entryPoint[F](serviceName, registry, blocker)
+    JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
+      PrometheusTracer
+        .entryPoint[F](serviceName, registry, blocker)
+        .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
+    }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
     registry: CollectorRegistry,

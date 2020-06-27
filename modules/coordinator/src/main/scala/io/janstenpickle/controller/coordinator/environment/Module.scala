@@ -39,6 +39,7 @@ import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitc
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.trace.SpanSampler
 import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
 import io.janstenpickle.trace.natchez.CatsEffectTracer
 import io.prometheus.client.CollectorRegistry
@@ -58,14 +59,14 @@ object Module {
       new CollectorRegistry(true)
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: ConcurrentEffect: ContextShift: Timer](
+  def entryPoint[F[_]: Concurrent: ContextShift: Timer](
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
     JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
       PrometheusTracer
         .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| CatsEffectTracer.entryPoint[F](completer))
+        .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
     }
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
@@ -295,9 +296,11 @@ object Module {
 
       _ <- Advertiser[F](host, config.server.port, ServiceType.Coordinator)
 
+      (eventsState, websockets) <- ServerWs[F, G](events)
+      _ <- Resource.liftF(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
     } yield
       Router(
-        "/events" -> ServerWs.receive[F, G](events),
+        "/events" -> websockets,
         "/control/remote" -> new RemoteApi[F](allComponents.remotes).routes,
         "/control/switch" -> new SwitchApi[F](switches).routes,
         "/control/macro" -> new MacroApi[F](mac).routes,

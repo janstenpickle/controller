@@ -1,22 +1,13 @@
 package io.janstenpickle.controller.allinone.environment
 
-import java.net.InetAddress
-import java.util.concurrent.{Executors, ThreadFactory}
-
 import cats.data.{EitherT, Kleisli, OptionT, Reader}
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Bracket, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
-import cats.instances.list._
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Timer}
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.flatMap._
-import cats.syntax.functor._
 import cats.syntax.semigroup._
-import cats.syntax.traverse._
 import cats.{~>, Applicative, ApplicativeError, Id, MonadError, Parallel}
-import eu.timepit.refined.types.net.PortNumber
-import eu.timepit.refined.types.string.NonEmptyString
-import extruder.cats.effect.EffectValidation
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
 import fs2.Stream
@@ -24,57 +15,48 @@ import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
+import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.activity.store.{ActivityStore, TracedActivityStore}
-import io.janstenpickle.controller.activity.{Activity, ActivitySwitchProvider}
 import io.janstenpickle.controller.advertiser.{Advertiser, ServiceType}
 import io.janstenpickle.controller.allinone.config.Configuration
-import io.janstenpickle.controller.api.endpoint._
+import io.janstenpickle.controller.allinone.config.Configuration.Config
 import io.janstenpickle.controller.allinone.error.ErrorInterpreter
+import io.janstenpickle.controller.api.endpoint._
 import io.janstenpickle.controller.api.service.ConfigService
-import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.api.validation.ConfigValidation
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.components.events.EventDrivenComponents
 import io.janstenpickle.controller.configsource._
 import io.janstenpickle.controller.context.Context
-import io.janstenpickle.controller.event.switch.EventDrivenSwitchProvider
+import io.janstenpickle.controller.deconz.{action, DeconzBridge}
+import io.janstenpickle.controller.events.TopicEvents
 import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.events.websocket.ServerWs
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.homekit.ControllerHomekitServer
+import io.janstenpickle.controller.http4s.client.EitherTClient
+import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
+import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.multiswitch.{MultiSwitchEventListenter, MultiSwitchProvider}
 import io.janstenpickle.controller.remote.store.{RemoteCommandStore, TracedRemoteCommandStore}
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.schedule.cron.CronScheduler
+import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.stats.StatsTranslator
 import io.janstenpickle.controller.stats.prometheus.MetricsSink
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitchStateStore}
 import io.janstenpickle.controller.trace.EmptyTrace
-import io.janstenpickle.deconz.DeconzBridge
-import io.janstenpickle.deconz.action.CommandEventProcessor
-import io.janstenpickle.controller.`macro`.store.TracedMacroStore
-import io.janstenpickle.controller.allinone.config.Configuration.Config
-import io.janstenpickle.controller.components.events.EventDrivenComponents
-import io.janstenpickle.controller.event.config.EventDrivenConfigSource
-import io.janstenpickle.controller.event.remotecontrol.EventDrivenRemoteControls
-import io.janstenpickle.controller.events.kafka.events.KafkaEvents
-import io.janstenpickle.controller.events.{Bridge, Events, TopicEvents}
-import io.janstenpickle.controller.http4s.client.EitherTClient
-import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
-import io.janstenpickle.controller.model.Remote
-import io.janstenpickle.controller.model.event.{ConfigEvent, RemoteEvent}
-import io.janstenpickle.controller.server.Server
+import io.janstenpickle.controller.trace.instances._
 import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez._
 import org.http4s.client.Client
-import org.http4s.metrics.prometheus.PrometheusExportService
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
-import io.janstenpickle.controller.trace.instances._
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -102,14 +84,6 @@ object Module {
       client <- Resources.httpClient[F](registry, blocker)
       mqtt <- Resources.mqttClient[F](config.mqtt)
       host <- Resource.liftF(Server.hostname(config.hostname))
-//      _ <- config.kafka.fold(Resource.pure[F, Unit](()))(
-//        KafkaEvents
-//          .create[F](host, _)
-//          .flatMap { kafkaEvents =>
-//            Bridge(kafkaEvents, topicEvents)
-//          }
-//          .void
-//      )
       (routes, homekit) <- components(config, ep, client, mqtt, registry)
     } yield (routes, registry, homekit)
 
@@ -337,16 +311,6 @@ object Module {
         events.switch.publisher.narrow
       )
 
-//
-//      (activity, activitySwitchProvider) = ActivitySwitchProvider[F](
-//        act,
-//        combinedActivityConfig,
-//        mac,
-//        events.switch.publisher.narrow
-//      )
-
-//      allSwitches = switches.addProvider(activitySwitchProvider)
-
       cronScheduler <- CronScheduler[F, G](events.command.publisher, scheduleConfig)
 
       allComponents = components
@@ -396,17 +360,20 @@ object Module {
         components.rename
       )
 
-      actionProcessor <- Resource.liftF(CommandEventProcessor[F](events.command.publisher, deconzConfig))
+      actionProcessor <- Resource.liftF(action.CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(DeconzBridge[F, G](_, actionProcessor, workBlocker))
 
       host <- Resource.liftF(Server.hostname[F](config.hostname))
 
       _ <- Advertiser[F](host, config.server.port, ServiceType.Coordinator)
+
+      (eventsState, websockets) <- ServerWs[F, G](events)
+      _ <- Resource.liftF(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
     } yield {
 
       val router =
         Router(
-          "/events" -> ServerWs.receive[F, G](events),
+          "/events" -> websockets,
           "/control/remote" -> new RemoteApi[F](allComponents.remotes).routes,
           "/control/switch" -> new SwitchApi[F](switches).routes,
           "/control/macro" -> new MacroApi[F](mac).routes,

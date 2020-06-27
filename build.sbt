@@ -146,7 +146,8 @@ lazy val root = (project in file("."))
     eventDrivenRemoteControls,
     eventDrivenActivity,
     eventDrivenDeviceRename,
-    server
+    server,
+    homekitServer
   )
 
 lazy val allInOne = (project in file("modules/all-in-one"))
@@ -175,8 +176,7 @@ lazy val allInOne = (project in file("modules/all-in-one"))
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
-      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer
     ),
     mappings in Universal := {
       val universalMappings = (mappings in Universal).value
@@ -223,7 +223,9 @@ lazy val allInOne = (project in file("modules/all-in-one"))
     websocketEvents,
     discoveryConfig,
     server,
-    websocketClientEvents
+    websocketClientEvents,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
 
@@ -349,7 +351,7 @@ lazy val http4s = (project in file("modules/http4s"))
       "org.http4s"        %% "http4s-dsl"     % http4sVer,
       "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
       "org.typelevel"     %% "cats-mtl-core"  % catsMtlVer,
-      ("org.tpolecat" %% "natchez-jaeger" % natchezVer).exclude("org.slf4j", "slf4j-jdk14")
+      "org.tpolecat"      %% "natchez-core"   % natchezVer
     )
   )
   .dependsOn(errors)
@@ -537,6 +539,37 @@ lazy val broadlink = (project in file("modules/plugins/broadlink"))
     dynamicDiscovery
   )
 
+lazy val broadlinkServer = (project in file("modules/plugins/broadlink-server"))
+  .settings(commonSettings)
+  .settings(graalSettings)
+  .settings(
+    name := "controller-plugin-broadlink-server",
+    libraryDependencies ++= Seq(
+      "org.http4s"     %% "http4s-jdk-http-client" % "0.3.0",
+      "ch.qos.logback" % "logback-classic"         % "1.2.3"
+    )
+  )
+  .dependsOn(
+    pluginApi,
+    broadlink,
+    remoteStore,
+    gitRemoteStore,
+    remoteConfig,
+    switchStore,
+    switchConfig,
+    advertiser,
+    server,
+    websocketClientEvents,
+    trace,
+    prometheusTrace,
+    eventCommands,
+    extruder,
+    discoveryConfig,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
+  )
+  .enablePlugins(GraalVMNativeImagePlugin)
+
 lazy val switch = (project in file("modules/switch/switch"))
   .settings(commonSettings)
   .settings(
@@ -591,6 +624,28 @@ lazy val tplink = (project in file("modules/plugins/tplink"))
     tracedRemote
   )
 
+lazy val tplinkServer = (project in file("modules/plugins/tplink-server"))
+  .settings(commonSettings)
+  .settings(graalSettings)
+  .settings(
+    name := "controller-plugin-tplink-server",
+    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+  )
+  .dependsOn(
+    pluginApi,
+    tplink,
+    advertiser,
+    server,
+    websocketClientEvents,
+    trace,
+    prometheusTrace,
+    eventCommands,
+    extruder,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
+  )
+  .enablePlugins(GraalVMNativeImagePlugin)
+
 lazy val virtualSwitch = (project in file("modules/switch/virtual-switch"))
   .settings(commonSettings)
   .settings(name := "controller-virtual-switch", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
@@ -622,6 +677,24 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
     )
   )
   .dependsOn(arrow, events, model, circeConfigSource, websocketClient)
+
+lazy val deconzServer = (project in file("modules/deconz-server"))
+  .settings(commonSettings)
+  .settings(graalSettings)
+  .settings(
+    name := "controller-deconz-server",
+    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+  )
+  .dependsOn(
+    deconzBridge,
+    server,
+    websocketClientEvents,
+    trace,
+    prometheusTrace,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
+  )
+  .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val tracedSwitch = (project in file("modules/switch/trace-switch"))
   .settings(commonSettings)
@@ -922,7 +995,9 @@ lazy val sonosServer = (project in file("modules/plugins/sonos-server"))
     trace,
     prometheusTrace,
     eventCommands,
-    extruder
+    extruder,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -1013,6 +1088,24 @@ lazy val homekit = (project in file("modules/homekit"))
     )
   )
   .dependsOn(events, extruder, poller, switch, hapJavaSubmodule)
+
+lazy val homekitServer = (project in file("modules/homekit-server"))
+  .settings(commonSettings)
+  .settings(graalSettings)
+  .settings(
+    name := "controller-homekit-server",
+    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+  )
+  .dependsOn(
+    homekit,
+    server,
+    websocketClientEvents,
+    trace,
+    prometheusTrace,
+    traceJaegerCompleter,
+    catsEffectTraceNatchez
+  )
+  .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val mqttClient = (project in file("modules/events/mqtt-client"))
   .settings(commonSettings)

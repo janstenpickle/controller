@@ -10,6 +10,7 @@ import io.janstenpickle.controller.allinone.config.Configuration.ConfigData
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe._
+import io.janstenpickle.controller.deconz.config.{ActionMapping, CirceButtonMappingConfigSource}
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
@@ -32,7 +33,6 @@ import io.janstenpickle.controller.model.{
 import io.janstenpickle.controller.remote.config.{CirceRemoteCommandConfigSource, CirceRemoteConfigSource}
 import io.janstenpickle.controller.schedule.cron.CirceScheduleConfigSource
 import io.janstenpickle.controller.schedule.model.Schedule
-import io.janstenpickle.deconz.config.{ActionMapping, CirceButtonMappingConfigSource}
 import io.janstenpickle.switches.config.{
   CirceMultiSwitchConfigSource,
   CirceSwitchStateConfigSource,

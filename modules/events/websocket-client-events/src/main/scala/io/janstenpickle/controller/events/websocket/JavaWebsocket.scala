@@ -56,6 +56,6 @@ object JavaWebsocket {
       state => Stream.awakeEvery[F](10.minutes).flatMap(_ => Stream.evals(state.get.flatten))
     )
 
-    JavaWebSocketClient.sendString[F, G](uri, blocker, stream.mergeHaltBoth(periodic).map(_.asJson.noSpacesSortKeys))
+    JavaWebSocketClient.sendString[F, G](uri, blocker, stream.merge(periodic).map(_.asJson.noSpacesSortKeys))
   }
 }
