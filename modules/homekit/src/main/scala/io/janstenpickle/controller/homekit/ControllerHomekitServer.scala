@@ -29,7 +29,6 @@ import scala.concurrent.duration._
 object ControllerHomekitServer {
 
   case class Config(
-    enabled: Boolean = false,
     label: NonEmptyString = NonEmptyString("Controller"),
     port: PortNumber = PortNumber(8091),
     threadCount: Option[PosInt],
@@ -118,23 +117,22 @@ object ControllerHomekitServer {
   ): Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]] =
     Reader {
       case (fkFuture, fk, exitSignal) =>
-        if (config.enabled)
-          for {
-            blocker <- Stream.resource(makeBlocker[F])
-            logger <- Stream.eval(Slf4jLogger.create[F])
-            exitCode <- streamLoop[F, G](
-              host,
-              config,
-              configFile,
-              switchEvents,
-              commands,
-              blocker,
-              fkFuture,
-              fk,
-              exitSignal,
-              logger
-            )
-          } yield exitCode
-        else Stream.empty
+        for {
+          blocker <- Stream.resource(makeBlocker[F])
+          logger <- Stream.eval(Slf4jLogger.create[F])
+          _ <- Stream.eval(logger.info("Starting homekit"))
+          exitCode <- streamLoop[F, G](
+            host,
+            config,
+            configFile,
+            switchEvents,
+            commands,
+            blocker,
+            fkFuture,
+            fk,
+            exitSignal,
+            logger
+          )
+        } yield exitCode
     }
 }

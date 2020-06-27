@@ -79,8 +79,7 @@ object Module {
         }
       )
 
-    tracedComponents[G, F](config)
-      .mapK(liftLower.lower)
+    tracedComponents[G, F](config).mapK(liftLower.lower)
   }
 
   private def tracedComponents[F[_]: ContextShift: Timer: Trace: Parallel, G[_]: ConcurrentEffect: ContextShift: Timer](
@@ -136,8 +135,8 @@ object Module {
       homekitConfigFileSource <- ConfigFileSource
         .polling[F, G](config.dir.resolve("homekit"), config.pollInterval, workBlocker, config.writeTimeout)
 
-    } yield {
-      val homekit = ControllerHomekitServer
+    } yield
+      ControllerHomekitServer
         .stream[F, G](
           host,
           config.homekit,
@@ -158,8 +157,5 @@ object Module {
             )
         }
         .map(_.translate(liftLower.lower("homekit")))
-
-      homekit
-    }
   }
 }
