@@ -192,7 +192,7 @@ object Module {
       switchStateSource <- fileSource("switch-state", workBlocker)
         .flatMap(CirceSwitchStateConfigSource[F, G](_, config.polling, events.switch.publisher.narrow))
 
-      discoverySource <- fileSource("discovery", workBlocker).flatMap(
+      discoverySource <- fileSource("discovery-mapping", workBlocker).flatMap(
         CirceDiscoveryMappingConfigSource[F, G](_, config.polling, events.discovery.publisher)
       )
 

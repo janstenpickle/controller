@@ -175,7 +175,12 @@ object Module {
       workBlocker <- makeBlocker("work")
 
       fileSource <- ConfigFileSource
-        .polling[F, G](config.dir, config.polling.pollInterval, workBlocker, config.writeTimeout)
+        .polling[F, G](
+          config.dir.resolve("discovery-mapping"),
+          config.polling.pollInterval,
+          workBlocker,
+          config.writeTimeout
+        )
 
       discoverySource <- CirceDiscoveryMappingConfigSource[F, G](fileSource, config.polling, events.discovery.publisher)
 
