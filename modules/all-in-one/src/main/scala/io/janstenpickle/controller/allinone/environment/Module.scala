@@ -34,7 +34,6 @@ import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.events.websocket.ServerWs
 import io.janstenpickle.controller.extruder.ConfigFileSource
-import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.http4s.client.EitherTClient
 import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
 import io.janstenpickle.controller.http4s.trace.implicits._
@@ -62,8 +61,6 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 
 object Module {
-  type Homekit[F[_]] = Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]]
-
   def configOrError[F[_]](
     result: F[Either[ValidationErrors, Config]]
   )(implicit F: MonadError[F, Throwable]): F[Configuration.Config] =
@@ -76,16 +73,15 @@ object Module {
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     config: Configuration.Config
-  ): Resource[F, (HttpRoutes[F], CollectorRegistry, Homekit[F])] =
+  ): Resource[F, (HttpRoutes[F], CollectorRegistry)] =
     for {
       blocker <- Blocker[F]
       registry <- Resources.registry[F]
       ep <- Resources.entryPoint[F](registry, blocker)
       client <- Resources.httpClient[F](registry, blocker)
       mqtt <- Resources.mqttClient[F](config.mqtt)
-      host <- Resource.liftF(Server.hostname(config.hostname))
-      (routes, homekit) <- components(config, ep, client, mqtt, registry)
-    } yield (routes, registry, homekit)
+      routes <- components(config, ep, client, mqtt, registry)
+    } yield (routes, registry)
 
   def components[F[_]: ContextShift: Timer: Parallel](
     config: Configuration.Config,
@@ -93,7 +89,7 @@ object Module {
     client: Client[F],
     mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
-  )(implicit F: ConcurrentEffect[F]): Resource[F, (HttpRoutes[F], Homekit[F])] = {
+  )(implicit F: ConcurrentEffect[F]): Resource[F, HttpRoutes[F]] = {
     type G[A] = Kleisli[F, Span[F], A]
 
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
@@ -112,10 +108,7 @@ object Module {
 
     eitherTComponents[G, F](config, ep.lowerT(client), mqtt.map(_.mapK(lift, liftLower.lower)), registry)
       .mapK(liftLower.lower)
-      .map {
-        case (routes, homekit) =>
-          (ep.liftT(routes), homekit)
-      }
+      .map(ep.liftT)
   }
 
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: ConcurrentEffect: ContextShift: Timer](
@@ -128,7 +121,7 @@ object Module {
     trace: Trace[F],
     liftLower: ContextualLiftLower[M, F, String],
     liftLowerContext: ContextualLiftLower[M, F, (String, Map[String, String])]
-  ): Resource[F, (HttpRoutes[F], Homekit[M])] = {
+  ): Resource[F, HttpRoutes[F]] = {
     type G[A] = EitherT[F, ControlError, A]
 
     val lift = λ[F ~> G](EitherT.liftF(_))
@@ -143,13 +136,10 @@ object Module {
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
         tracedComponents[G, M](config, EitherTClient[F, ControlError](client), mqtt.map(_.mapK(lift, lower)), registry)
-          .map {
-            case (routes, homekit) =>
-              val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
-                OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
-              }
-
-              (r, homekit)
+          .map { routes =>
+            Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
+              OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
+            }
           }
       }
       .mapK(lower)
@@ -167,7 +157,7 @@ object Module {
     ah: ApplicativeHandle[F, ControlError],
     liftLower: ContextualLiftLower[G, F, String],
     liftLowerContext: ContextualLiftLower[G, F, (String, Map[String, String])]
-  ): Resource[F, (HttpRoutes[F], Homekit[G])] = {
+  ): Resource[F, HttpRoutes[F]] = {
 
     for {
       discoveryBlocker <- Server.blocker[F]("discovery")
@@ -182,8 +172,6 @@ object Module {
       eventComponents <- EventDrivenComponents(events, 5.seconds)
 
       _ <- MultiSwitchEventListenter(events.switch, events.config)
-
-      homeKitSwitchEventSubscriber <- events.switch.subscriberResource
 
       _ <- StatsTranslator[F](
         events.config,
@@ -369,47 +357,20 @@ object Module {
 
       (eventsState, websockets) <- ServerWs[F, G](events)
       _ <- Resource.liftF(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
-    } yield {
-
-      val router =
-        Router(
-          "/events" -> websockets,
-          "/control/remote" -> new RemoteApi[F](allComponents.remotes).routes,
-          "/control/switch" -> new SwitchApi[F](switches).routes,
-          "/control/macro" -> new MacroApi[F](mac).routes,
-          "/control/activity" -> new ActivityApi[F](activity, allComponents.activityConfig).routes,
-          "/control/context" -> new ContextApi[F](context).routes,
-          "/command" -> new CommandWs[F, G](events.command.publisher.mapK(liftLower.lower, liftLower.lift)).routes,
-          "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,
-          "/config" -> new WritableConfigApi[F](configService).routes,
-          "/discovery" -> new RenameApi[F](allComponents.rename).routes,
-          "/schedule" -> new ScheduleApi[F](allComponents.scheduler).routes,
-          "/" -> new ControllerUi[F](workBlocker).routes
-        )
-
-      val homekit = ControllerHomekitServer
-        .stream[F, G](
-          host,
-          config.homekit,
-          homekitConfigFileSource,
-          homeKitSwitchEventSubscriber,
-          events.command.publisher
-        )
-        .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
-          case (fkFuture, fk, signal) =>
-            (
-              fkFuture.compose(liftLower.lower("homekit")),
-              fk.compose(liftLower.lower("homekit")),
-              new Signal[F, Boolean] {
-                override def discrete: Stream[F, Boolean] = signal.discrete.translate(liftLower.lift)
-                override def continuous: Stream[F, Boolean] = signal.continuous.translate(liftLower.lift)
-                override def get: F[Boolean] = liftLower.lift(signal.get)
-              }
-            )
-        }
-        .map(_.translate(liftLower.lower("homekit")))
-
-      (router, homekit)
-    }
+    } yield
+      Router(
+        "/events" -> websockets,
+        "/control/remote" -> new RemoteApi[F](allComponents.remotes).routes,
+        "/control/switch" -> new SwitchApi[F](switches).routes,
+        "/control/macro" -> new MacroApi[F](mac).routes,
+        "/control/activity" -> new ActivityApi[F](activity, allComponents.activityConfig).routes,
+        "/control/context" -> new ContextApi[F](context).routes,
+        "/command" -> new CommandWs[F, G](events.command.publisher.mapK(liftLower.lower, liftLower.lift)).routes,
+        "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,
+        "/config" -> new WritableConfigApi[F](configService).routes,
+        "/discovery" -> new RenameApi[F](allComponents.rename).routes,
+        "/schedule" -> new ScheduleApi[F](allComponents.scheduler).routes,
+        "/" -> new ControllerUi[F](workBlocker).routes
+      )
   }
 }

@@ -1,18 +1,18 @@
-package io.janstenpickle.controller.sonos
+package io.janstenpickle.controller.kodi
 
 import java.net.InetAddress
 import java.nio.file.{Path, Paths}
 
 import cats.effect.{ExitCode, IO, IOApp}
 import extruder.core.Parser
-import extruder.refined._
 import extruder.typesafe._
-import fs2.Stream
+import extruder.refined._
 import io.janstenpickle.controller.server.Server
+import fs2.Stream
 
 import scala.util.Try
 
-object Main extends IOApp {
+object Kodi extends IOApp {
   implicit val inetAddressParser: Parser[InetAddress] = Parser.fromTry(addr => Try(InetAddress.getByName(addr)))
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
 

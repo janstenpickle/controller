@@ -13,7 +13,6 @@ import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.deconz.DeconzBridge
 import io.janstenpickle.controller.events.kafka.KafkaPubSub
 import io.janstenpickle.controller.events.mqtt.MqttEvents
-import io.janstenpickle.controller.homekit.ControllerHomekitServer
 import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.{Room, SwitchKey}
 import io.janstenpickle.controller.mqtt.Fs2MqttClient
@@ -37,7 +36,6 @@ object Configuration {
     server: Server.Config,
     activity: Activity,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
-    homekit: ControllerHomekitServer.Config,
     deconz: Option[DeconzBridge.DeconzApiConfig],
     mqtt: Mqtt,
     kafka: Option[KafkaPubSub.Config]

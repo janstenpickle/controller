@@ -100,6 +100,9 @@
   "name":"scala.Symbol"
 },
 {
+  "name":"scala.Tuple2[]"
+},
+{
   "name":"scala.util.Either[]"
 },
 {

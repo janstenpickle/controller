@@ -79,7 +79,14 @@
   "methods":[{"name":"<init>","parameterTypes":["com.github.benmanes.caffeine.cache.Caffeine","com.github.benmanes.caffeine.cache.CacheLoader","boolean"] }]
 },
 {
+  "name":"java.lang.Object[][]"
+},
+{
   "name":"java.lang.String[]"
+},
+{
+  "name":"java.lang.Throwable",
+  "methods":[{"name":"getSuppressed","parameterTypes":[] }]
 },
 {
   "name":"java.lang.invoke.VarHandle"
@@ -95,6 +102,9 @@
 },
 {
   "name":"scala.Symbol"
+},
+{
+  "name":"scala.Tuple2[]"
 },
 {
   "name":"scala.util.Either[]"

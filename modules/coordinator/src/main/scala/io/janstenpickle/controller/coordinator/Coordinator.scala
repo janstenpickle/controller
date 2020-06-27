@@ -1,19 +1,20 @@
-package io.janstenpickle.controller.kodi
+package io.janstenpickle.controller.coordinator
 
-import java.net.InetAddress
 import java.nio.file.{Path, Paths}
 
 import cats.effect.{ExitCode, IO, IOApp}
 import extruder.core.Parser
 import extruder.typesafe._
 import extruder.refined._
-import io.janstenpickle.controller.server.Server
 import fs2.Stream
+import io.janstenpickle.controller.coordinator.config.Configuration
+import io.janstenpickle.controller.server.Server
+import io.janstenpickle.controller.coordinator.environment.Module
 
 import scala.util.Try
 
-object Main extends IOApp {
-  implicit val inetAddressParser: Parser[InetAddress] = Parser.fromTry(addr => Try(InetAddress.getByName(addr)))
+object Coordinator extends IOApp {
+
   implicit val pathParser: Parser[Path] = Parser.fromTry(path => Try(Paths.get(path)))
 
   override def run(args: List[String]): IO[ExitCode] =

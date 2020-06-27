@@ -152,6 +152,7 @@ lazy val root = (project in file("."))
 
 lazy val allInOne = (project in file("modules/all-in-one"))
   .settings(commonSettings)
+  .settings(graalSettings)
   .settings(
     name := "controller-all-in-one",
     packageName in Docker := "controller",
@@ -213,7 +214,6 @@ lazy val allInOne = (project in file("modules/all-in-one"))
     prometheusStats,
     prometheusTrace,
     trace,
-    homekit,
     kafkaEvents,
     mqttClient,
     mqttEvents,
@@ -227,7 +227,7 @@ lazy val allInOne = (project in file("modules/all-in-one"))
     traceJaegerCompleter,
     catsEffectTraceNatchez
   )
-  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin)
+  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
 
 lazy val api = (project in file("modules/api"))
   .settings(commonSettings)
