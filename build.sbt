@@ -111,7 +111,7 @@ lazy val root = (project in file("."))
   .aggregate(
     advertiser,
     api,
-    allInOne,
+    `all-in-one`,
     coordinator,
     model,
     errors,
@@ -119,20 +119,20 @@ lazy val root = (project in file("."))
     eventCommands,
     remote,
     broadlink,
-    broadlinkServer,
+    `broadlink-server`,
     remoteControl,
     circeConfigSource,
     `macro`,
     context,
     activity,
     tplink,
-    tplinkServer,
+    `tplink-server`,
     poller,
     pollingSwitch,
     kodi,
-    kodiServer,
+    `kodi-server`,
     sonos,
-    sonosServer,
+    `sonos-server`,
     switch,
     sonosClientSubmodule,
     virtualSwitch,
@@ -146,7 +146,7 @@ lazy val root = (project in file("."))
     mqttEvents,
     websocketEvents,
     deconzBridge,
-    deconzServer,
+    `deconz-server`,
     hapJavaSubmodule,
     eventDrivenSwitches,
     eventDrivenRemoteControls,
@@ -156,7 +156,7 @@ lazy val root = (project in file("."))
     homekitServer
   )
 
-lazy val allInOne = (project in file("modules/all-in-one"))
+lazy val `all-in-one` = (project in file("modules/all-in-one"))
   .settings(commonSettings)
   .settings(graalSettings)
   .settings(
@@ -221,8 +221,6 @@ lazy val allInOne = (project in file("modules/all-in-one"))
     prometheusTrace,
     trace,
     kafkaEvents,
-    mqttClient,
-    mqttEvents,
     cronScheduler,
     deconzBridge,
     eventDrivenComponents,
@@ -545,7 +543,7 @@ lazy val broadlink = (project in file("modules/plugins/broadlink"))
     dynamicDiscovery
   )
 
-lazy val broadlinkServer = (project in file("modules/plugins/broadlink-server"))
+lazy val `broadlink-server` = (project in file("modules/plugins/broadlink-server"))
   .settings(commonSettings)
   .settings(graalSettings)
   .settings(
@@ -630,7 +628,7 @@ lazy val tplink = (project in file("modules/plugins/tplink"))
     tracedRemote
   )
 
-lazy val tplinkServer = (project in file("modules/plugins/tplink-server"))
+lazy val `tplink-server` = (project in file("modules/plugins/tplink-server"))
   .settings(commonSettings)
   .settings(graalSettings)
   .settings(
@@ -684,7 +682,7 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
   )
   .dependsOn(arrow, events, model, circeConfigSource, websocketClient)
 
-lazy val deconzServer = (project in file("modules/deconz-server"))
+lazy val `deconz-server` = (project in file("modules/deconz-server"))
   .settings(commonSettings)
   .settings(graalSettings)
   .settings(
@@ -985,7 +983,7 @@ lazy val sonos = (project in file("modules/plugins/sonos"))
     dynamicDiscovery
   )
 
-lazy val sonosServer = (project in file("modules/plugins/sonos-server"))
+lazy val `sonos-server` = (project in file("modules/plugins/sonos-server"))
   .settings(commonSettings)
   .settings(graalSettings)
   .settings(
@@ -1007,7 +1005,7 @@ lazy val sonosServer = (project in file("modules/plugins/sonos-server"))
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
-lazy val kodiServer = (project in file("modules/plugins/kodi-server"))
+lazy val `kodi-server` = (project in file("modules/plugins/kodi-server"))
   .settings(commonSettings)
   .settings(graalSettings)
   .settings(
@@ -1099,6 +1097,12 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
   .settings(commonSettings)
   .settings(
     name := "controller-homekit-server",
+    packageName in Docker := "controller-homekit-server",
+    dockerRepository := Some("janstenpickle"),
+    dockerUpdateLatest := true,
+    dockerBaseImage := "openjdk:13",
+    daemonUserUid in Docker := Some("9000"),
+    javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
     libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
   )
   .dependsOn(
@@ -1110,6 +1114,7 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
     traceJaegerCompleter,
     catsEffectTraceNatchez
   )
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
 
 lazy val mqttClient = (project in file("modules/events/mqtt-client"))
   .settings(commonSettings)

@@ -2,58 +2,119 @@ name: Controller CI
 
 on:
   push:
-    branches:
-      - master
+#    branches:
+#      - master
   pull_request:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [12.x]
+        native-image:
+          - 'all-in-one'
+          - coordinator
+          - 'deconz-server'
+          - 'broadlink-server'
+          - 'tplink-server'
+          - 'sonos-server'
+          - 'kodi-server'
     steps:
-    - uses: actions/checkout@v1
+    - name: checkout
+      uses: actions/checkout@v1
       with:
         submodules: true
-        - name: Set up JDK (Java 11.0.6)
-          uses: actions/setup-java@v1
-          with:
-            java-version: '11.0.7'
+    - name: setup-graalvm-ce
+      uses: rinx/setup-graalvm-ce@v0.0.3
+      with:
+        graalvm-version: "20.1.0"
+        java-version: "java11"
+        native-image: "true"
+    - name: Set up JDK
+      uses: actions/setup-java@v1
+      with:
+        java-version: '11.0.7'
+    - name: Cache ivy2
+      uses: actions/cache@v1
+      with:
+        path: ~/.ivy2/cache
+        key: ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
+        restore-keys: |
+          ${{ runner.os }}-ivy2-
+          ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
 
-        - name: Cache ivy2
-          uses: actions/cache@v1
-          with:
-            path: ~/.ivy2/cache
-            key: ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
-            restore-keys: |
-              ${{ runner.os }}-ivy2-
-              ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
+    - name: Cache SBT
+      uses: actions/cache@v1
+      with:
+        path: ~/.sbt
+        key: ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
+        restore-keys: |
+          ${{ runner.os }}-sbt-
+          ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}
+          ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
 
-        - name: Cache SBT
-          uses: actions/cache@v1
-          with:
-            path: ~/.sbt
-            key: ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
-            restore-keys: |
-              ${{ runner.os }}-sbt-
-              ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}
-              ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
-
-    - name: Use Node.js ${{ matrix.node-version }}
+    - name: Use Node.js 12.x
+      if: ${{ matrix.native-image == 'all-in-one' || matrix.native-image == 'coordinator' }}
       uses: actions/setup-node@v1
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: 12.x
 
     - name: npm install, build, and test
+      if: ${{ matrix.native-image == 'all-in-one' || matrix.native-image == 'coordinator' }}
       run: |
+        mkdir -p modules/api/src/main/resources/static
         cd controller-ui
         npm install
         npm run build --if-present
-    - name: docker login
-      run: docker login -u janstenpickle -p '${{secrets.DOCKERHUB}}'
     - name: scala build
       run: |
-        sbt -Dsbt.coursier.home=~/.sbt/coursier/ '; project api; docker:publishLocal' -J-Xms3G -J-Xmx6G
+        sbt -Dsbt.coursier.home=~/.sbt/coursier/ '; project ${{ matrix.native-image }}; graalvm-native-image:packageBin' -J-Xms3G -J-Xmx6G
+    - name: docker login
+      run: docker login -u janstenpickle -p '${{secrets.DOCKERHUB}}'
+    - name: docker build
+      run: |
+        pushd docker/${{ matrix.native-image }}
+        sh build.sh
+        popd
+
+  homekit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v1
+        with:
+          submodules: true
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '11.0.7'
+      - name: Cache ivy2
+        uses: actions/cache@v1
+        with:
+          path: ~/.ivy2/cache
+          key: ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
+          restore-keys: |
+            ${{ runner.os }}-ivy2-
+            ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
+
+      - name: Cache SBT
+        uses: actions/cache@v1
+        with:
+          path: ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+            ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}
+            ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
+
+      - name: scala build
+        run: |
+          sbt -Dsbt.coursier.home=~/.sbt/coursier/ '; project homekitServer; docker:publishLocal' -J-Xms3G -J-Xmx6G
+      - name: docker login
+        run: docker login -u janstenpickle -p '${{secrets.DOCKERHUB}}'
+      - name: docker build
+        run: |
+          docker tag janstenpickle/controller-homekit-server:latest janstenpickle/controller-homekit-server:$GITHUB_RUN_NUMBER
+          docker push janstenpickle/controller-homekit-server:$GITHUB_RUN_NUMBER

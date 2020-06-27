@@ -12,10 +12,8 @@ import io.janstenpickle.controller.broadlink.BroadlinkComponents
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.deconz.DeconzBridge
 import io.janstenpickle.controller.events.kafka.KafkaPubSub
-import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.kodi.KodiComponents
 import io.janstenpickle.controller.model.{Room, SwitchKey}
-import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.server.{Server, ServerConfig}
 import io.janstenpickle.controller.sonos.SonosComponents
@@ -37,7 +35,6 @@ object Configuration {
     activity: Activity,
     githubRemoteCommands: GithubRemoteCommandConfigSource.Config,
     deconz: Option[DeconzBridge.DeconzApiConfig],
-    mqtt: Mqtt,
     kafka: Option[KafkaPubSub.Config]
   ) extends ServerConfig
 
@@ -47,8 +44,6 @@ object Configuration {
     implicit val inetAddressEq: Eq[InetAddress] = Eq.by(_.getHostAddress)
     implicit val configEq: Eq[Configuration.Config] = cats.derived.semi.eq[Configuration.Config]
   }
-
-  case class Mqtt(client: Option[Fs2MqttClient.Config], events: MqttEvents.Config)
 
   case class Activity(dependentSwitches: Map[Room, SwitchKey] = Map.empty)
 

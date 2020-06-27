@@ -5,8 +5,6 @@ import java.util.concurrent.Executor
 
 import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.syntax.semigroup._
-import io.janstenpickle.controller.allinone.config.Configuration
-import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
 import io.janstenpickle.trace.SpanSampler
@@ -56,10 +54,4 @@ object Resources {
       }
     } yield GZip()(Metrics(metrics)(client))
   }
-
-  def mqttClient[F[_]: ConcurrentEffect: ContextShift: Timer](
-    config: Configuration.Mqtt
-  ): Resource[F, Option[Fs2MqttClient[F]]] =
-    config.client.fold(Resource.pure[F, Option[Fs2MqttClient[F]]](None))(Fs2MqttClient[F](_).map(Some(_)))
-
 }

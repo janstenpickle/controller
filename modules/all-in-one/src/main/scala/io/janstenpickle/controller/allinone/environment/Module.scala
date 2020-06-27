@@ -1,17 +1,15 @@
 package io.janstenpickle.controller.allinone.environment
 
-import cats.data.{EitherT, Kleisli, OptionT, Reader}
+import cats.data.{EitherT, Kleisli, OptionT}
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Timer}
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.flatMap._
 import cats.syntax.semigroup._
-import cats.{~>, Applicative, ApplicativeError, Id, MonadError, Parallel}
+import cats.{~>, Applicative, ApplicativeError, MonadError, Parallel}
 import extruder.core.ValidationErrorsToThrowable
 import extruder.data.ValidationErrors
-import fs2.Stream
-import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
@@ -31,13 +29,11 @@ import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.deconz.{action, DeconzBridge}
 import io.janstenpickle.controller.events.TopicEvents
 import io.janstenpickle.controller.events.commands.EventCommands
-import io.janstenpickle.controller.events.mqtt.MqttEvents
 import io.janstenpickle.controller.events.websocket.ServerWs
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.http4s.client.EitherTClient
 import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
 import io.janstenpickle.controller.http4s.trace.implicits._
-import io.janstenpickle.controller.mqtt.Fs2MqttClient
 import io.janstenpickle.controller.multiswitch.{MultiSwitchEventListenter, MultiSwitchProvider}
 import io.janstenpickle.controller.remote.store.{RemoteCommandStore, TracedRemoteCommandStore}
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
@@ -57,7 +53,6 @@ import org.http4s.client.Client
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
 
-import scala.concurrent.Future
 import scala.concurrent.duration._
 
 object Module {
@@ -79,15 +74,14 @@ object Module {
       registry <- Resources.registry[F]
       ep <- Resources.entryPoint[F](registry, blocker)
       client <- Resources.httpClient[F](registry, blocker)
-      mqtt <- Resources.mqttClient[F](config.mqtt)
-      routes <- components(config, ep, client, mqtt, registry)
+      routes <- components(config, ep, client, registry)
     } yield (routes, registry)
 
   def components[F[_]: ContextShift: Timer: Parallel](
     config: Configuration.Config,
     ep: EntryPoint[F],
     client: Client[F],
-    mqtt: Option[Fs2MqttClient[F]],
+//    mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(implicit F: ConcurrentEffect[F]): Resource[F, HttpRoutes[F]] = {
     type G[A] = Kleisli[F, Span[F], A]
@@ -106,7 +100,7 @@ object Module {
         }
       )
 
-    eitherTComponents[G, F](config, ep.lowerT(client), mqtt.map(_.mapK(lift, liftLower.lower)), registry)
+    eitherTComponents[G, F](config, ep.lowerT(client), registry)
       .mapK(liftLower.lower)
       .map(ep.liftT)
   }
@@ -114,7 +108,6 @@ object Module {
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: ConcurrentEffect: ContextShift: Timer](
     config: Configuration.Config,
     client: Client[F],
-    mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
     implicit F: Concurrent[F],
@@ -135,7 +128,7 @@ object Module {
     Resource
       .liftF(Slf4jLogger.fromName[G]("Controller Error"))
       .flatMap { implicit logger =>
-        tracedComponents[G, M](config, EitherTClient[F, ControlError](client), mqtt.map(_.mapK(lift, lower)), registry)
+        tracedComponents[G, M](config, EitherTClient[F, ControlError](client), registry)
           .map { routes =>
             Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
               OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
@@ -148,7 +141,6 @@ object Module {
   private def tracedComponents[F[_]: ContextShift: Timer: Parallel, G[_]: ConcurrentEffect: ContextShift: Timer](
     config: Configuration.Config,
     client: Client[F],
-    mqtt: Option[Fs2MqttClient[F]],
     registry: CollectorRegistry
   )(
     implicit F: Concurrent[F],
@@ -164,10 +156,6 @@ object Module {
       workBlocker <- Server.blocker[F]("work")
 
       events <- Resource.liftF(TopicEvents[F])
-
-      _ <- mqtt.fold(Resource.pure[F, Unit](()))(
-        MqttEvents[F](config.mqtt.events, events.switch, events.config, events.remote, events.command, _)
-      )
 
       eventComponents <- EventDrivenComponents(events, 5.seconds)
 
@@ -249,14 +237,6 @@ object Module {
         "path" -> config.config.dir.resolve("switch-state").toString,
         "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
       )
-
-      homekitConfigFileSource <- ConfigFileSource
-        .polling[F, G](
-          config.config.dir.resolve("homekit"),
-          config.config.polling.pollInterval,
-          workBlocker,
-          config.config.writeTimeout
-        )
 
       components <- ComponentsEnv
         .create[F, G](

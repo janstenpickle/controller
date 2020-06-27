@@ -72,17 +72,25 @@
 {
   "name":"com.github.benmanes.caffeine.cache.PSW",
   "fields":[{"name":"writeTime", "allowUnsafeAccess":true}],
-  "methods":[{"name":"<init>","parameterTypes":[] }]
+  "methods":[
+    {"name":"<init>","parameterTypes":[] }
+  ]
 },
 {
   "name":"com.github.benmanes.caffeine.cache.SSW",
   "methods":[{"name":"<init>","parameterTypes":["com.github.benmanes.caffeine.cache.Caffeine","com.github.benmanes.caffeine.cache.CacheLoader","boolean"] }]
 },
 {
+  "name":"java.lang.Object[]"
+},
+{
   "name":"java.lang.String[]"
 },
 {
   "name":"java.lang.invoke.VarHandle"
+},
+{
+  "name":"java.nio.ByteBuffer[]"
 },
 {
   "name":"javax.management.ObjectName"
