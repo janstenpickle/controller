@@ -13,6 +13,7 @@ import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
+import cats.syntax.traverse._
 import cats.{Functor, Parallel}
 import eu.timepit.refined.cats._
 import eu.timepit.refined.collection.NonEmpty
@@ -105,199 +106,202 @@ object GithubRemoteCommandConfigSource {
     implicit F: Sync[F],
     trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, GithubRemoteCommandConfigSource[F]] = {
-    val dsl = new Http4sDsl[F] with Http4sClientDsl[F] {}
-    import dsl._
+  ): Resource[F, GithubRemoteCommandConfigSource[F]] = Resource.liftF(Slf4jLogger.fromClass[F](this.getClass)).flatMap {
+    logger =>
+      val dsl = new Http4sDsl[F] with Http4sClientDsl[F] {}
+      import dsl._
 
-    implicit val contentsDecoder: EntityDecoder[F, Either[Content, NonEmptyList[Content]]] =
-      jsonOf[F, Either[Content, NonEmptyList[Content]]]
-    implicit val commitDecoder: EntityDecoder[F, List[Commit]] = jsonOf[F, List[Commit]]
+      implicit val contentsDecoder: EntityDecoder[F, Either[Content, NonEmptyList[Content]]] =
+        jsonOf[F, Either[Content, NonEmptyList[Content]]]
+      implicit val commitDecoder: EntityDecoder[F, List[Commit]] = jsonOf[F, List[Commit]]
 
-    lazy val repos = NonEmptyList(DefaultRepo, config.repos)
-    lazy val reversedRepos = repos.reverse
+      lazy val repos = NonEmptyList(DefaultRepo, config.repos)
+      lazy val reversedRepos = repos.reverse
 
-    implicit val epochOrder: Ordering[Long] = Ordering.Long.reverse
+      implicit val epochOrder: Ordering[Long] = Ordering.Long.reverse
 
-    def makeRequest(path: String) =
-      F.fromEither(Uri.fromString(s"$reposUri/$path"))
-        .flatMap(
-          GET(
-            _,
-            config.accessToken
-              .map(t => Authorization(Credentials.Token(CaseInsensitiveString("Bearer"), t.value)))
-              .toSeq: _*
+      def makeRequest(path: String) =
+        F.fromEither(Uri.fromString(s"$reposUri/$path"))
+          .flatMap(
+            GET(
+              _,
+              config.accessToken
+                .map(t => Authorization(Credentials.Token(CaseInsensitiveString("Bearer"), t.value)))
+                .toSeq: _*
+            )
           )
-        )
 
-    def keyPath(key: RemoteCommandKey) = s"${key.device.value}/${key.name.value}$hexSuffix"
+      def keyPath(key: RemoteCommandKey) = s"${key.device.value}/${key.name.value}$hexSuffix"
 
-    def loadRepoPath(repo: Repo, path: String): OptionT[F, NonEmptyList[Content]] =
-      OptionT(for {
-        req <- makeRequest(
-          s"${repo.owner.value}/${repo.repo.value}/contents/$path${repo.ref.fold("")(r => s"?ref=${r.value}")}"
-        )
-        resp <- client.expectOption[Either[Content, NonEmptyList[Content]]](req)
-      } yield resp.map(_.leftMap(NonEmptyList.one).merge))
+      def loadRepoPath(repo: Repo, path: String): OptionT[F, NonEmptyList[Content]] =
+        OptionT(Trace[F].span("github.load.repo.path") {
+          for {
+            _ <- Trace[F]
+              .put("repo.name" -> repo.name.value, "repo.owner" -> repo.owner.value, "path" -> path)
+            req <- makeRequest(
+              s"${repo.owner.value}/${repo.repo.value}/contents/$path${repo.ref.fold("")(r => s"?ref=${r.value}")}"
+            )
+            resp <- client.expectOption[Either[Content, NonEmptyList[Content]]](req)
+          } yield resp.map(_.leftMap(NonEmptyList.one).merge)
+        })
 
-    def listRemote: F[List[(Repo, NonEmptyString, NonEmptyString, Content)]] =
-      trace.span("github.list.remote") {
-        reversedRepos.toList
-          .parFlatTraverse[OptionT[F, *], (Repo, NonEmptyString, NonEmptyString, Content)] { repo =>
-            loadRepoPath(repo, "")
-              .flatMap { files =>
-                files
-                  .filter(_.`type` == "dir")
-                  .parFlatTraverse[OptionT[F, *], (Repo, NonEmptyString, NonEmptyString, Content)] { dir =>
-                    loadRepoPath(repo, dir.path).map { files =>
-                      files.filter(f => f.`type` == "file" && f.name.endsWith(hexSuffix)).flatMap { file =>
-                        for {
-                          device <- refineV[NonEmpty](dir.name).toOption
-                          command <- refineV[NonEmpty](file.name.replaceAllLiterally(hexSuffix, "")).toOption
-                        } yield (repo, device, command, file)
+      def listRemote: F[List[(Repo, NonEmptyString, NonEmptyString, Content)]] =
+        trace.span("github.list.remote") {
+          reversedRepos.toList
+            .parFlatTraverse[OptionT[F, *], (Repo, NonEmptyString, NonEmptyString, Content)] { repo =>
+              loadRepoPath(repo, "")
+                .flatMap { files =>
+                  files
+                    .filter(_.`type` == "dir")
+                    .flatTraverse[OptionT[F, *], (Repo, NonEmptyString, NonEmptyString, Content)] { dir =>
+                      loadRepoPath(repo, dir.path).map { files =>
+                        files.filter(f => f.`type` == "file" && f.name.endsWith(hexSuffix)).flatMap { file =>
+                          for {
+                            device <- refineV[NonEmpty](dir.name).toOption
+                            command <- refineV[NonEmpty](file.name.replace(hexSuffix, "")).toOption
+                          } yield (repo, device, command, file)
+                        }
                       }
                     }
-                  }
-              }
-          }
-          .value
-          .map(_.toList.flatten)
+                }
+            }
+            .value
+            .map(_.toList.flatten)
+        }
+
+      def downloadData(repo: Repo, path: String): F[Option[(Content, CommandPayload)]] =
+        trace.span("github.download.data") {
+          loadRepoPath(repo, path).subflatMap {
+            case NonEmptyList(file, Nil) if file.encoding.contains("base64") =>
+              for {
+                base64Value <- file.content
+                hexValue <- Either
+                  .catchNonFatal(
+                    new String(Base64.getDecoder.decode(base64Value.replaceAll("\\s+", "")))
+                      .replace("\n", "")
+                  )
+                  .toOption
+              } yield file -> CommandPayload(hexValue)
+            case _ => None
+          }.value
+        }
+
+      def getCommit(repo: Repo, path: String): F[Option[List[Commit]]] =
+        for {
+          req <- makeRequest(s"${repo.owner.value}/${repo.repo.value}/commits?page=0&per_page=1&path=$path")
+          resp <- client.expectOption[List[Commit]](req)
+        } yield resp
+
+      def cacheDownload(
+        cache: LocalCache[F],
+        repo: Repo,
+        key: RemoteCommandKey,
+        content: Content,
+        payload: CommandPayload
+      ): F[Unit] = trace.span("github.cache.download") {
+        for {
+          _ <- repoTraceKeys(repo)
+          commits <- getCommit(repo, content.path)
+          date = commits.toList.flatMap(_.map(_.commit.committer.date.toEpochMilli)).sorted.headOption.getOrElse(0L)
+          _ <- cache.store(repo, date, key, payload)
+        } yield ()
       }
 
-    def downloadData(repo: Repo, path: String): F[Option[(Content, CommandPayload)]] =
-      trace.span("github.download.data") {
-        loadRepoPath(repo, path).subflatMap {
-          case NonEmptyList(file, Nil) if file.encoding.contains("base64") =>
-            for {
-              base64Value <- file.content
-              hexValue <- Either
-                .catchNonFatal(
-                  new String(Base64.getDecoder.decode(base64Value.replaceAll("\\s+", "")))
-                    .replaceAllLiterally("\n", "")
+      def downloadAndCache(cache: LocalCache[F], repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]] =
+        trace.span("github.download.and.cache") {
+          repoTraceKeys(repo) *> keyTraceKeys(key) *> downloadData(repo, keyPath(key)).flatMap {
+            case Some((content, payload)) =>
+              trace.put("command.present" -> true) *> cacheDownload(cache, repo, key, content, payload)
+                .as(Some(payload))
+            case None => trace.put("command.present" -> false).as(None)
+          }
+        }
+
+      def repoTraceKeys(repo: Repo): F[Unit] =
+        trace.put(
+          "repo.name" -> repo.name.value,
+          "repo.owner" -> repo.owner.value,
+          "repo.repo" -> repo.repo.value,
+          "repo.ref" -> repo.ref.fold("")(_.value)
+        )
+
+      def keyTraceKeys(key: RemoteCommandKey) =
+        trace.put(
+          "source.name" -> key.source.fold("")(_.name.value),
+          "source.type" -> key.source.fold("")(_.`type`.value),
+          "device" -> key.device.value,
+          "command" -> key.name.value
+        )
+
+      def checkUpdates(cache: LocalCache[F]) =
+        trace.span("github.check.updates") {
+          cache.list.flatMap { data =>
+            trace.put("commands" -> data.size) *> data.keys.toList.parTraverse {
+              case (repo, key) =>
+                trace.span("checkUpdate") {
+                  downloadAndCache(cache, repo, key)
+                }
+            }
+          }.void
+        }
+
+      def getValue(cache: LocalCache[F]): (Repo, RemoteCommandKey) => F[Option[CommandPayload]] = { (repo, key) =>
+        cache
+          .load(repo, key)
+          .flatMap {
+            case Some(command) => F.pure(List(command))
+            case None => downloadAndCache(cache, repo, key).map(_.toList)
+          }
+          .map(_.headOption)
+      }
+
+      def updatePoller(cache: LocalCache[F]) =
+        if (config.autoUpdate) {
+          val log = logger.mapK(liftLower.lower)
+
+          def stream =
+            fs2.Stream
+              .fixedRate[G](config.gitPollInterval)
+              .evalMap(_ => liftLower.lower("github.check.updates")(checkUpdates(cache)))
+
+          Concurrent[G]
+            .background(
+              stream
+                .handleErrorWith(
+                  th =>
+                    fs2.Stream
+                      .eval(log.error(th)("Github remote command source update poller failed, restarting process"))
+                      .flatMap(_ => stream)
                 )
-                .toOption
-            } yield file -> CommandPayload(hexValue)
-          case _ => None
-        }.value
-      }
-
-    def getCommit(repo: Repo, path: String): F[Option[List[Commit]]] =
-      for {
-        req <- makeRequest(s"${repo.owner.value}/${repo.repo.value}/commits?page=0&per_page=1&path=$path")
-        resp <- client.expectOption[List[Commit]](req)
-      } yield resp
-
-    def cacheDownload(
-      cache: LocalCache[F],
-      repo: Repo,
-      key: RemoteCommandKey,
-      content: Content,
-      payload: CommandPayload
-    ): F[Unit] = trace.span("github.cache.download") {
-      for {
-        _ <- repoTraceKeys(repo)
-        commits <- getCommit(repo, content.path)
-        date = commits.toList.flatMap(_.map(_.commit.committer.date.toEpochMilli)).sorted.headOption.getOrElse(0L)
-        _ <- cache.store(repo, date, key, payload)
-      } yield ()
-    }
-
-    def downloadAndCache(cache: LocalCache[F], repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]] =
-      trace.span("github.download.and.cache") {
-        repoTraceKeys(repo) *> keyTraceKeys(key) *> downloadData(repo, keyPath(key)).flatMap {
-          case Some((content, payload)) =>
-            trace.put("command.present" -> true) *> cacheDownload(cache, repo, key, content, payload).as(Some(payload))
-          case None => trace.put("command.present" -> false).as(None)
+                .compile
+                .drain
+            )
+            .mapK(liftLower.lift)
+            .map(_ => ())
+        } else {
+          Resource.pure[F, Unit](())
         }
-      }
 
-    def repoTraceKeys(repo: Repo): F[Unit] =
-      trace.put(
-        "repo.name" -> repo.name.value,
-        "repo.owner" -> repo.owner.value,
-        "repo.repo" -> repo.repo.value,
-        "repo.ref" -> repo.ref.fold("")(_.value)
-      )
-
-    def keyTraceKeys(key: RemoteCommandKey) =
-      trace.put(
-        "source.name" -> key.source.fold("")(_.name.value),
-        "source.type" -> key.source.fold("")(_.`type`.value),
-        "device" -> key.device.value,
-        "command" -> key.name.value
-      )
-
-    def checkUpdates(cache: LocalCache[F]) =
-      trace.span("github.check.updates") {
-        cache.list.flatMap { data =>
-          trace.put("commands" -> data.size) *> data.keys.toList.parTraverse {
-            case (repo, key) =>
-              trace.span("checkUpdate") {
-                downloadAndCache(cache, repo, key)
-              }
-          }
-        }.void
-      }
-
-    def getValue(cache: LocalCache[F]): (Repo, RemoteCommandKey) => F[Option[CommandPayload]] = { (repo, key) =>
-      cache
-        .load(repo, key)
-        .flatMap {
-          case Some(command) => F.pure(List(command))
-          case None => downloadAndCache(cache, repo, key).map(_.toList)
-        }
-        .map(_.headOption)
-    }
-
-    def updatePoller(cache: LocalCache[F], logger: Logger[F]) =
-      if (config.autoUpdate) {
-        val log = logger.mapK(liftLower.lower)
-
-        def stream =
-          fs2.Stream
-            .fixedRate[G](config.gitPollInterval)
-            .evalMap(_ => liftLower.lower("github.check.updates")(checkUpdates(cache)))
-
-        Concurrent[G]
-          .background(
-            stream
-              .handleErrorWith(
-                th =>
-                  fs2.Stream
-                    .eval(log.error(th)("Github remote command source update poller failed, restarting process"))
-                    .flatMap(_ => stream)
-              )
-              .compile
-              .drain
-          )
-          .mapK(liftLower.lift)
-          .map(_ => ())
-      } else {
-        Resource.pure[F, Unit](())
-      }
-
-    for {
-      logger <- Resource.liftF(Slf4jLogger.fromClass[F](this.getClass))
-
-      repoListingPoller <- Resource.liftF(Slf4jLogger.fromName[F](s"githubRepoListingPoller")).flatMap {
-        implicit logger =>
+      for {
+        repoListingPoller <- Resource.liftF(Slf4jLogger.fromName[F](s"githubRepoListingPoller")).flatMap { implicit l =>
           DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("github.repo.listing")(
             _ => listRemote,
             config.gitPollInterval,
             config.pollErrorThreshold,
             onUpdate
           )((getData, _) => getData)
-      }
+        }
 
-      localCache <- LocalCache[F, G](
-        config.localCacheDir,
-        config.cachePollInterval,
-        config.pollErrorThreshold,
-        onUpdate
-      )
+        localCache <- LocalCache[F, G](
+          config.localCacheDir,
+          config.cachePollInterval,
+          config.pollErrorThreshold,
+          onUpdate
+        )
 
-      _ <- updatePoller(localCache, logger)
+        _ <- updatePoller(localCache)
 
-    } yield new GithubRemoteCommandConfigSource[F](repos, repoListingPoller, getValue(localCache))
+      } yield new GithubRemoteCommandConfigSource[F](repos, repoListingPoller, getValue(localCache))
   }
 
 }

@@ -85,10 +85,6 @@
   "name":"java.lang.String[]"
 },
 {
-  "name":"java.lang.Throwable",
-  "methods":[{"name":"getSuppressed","parameterTypes":[] }]
-},
-{
   "name":"java.lang.invoke.VarHandle"
 },
 {

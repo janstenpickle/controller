@@ -45,8 +45,8 @@ import io.prometheus.client.CollectorRegistry
 import natchez.TraceValue.NumberValue
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client
-import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
+import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.metrics.prometheus.Prometheus
 import org.http4s.{HttpRoutes, Request, Response}
 
@@ -68,23 +68,14 @@ object Module {
         .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
     }
 
-  def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
+  def httpClient[F[_]: ConcurrentEffect: ContextShift: Timer](
     registry: CollectorRegistry,
     blocker: Blocker
-  ): Resource[F, Client[F]] = {
-    def blockerExecutor(blocker: Blocker): Executor =
-      new Executor {
-        override def execute(command: Runnable): Unit =
-          blocker.blockingContext.execute(command)
-      }
-
+  ): Resource[F, Client[F]] =
     for {
       metrics <- Prometheus.metricsOps(registry, "org_http4s_client")
-      client <- Resource.liftF {
-        Sync[F].delay(JdkHttpClient[F](HttpClient.newBuilder().executor(blockerExecutor(blocker)).build()))
-      }
+      client <- EmberClientBuilder.default[F].withBlocker(blocker).build
     } yield GZip()(Metrics(metrics)(client))
-  }
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     config: Configuration.Config
@@ -196,16 +187,15 @@ object Module {
         CirceDiscoveryMappingConfigSource[F, G](_, config.polling, events.discovery.publisher)
       )
 
-//      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
-//        client,
-//        config.githubRemoteCommands,
-//        (_, _) => Applicative[F].unit
-//      )
+      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
+        client,
+        config.githubRemoteCommands,
+        (_, _) => Applicative[F].unit
+      )
 
       commandStore = TracedRemoteCommandStore(
         RemoteCommandStore.fromConfigSource(
-          remoteCommandSource
-          //  WritableConfigSource.combined(remoteCommandSource, githubRemoteConfigSource)
+          WritableConfigSource.combined(remoteCommandSource, githubRemoteConfigSource)
         ),
         "config",
         "path" -> config.dir.resolve("remote-command").toString,

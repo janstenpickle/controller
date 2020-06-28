@@ -549,8 +549,8 @@ lazy val `broadlink-server` = (project in file("modules/plugins/broadlink-server
   .settings(
     name := "controller-plugin-broadlink-server",
     libraryDependencies ++= Seq(
-      "org.http4s"     %% "http4s-jdk-http-client" % "0.3.0",
-      "ch.qos.logback" % "logback-classic"         % "1.2.3"
+      "org.http4s"     %% "http4s-ember-client" % http4sVer,
+      "ch.qos.logback" % "logback-classic"      % "1.2.3"
     )
   )
   .dependsOn(

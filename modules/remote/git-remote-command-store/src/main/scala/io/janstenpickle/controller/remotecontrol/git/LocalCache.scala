@@ -9,7 +9,6 @@ import cats.instances.all._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.parallel._
 import cats.syntax.traverse._
 import io.janstenpickle.controller.model.{CommandPayload, RemoteCommandKey}
 import org.apache.commons.io.FileUtils
@@ -21,9 +20,10 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
 import natchez.Trace
+import natchez.TraceValue.NumberValue
 
-import scala.collection.JavaConverters._
 import scala.concurrent.duration.FiniteDuration
+import scala.jdk.CollectionConverters._
 
 trait LocalCache[F[_]] {
   def load(repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]]
@@ -62,27 +62,46 @@ object LocalCache {
         else Iterator.empty
 
       override def load(repo: Repo, key: RemoteCommandKey): F[Option[CommandPayload]] =
-        for {
-          files <- F.delay(listPath(commandPath(repo, key)).toList)
-          l <- files
-            .parTraverse { p =>
-              F.delay(p -> p.toFile.getName.toLong)
+        Trace[F].span("local.git.cache.load") {
+          for {
+            _ <- Trace[F]
+              .put(
+                "repo.name" -> repo.name.value,
+                "repo.owner" -> repo.owner.value,
+                "remote.device" -> key.device.value,
+                "remote.name" -> key.name.value
+              )
+            files <- Trace[F].span("list.path") { F.delay(listPath(commandPath(repo, key)).toList) }
+            l <- files
+              .traverse { p =>
+                F.delay(p -> p.toFile.getName.toLong)
+              }
+              .map(_.sortBy(_._2))
+            p <- l.headOption.traverse {
+              case (path, _) =>
+                F.delay(new String(Files.readAllBytes(path)).replaceAll("\\s+", "").replaceAll("\n", ""))
             }
-            .map(_.sortBy(_._2))
-          p <- l.headOption.traverse {
-            case (path, _) =>
-              F.delay(new String(Files.readAllBytes(path)).replaceAll("\\s+", "").replaceAllLiterally("\n", ""))
-          }
-        } yield p.map(CommandPayload(_))
+          } yield p.map(CommandPayload(_))
+        }
 
       override def store(repo: Repo, updated: Long, key: RemoteCommandKey, payload: CommandPayload): F[Unit] =
-        for {
-          path <- F.delay(commandPath(repo, key).resolve(updated.toString))
-          _ <- F.delay(FileUtils.forceMkdirParent(path.toFile))
-          _ <- F.delay(Files.write(path, payload.hexValue.getBytes))
-        } yield ()
+        Trace[F].span("local.git.cache.store") {
+          for {
+            path <- F.delay(commandPath(repo, key).resolve(updated.toString))
+            _ <- Trace[F]
+              .put(
+                "updated" -> NumberValue(updated),
+                "repo.name" -> repo.name.value,
+                "repo.owner" -> repo.owner.value,
+                "remote.device" -> key.device.value,
+                "remote.name" -> key.name.value
+              )
+            _ <- F.delay(FileUtils.forceMkdirParent(path.toFile))
+            _ <- F.delay(Files.write(path, payload.hexValue.getBytes))
+          } yield ()
+        }
 
-      override def list: F[Map[Key, CommandPayload]] =
+      override def list: F[Map[Key, CommandPayload]] = Trace[F].span("local.git.cache.list") {
         for {
           repoKeys <- F.delay((for {
             repoName <- listPath(path)
@@ -101,11 +120,12 @@ object LocalCache {
             val repo = Repo(rn, u, r, Some(rf).filterNot(_.value == master))
             repo -> RemoteCommandKey(commandSource(repo), d, n)
           }).toList)
-          data <- repoKeys.parFlatTraverse {
+          data <- repoKeys.flatTraverse {
             case (repo, key) =>
               load(repo, key).map(_.map((repo, key) -> _).toList)
           }
         } yield data.toMap
+      }
 
     }
 
