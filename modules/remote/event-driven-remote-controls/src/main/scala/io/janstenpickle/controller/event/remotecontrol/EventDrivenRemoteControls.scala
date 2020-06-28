@@ -103,17 +103,18 @@ object EventDrivenRemoteControls {
         ): F[Unit] =
           doIfPresent(remote)(
             span("remotes.send", remote, "remote.device" -> device.value, "remote.command" -> name.value) {
+              commandPublisher.publish1(CommandEvent.MacroCommand(Command.Remote(remote, commandSource, device, name)))
 
-              waitFor(CommandEvent.MacroCommand(Command.Remote(remote, commandSource, device, name))) {
-                case RemoteEvent.RemoteSentCommandEvent(RemoteCommand(r, c, d, n)) =>
-                  r == remote && c == commandSource && d == device && n == name
-              }
-            }.flatMap {
-              case None =>
-                timeout(
-                  s"Timed out sending remote control command '$name' for device '$device' on '$remote' with source $commandSource"
-                )
-              case Some(_) => Applicative[F].unit
+//              waitFor(CommandEvent.MacroCommand(Command.Remote(remote, commandSource, device, name))) {
+//                case RemoteEvent.RemoteSentCommandEvent(RemoteCommand(r, c, d, n)) =>
+//                  r == remote && c == commandSource && d == device && n == name
+//              }
+//            }.flatMap {
+//              case None =>
+//                timeout(
+//                  s"Timed out sending remote control command '$name' for device '$device' on '$remote' with source $commandSource"
+//                )
+//              case Some(_) => Applicative[F].unit
             }
           )
 
