@@ -5,7 +5,7 @@ import java.nio.ByteBuffer
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Sync, Timer}
 import fs2.concurrent.Queue
 import io.jaegertracing.thrift.internal.senders.UdpSender
-import io.jaegertracing.thriftjava.{Process, Span}
+import io.jaegertracing.thriftjava.{Process, Span, Tag, TagType}
 import io.janstenpickle.trace.SpanCompleter
 import io.janstenpickle.trace.model.CompletedSpan
 import cats.effect.syntax.concurrent._
@@ -13,6 +13,7 @@ import cats.effect.syntax.concurrent._
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import fs2.Stream
+import io.janstenpickle.trace.model.TraceValue.{BooleanValue, NumberValue, StringValue}
 
 import scala.util.Try
 
@@ -35,7 +36,7 @@ object JaegerSpanCompleter {
       val traceIdLow = traceIdBuffer.getLong
       val traceIdHigh = traceIdBuffer.getLong
 
-      new Span(
+      val thriftSpan = new Span(
         traceIdLow,
         traceIdHigh,
         ByteBuffer.wrap(span.context.spanId.value).getLong,
@@ -45,6 +46,21 @@ object JaegerSpanCompleter {
         span.start,
         span.end - span.start
       )
+
+      val tags = span.attributes.view.map {
+        case (key, StringValue(value)) =>
+          val tag = new Tag(key, TagType.STRING)
+          tag.setVStr(value)
+        case (key, NumberValue(value)) =>
+          val tag = new Tag(key, TagType.DOUBLE)
+          tag.setVDouble(value)
+        case (key, BooleanValue(value)) =>
+          val tag = new Tag(key, TagType.BOOL)
+          tag.setVBool(value)
+      }.toList
+
+      thriftSpan.setTags(tags.asJava)
+      thriftSpan
     }
     for {
       sender <- Resource.make(Sync[F].delay(new UdpSender(host, port, 0)))(sender => Sync[F].delay(sender.close()))
