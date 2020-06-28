@@ -38,7 +38,6 @@ object PluginApi {
         "/control/remote" -> new RemoteApi[F](components.remotes).routes,
         "/control/switch" -> new SwitchApi[F](switches).routes,
         "/control/macro" -> new MacroApi[F](mac).routes,
-        "/command" -> new CommandWs[F, G](events.command.publisher.mapK(liftLower.lower, liftLower.lift)).routes,
         "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,
         "/discovery" -> new RenameApi[F](components.rename).routes,
         "/schedule" -> new ScheduleApi[F](components.scheduler).routes,

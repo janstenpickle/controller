@@ -1,7 +1,5 @@
 package io.janstenpickle.controller.api.endpoint
 
-import java.util.UUID
-
 import cats.effect.{Clock, Concurrent}
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.flatMap._
@@ -9,23 +7,17 @@ import cats.syntax.functor._
 import fs2.Pipe
 import fs2.concurrent.Queue
 import io.circe.parser._
+import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{Event, EventPublisher}
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.event.CommandEvent
 import natchez.Trace
-import org.http4s.HttpRoutes
 import org.http4s.server.websocket.WebSocketBuilder
-import fs2.Pipe
-import io.circe.Codec
-import io.circe.generic.extras.Configuration
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.model.event.CommandEvent
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import org.http4s.{HttpRoutes, Response}
 
-class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, CommandEvent])(
+class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, CommandEvent], source: String)(
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
@@ -40,7 +32,7 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
       parse(str).flatMap(_.as[CommandEvent]) match {
         case Left(error) => q.enqueue1(error.getMessage)
         case Right(event) =>
-          publisher.publish1(event) >> q.enqueue1("OK")
+          Event[G, CommandEvent](event, source).flatMap(publisher.publish1Event) >> q.enqueue1("OK")
       }
     }
 
@@ -51,8 +43,6 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
         ws <- WebSocketBuilder[G].build(q.dequeue.map(Text(_)), pipe(q))
       } yield ws)
       .map(_.mapK(liftLower.lift))
-
-  object SourceParamDecoder extends OptionalMultiQueryParamDecoderMatcher[String]("source")
 
   val routes: HttpRoutes[F] = HttpRoutes.of {
     case GET -> Root / "ws" => ws

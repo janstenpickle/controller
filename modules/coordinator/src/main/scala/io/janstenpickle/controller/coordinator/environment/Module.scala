@@ -1,5 +1,7 @@
 package io.janstenpickle.controller.coordinator.environment
 
+import java.util.UUID
+
 import cats.data.{EitherT, Kleisli, OptionT}
 import cats.effect.syntax.concurrent._
 import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
@@ -296,7 +298,9 @@ object Module {
 
       _ <- Advertiser[F](host, config.server.port, ServiceType.Coordinator)
 
-      (eventsState, websockets) <- ServerWs[F, G](events)
+      websocketCommandSource <- Resource.liftF(Sync[F].delay(UUID.randomUUID().toString))
+      // do not forward events from the command websocket
+      (eventsState, websockets) <- ServerWs[F, G](events, _.source != websocketCommandSource)
       _ <- Resource.liftF(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
     } yield
       Router(
@@ -306,7 +310,10 @@ object Module {
         "/control/macro" -> new MacroApi[F](mac).routes,
         "/control/activity" -> new ActivityApi[F](activity, combinedActivityConfig).routes,
         "/control/context" -> new ContextApi[F](context).routes,
-        "/command" -> new CommandWs[F, G](events.command.publisher.mapK(liftLower.lower, liftLower.lift)).routes,
+        "/command" -> new CommandWs[F, G](
+          events.command.publisher.mapK(liftLower.lower, liftLower.lift),
+          websocketCommandSource
+        ).routes,
         "/config" -> new ConfigApi[F, G](configService, events.activity, events.config, events.switch).routes,
         "/config" -> new WritableConfigApi[F](configService).routes,
         "/discovery" -> new RenameApi[F](allComponents.rename).routes,
