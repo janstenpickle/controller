@@ -32,8 +32,8 @@ object EventCommands {
     case ToggleSwitch(device, name) => s"Toggle switch '${name.value}' device '${device.value}'"
     case SwitchOn(device, name) => s"Switch on '${name.value}' device '${device.value}'"
     case SwitchOff(device, name) => s"Switch off '${name.value}' device '${device.value}'"
-    case Remote(remote, _, device, command) =>
-      s"Execute remote command '${command.value}' on '${device.value}' using '${remote.value}'"
+    case Remote(remote, source, device, command) =>
+      s"Execute remote command '${command.value}' on '${device.value}' from source '$source' using '${remote.value}'"
     case Command.Macro(name) => s"Execute macro ${name.value}"
   }
 

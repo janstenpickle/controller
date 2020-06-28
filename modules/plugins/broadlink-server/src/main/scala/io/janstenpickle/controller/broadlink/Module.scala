@@ -196,15 +196,15 @@ object Module {
         CirceDiscoveryMappingConfigSource[F, G](_, config.polling, events.discovery.publisher)
       )
 
-//      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
-//        client,
-//        config.githubRemoteCommands,
-//        (_, _) => Applicative[F].unit
-//      )
+      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
+        client,
+        config.githubRemoteCommands,
+        (_, _) => Applicative[F].unit
+      )
 
       commandStore = TracedRemoteCommandStore(
         RemoteCommandStore.fromConfigSource(
-          remoteCommandSource //WritableConfigSource.combined(remoteCommandSource, githubRemoteConfigSource)
+          WritableConfigSource.combined(remoteCommandSource, githubRemoteConfigSource)
         ),
         "config",
         "path" -> config.dir.resolve("remote-command").toString,
