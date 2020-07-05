@@ -17,8 +17,6 @@ import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.advertiser.{Advertiser, Discoverer, JmDNSResource, ServiceType}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
-import io.janstenpickle.trace.natchez.CatsEffectTracer
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.TopicEvents
@@ -34,7 +32,10 @@ import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
-import io.janstenpickle.trace.SpanSampler
+import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.kernel.SpanSampler
+import io.janstenpickle.trace4cats.model.TraceProcess
+import io.janstenpickle.trace4cats.natchez.Trace4CatsTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client
@@ -55,10 +56,10 @@ object Module {
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
+    AvroSpanCompleter.udp[F](blocker, TraceProcess(serviceName)).flatMap { completer =>
       PrometheusTracer
         .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
+        .map(_ |+| Trace4CatsTracer.entryPoint[F](SpanSampler.always, completer))
     }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](

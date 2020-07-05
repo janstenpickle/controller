@@ -20,9 +20,10 @@ import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
-import io.janstenpickle.trace.SpanSampler
-import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
-import io.janstenpickle.trace.natchez.CatsEffectTracer
+import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.kernel.SpanSampler
+import io.janstenpickle.trace4cats.model.TraceProcess
+import io.janstenpickle.trace4cats.natchez.Trace4CatsTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.{EntryPoint, Kernel, Span, Trace}
 
@@ -42,10 +43,10 @@ object Module {
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
+    AvroSpanCompleter.udp[F](blocker, TraceProcess(serviceName)).flatMap { completer =>
       PrometheusTracer
         .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
+        .map(_ |+| Trace4CatsTracer.entryPoint[F](SpanSampler.always, completer))
     }
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](

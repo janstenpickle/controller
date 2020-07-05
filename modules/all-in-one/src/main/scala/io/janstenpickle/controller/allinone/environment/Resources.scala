@@ -7,9 +7,10 @@ import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, 
 import cats.syntax.semigroup._
 import io.janstenpickle.controller.trace.instances._
 import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
-import io.janstenpickle.trace.SpanSampler
-import io.janstenpickle.trace.completer.jaeger.JaegerSpanCompleter
-import io.janstenpickle.trace.natchez.CatsEffectTracer
+import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.kernel.SpanSampler
+import io.janstenpickle.trace4cats.model.TraceProcess
+import io.janstenpickle.trace4cats.natchez.Trace4CatsTracer
 import io.prometheus.client.CollectorRegistry
 import natchez.EntryPoint
 import org.http4s.client.Client
@@ -31,10 +32,10 @@ object Resources {
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    JaegerSpanCompleter[F](serviceName, blocker).flatMap { completer =>
+    AvroSpanCompleter.udp[F](blocker, TraceProcess(serviceName)).flatMap { completer =>
       PrometheusTracer
         .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| CatsEffectTracer.entryPoint[F](SpanSampler.always, completer))
+        .map(_ |+| Trace4CatsTracer.entryPoint[F](SpanSampler.always, completer))
     }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](

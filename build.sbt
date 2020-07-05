@@ -17,7 +17,7 @@ val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.1.2"
-val sttpWebsocketClientVer = "2.0.0"
+val trace4catsVer = "0.1.0"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
@@ -183,7 +183,9 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer
+      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
+      "io.janstenpickle"  %% "trace4cats-natchez"        % trace4catsVer,
+      "io.janstenpickle"  %% "trace4cats-avro-exporter"  % trace4catsVer
     ),
     mappings in Universal := {
       val universalMappings = (mappings in Universal).value
@@ -227,9 +229,7 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
     websocketEvents,
     discoveryConfig,
     server,
-    websocketClientEvents,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
+    websocketClientEvents
   )
   .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
 
@@ -288,7 +288,9 @@ lazy val coordinator = (project in file("modules/coordinator"))
       "org.http4s"        %% "http4s-core"               % http4sVer,
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
-      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer
+      "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
+      "io.janstenpickle"  %% "trace4cats-natchez"        % trace4catsVer,
+      "io.janstenpickle"  %% "trace4cats-avro-exporter"  % trace4catsVer
     )
   )
   .dependsOn(
@@ -318,9 +320,7 @@ lazy val coordinator = (project in file("modules/coordinator"))
     activity,
     activityConfig,
     cronScheduler,
-    eventDrivenComponents,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
+    eventDrivenComponents
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -549,8 +549,10 @@ lazy val `broadlink-server` = (project in file("modules/plugins/broadlink-server
   .settings(
     name := "controller-plugin-broadlink-server",
     libraryDependencies ++= Seq(
-      "org.http4s"     %% "http4s-ember-client" % http4sVer,
-      "ch.qos.logback" % "logback-classic"      % "1.2.3"
+      "org.http4s"       %% "http4s-ember-client"      % http4sVer,
+      "ch.qos.logback"   % "logback-classic"           % "1.2.3",
+      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
   .dependsOn(
@@ -568,9 +570,7 @@ lazy val `broadlink-server` = (project in file("modules/plugins/broadlink-server
     prometheusTrace,
     eventCommands,
     extruder,
-    discoveryConfig,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
+    discoveryConfig
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -633,7 +633,11 @@ lazy val `tplink-server` = (project in file("modules/plugins/tplink-server"))
   .settings(graalSettings)
   .settings(
     name := "controller-plugin-tplink-server",
-    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+    libraryDependencies ++= Seq(
+      "ch.qos.logback"   % "logback-classic"           % "1.2.3",
+      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
+    )
   )
   .dependsOn(
     pluginApi,
@@ -644,9 +648,7 @@ lazy val `tplink-server` = (project in file("modules/plugins/tplink-server"))
     trace,
     prometheusTrace,
     eventCommands,
-    extruder,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
+    extruder
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -687,17 +689,13 @@ lazy val `deconz-server` = (project in file("modules/deconz-server"))
   .settings(graalSettings)
   .settings(
     name := "controller-deconz-server",
-    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+    libraryDependencies ++= Seq(
+      "ch.qos.logback"   % "logback-classic"           % "1.2.3",
+      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
+    )
   )
-  .dependsOn(
-    deconzBridge,
-    server,
-    websocketClientEvents,
-    trace,
-    prometheusTrace,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
-  )
+  .dependsOn(deconzBridge, server, websocketClientEvents, trace, prometheusTrace)
   .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val tracedSwitch = (project in file("modules/switch/trace-switch"))
@@ -857,81 +855,6 @@ lazy val prometheusTrace = (project in file("modules/trace/prometheus-trace"))
     )
   )
 
-lazy val openTelemetryTrace = (project in file("modules/trace/opentelemetry-trace"))
-  .settings(commonSettings)
-  .settings(
-    name := "controller-opentelemetry-trace",
-    libraryDependencies ++= Seq(
-      "io.opentelemetry" % "opentelemetry-api" % "0.5.0",
-      "org.tpolecat"     %% "natchez-core"     % natchezVer
-    )
-  )
-
-lazy val catsEffectTraceModel = (project in file("modules/trace/cats-effect-model"))
-  .settings(commonSettings)
-  .settings(
-    name := "cats-effect-trace-model",
-    libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core"    % catsVer,
-      "com.beachape"  %% "enumeratum"   % "1.6.1",
-      "commons-codec" % "commons-codec" % "1.14"
-    )
-  )
-
-lazy val catsEffectTrace = (project in file("modules/trace/cats-effect"))
-  .settings(commonSettings)
-  .settings(name := "cats-effect-trace", libraryDependencies ++= Seq("org.typelevel" %% "cats-effect" % catsEffectVer))
-  .dependsOn(catsEffectTraceModel)
-
-lazy val catsEffectTraceNatchez = (project in file("modules/trace/cats-effect-natchez"))
-  .settings(commonSettings)
-  .settings(
-    name := "cats-effect-trace-natchez",
-    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
-  )
-  .dependsOn(catsEffectTrace)
-
-lazy val catsEffectTraceAvro = (project in file("modules/trace/cats-effect-trace-avro"))
-  .settings(commonSettings)
-  .settings(
-    name := "cats-effect-trace-avro",
-    libraryDependencies ++= Seq(
-      "com.github.fd4s" %% "vulcan"            % "1.1.0",
-      "com.github.fd4s" %% "vulcan-generic"    % "1.1.0",
-      "com.github.fd4s" %% "vulcan-enumeratum" % "1.1.0"
-    )
-  )
-  .dependsOn(catsEffectTraceModel)
-
-lazy val traceWebsocketCompleter = (project in file("modules/trace/cats-effect-trace-websocket-completer"))
-  .settings(commonSettings)
-  .settings(name := "cats-effect-trace-websocket-completer")
-  .dependsOn(catsEffectTrace, catsEffectTraceAvro, websocketClient)
-
-lazy val traceJaegerCompleter = (project in file("modules/trace/cats-effect-trace-jaeger-completer"))
-  .settings(commonSettings)
-  .settings(
-    name := "cats-effect-trace-jaeger-completer",
-    libraryDependencies ++= Seq("co.fs2" %% "fs2-core" % fs2Ver, "io.jaegertracing" % "jaeger-thrift" % "1.2.0")
-  )
-  .dependsOn(catsEffectTrace)
-
-lazy val traceWebsocketServer = (project in file("modules/trace/cats-effect-trace-websocket-server"))
-  .settings(commonSettings)
-  .settings(graalSettings)
-  .settings(
-    name := "cats-effect-trace-websocket-server",
-    libraryDependencies ++= Seq(
-      "org.http4s"       %% "http4s-core"         % http4sVer,
-      "org.http4s"       %% "http4s-dsl"          % http4sVer,
-      "org.http4s"       %% "http4s-blaze-server" % http4sVer,
-      "ch.qos.logback"   % "logback-classic"      % "1.2.3",
-      "io.jaegertracing" % "jaeger-thrift"        % "1.2.0"
-    )
-  )
-  .dependsOn(catsEffectTraceAvro)
-  .enablePlugins(GraalVMNativeImagePlugin)
-
 lazy val cache = (project in file("modules/cache"))
   .settings(commonSettings)
   .settings(
@@ -988,7 +911,11 @@ lazy val `sonos-server` = (project in file("modules/plugins/sonos-server"))
   .settings(graalSettings)
   .settings(
     name := "controller-plugin-sonos-server",
-    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+    libraryDependencies ++= Seq(
+      "ch.qos.logback"   % "logback-classic"           % "1.2.3",
+      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
+    )
   )
   .dependsOn(
     pluginApi,
@@ -999,9 +926,7 @@ lazy val `sonos-server` = (project in file("modules/plugins/sonos-server"))
     trace,
     prometheusTrace,
     eventCommands,
-    extruder,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
+    extruder
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -1011,8 +936,10 @@ lazy val `kodi-server` = (project in file("modules/plugins/kodi-server"))
   .settings(
     name := "controller-plugin-kodi-server",
     libraryDependencies ++= Seq(
-      "org.http4s"     %% "http4s-jdk-http-client" % "0.3.0",
-      "ch.qos.logback" % "logback-classic"         % "1.2.3"
+      "org.http4s"       %% "http4s-jdk-http-client"   % "0.3.0",
+      "ch.qos.logback"   % "logback-classic"           % "1.2.3",
+      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
   .dependsOn(
@@ -1025,9 +952,7 @@ lazy val `kodi-server` = (project in file("modules/plugins/kodi-server"))
     prometheusTrace,
     eventCommands,
     extruder,
-    discoveryConfig,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
+    discoveryConfig
   )
   .enablePlugins(GraalVMNativeImagePlugin)
 
@@ -1103,17 +1028,13 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
     dockerBaseImage := "openjdk:13",
     daemonUserUid in Docker := Some("9000"),
     javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
-    libraryDependencies ++= Seq("ch.qos.logback" % "logback-classic" % "1.2.3")
+    libraryDependencies ++= Seq(
+      "ch.qos.logback"   % "logback-classic"           % "1.2.3",
+      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
+    )
   )
-  .dependsOn(
-    homekit,
-    server,
-    websocketClientEvents,
-    trace,
-    prometheusTrace,
-    traceJaegerCompleter,
-    catsEffectTraceNatchez
-  )
+  .dependsOn(homekit, server, websocketClientEvents, trace, prometheusTrace)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
 
 lazy val mqttClient = (project in file("modules/events/mqtt-client"))
