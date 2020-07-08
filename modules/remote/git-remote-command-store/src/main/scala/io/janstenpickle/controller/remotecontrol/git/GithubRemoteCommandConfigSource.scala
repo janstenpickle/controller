@@ -83,7 +83,7 @@ object GithubRemoteCommandConfigSource {
     repos: List[Repo] = List.empty,
     accessToken: Option[NonEmptyString] = None,
     localCacheDir: Path = Paths.get("/", "tmp", "controller", "cache", "remote-command"),
-    gitPollInterval: FiniteDuration = 1.hour,
+    gitPollInterval: FiniteDuration = 3.hours,
     cachePollInterval: FiniteDuration = 30.seconds,
     pollErrorThreshold: PosInt = PosInt(Int.MaxValue),
     autoUpdate: Boolean = true
