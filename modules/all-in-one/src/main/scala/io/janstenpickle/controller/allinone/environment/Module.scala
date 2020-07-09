@@ -217,16 +217,16 @@ object Module {
         "path" -> config.config.dir.resolve("macro").toString,
         "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
       )
-
-      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
-        client,
-        config.githubRemoteCommands,
-        (_, _) => F.unit
-      )
+//
+//      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
+//        client,
+//        config.githubRemoteCommands,
+//        (_, _) => F.unit
+//      )
 
       commandStore = TracedRemoteCommandStore(
         RemoteCommandStore.fromConfigSource(
-          WritableConfigSource.combined(remoteCommandConfig, githubRemoteConfigSource)
+          remoteCommandConfig //WritableConfigSource.combined(remoteCommandConfig, githubRemoteConfigSource)
         ),
         "config",
         "path" -> config.config.dir.resolve("remote-command").toString,
