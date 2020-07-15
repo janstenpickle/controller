@@ -16,7 +16,7 @@ import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteCon
 import io.janstenpickle.controller.tplink.config.{TplinkActivityConfigSource, TplinkRemoteConfigSource}
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 import io.janstenpickle.controller.tplink.schedule.TplinkScheduler
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 

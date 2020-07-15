@@ -24,7 +24,7 @@ import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.switches.store.SwitchStateStore
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 

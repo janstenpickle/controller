@@ -19,8 +19,8 @@ import eu.timepit.refined.types.numeric.PosInt
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
-import natchez.Trace
-import natchez.TraceValue.NumberValue
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters._
@@ -65,7 +65,7 @@ object LocalCache {
         Trace[F].span("local.git.cache.load") {
           for {
             _ <- Trace[F]
-              .put(
+              .putAll(
                 "repo.name" -> repo.name.value,
                 "repo.owner" -> repo.owner.value,
                 "remote.device" -> key.device.value,
@@ -89,8 +89,8 @@ object LocalCache {
           for {
             path <- F.delay(commandPath(repo, key).resolve(updated.toString))
             _ <- Trace[F]
-              .put(
-                "updated" -> NumberValue(updated),
+              .putAll(
+                "updated" -> LongValue(updated),
                 "repo.name" -> repo.name.value,
                 "repo.owner" -> repo.owner.value,
                 "remote.device" -> key.device.value,

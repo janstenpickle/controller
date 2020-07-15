@@ -26,9 +26,10 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import natchez.TraceValue.NumberValue
-import natchez.{Trace, TraceValue}
 import io.circe.syntax._
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 
 import scala.concurrent.duration._
 import scala.util.Try
@@ -86,9 +87,9 @@ object ControllerHomekitAuthInfo {
       ) { (get, update) =>
         new HomekitAuthInfo {
 
-          private def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
+          private def span[A](name: String, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
             trace.span(s"homekit.authinfo.$name") {
-              trace.put(extraFields: _*) *> k
+              trace.putAll(extraFields: _*) *> k
             }
 
           override def getPin: String = "324-64-932"
@@ -101,7 +102,7 @@ object ControllerHomekitAuthInfo {
                     span("generate.mac") {
                       val mac = HomekitServer.generateMac()
                       val updated = authInfo.copy(mac = Some(mac))
-                      write(updated) *> trace.put("mac" -> mac) *> update(updated).as(mac)
+                      write(updated) *> trace.put("mac", mac) *> update(updated).as(mac)
                     }
                   case Some(v) => F.pure(v)
                 }
@@ -116,7 +117,8 @@ object ControllerHomekitAuthInfo {
                     span("generate.salt") {
                       val salt = HomekitServer.generateSalt()
                       val updated = authInfo.copy(salt = Some(salt))
-                      write(updated) *> trace.put("salt" -> NumberValue(salt)) *> update(updated).as(salt)
+                      write(updated) *> trace.put("salt", LongValue(salt.longValueExact())) *> update(updated)
+                        .as(salt)
                     }
                   case Some(v) => F.pure(v)
                 }

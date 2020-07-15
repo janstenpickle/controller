@@ -18,7 +18,7 @@ import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, Swit
 import io.janstenpickle.controller.switches.store.SwitchStateStore
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.Switch
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration._

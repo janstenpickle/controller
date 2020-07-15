@@ -7,7 +7,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Activity
 import io.janstenpickle.controller.tplink.TplinkDiscovery
 import io.janstenpickle.controller.tplink.device.TplinkDevice.SmartBulb
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object TplinkActivityConfigSource {
   def apply[F[_]: Applicative: Trace](discovery: TplinkDiscovery[F]): ConfigSource[F, String, Activity] =

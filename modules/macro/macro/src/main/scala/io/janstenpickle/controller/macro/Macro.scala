@@ -13,8 +13,9 @@ import io.janstenpickle.controller.model.event.MacroEvent
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.`macro`.store.MacroStore
 import io.janstenpickle.controller.switch.Switches
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 import scala.concurrent.duration._
 
@@ -34,14 +35,13 @@ object Macro {
     publisher: EventPublisher[F, MacroEvent]
   )(implicit F: Monad[F], timer: Timer[F], errors: MacroErrors[F], trace: Trace[F])
       extends Macro[F] {
-    def span[A](name: String, macroName: NonEmptyString, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
-      trace.span[A](name) { trace.put(extraFields :+ "macro.name" -> StringValue(macroName.value): _*) *> k }
+    def span[A](name: String, macroName: NonEmptyString, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
+      trace.span[A](name) { trace.putAll(extraFields :+ "macro.name" -> StringValue(macroName.value): _*) *> k }
 
     def storeMacro(name: NonEmptyString, commands: NonEmptyList[Command]): F[Unit] =
       span("store.macro", name, "commands" -> commands.size) {
         listMacros.flatMap { macros =>
-          if (macros.contains(name))
-            trace.put("error" -> true, "reason" -> "macro already exists") *> errors.macroAlreadyExists(name)
+          if (macros.contains(name)) trace.setStatus(SpanStatus.AlreadyExists) *> errors.macroAlreadyExists(name)
           else macroStore.storeMacro(name, commands) *> publisher.publish1(MacroEvent.StoredMacroEvent(name, commands))
         }
       }
@@ -68,9 +68,7 @@ object Macro {
       macroStore
         .loadMacro(name)
         .flatMap[Unit](
-          _.fold[F[Unit]](trace.put("error" -> true, "reason" -> "macro not found") *> errors.missingMacro(name))(
-            execute(name)
-          )
+          _.fold[F[Unit]](trace.setStatus(SpanStatus.NotFound) *> errors.missingMacro(name))(execute(name))
         )
     }
 
@@ -78,7 +76,9 @@ object Macro {
       macroStore
         .loadMacro(name)
         .flatMap(
-          _.fold(trace.put("macro.exists" -> false))(cmds => trace.put("macro.exists" -> true) *> execute(name)(cmds))
+          _.fold(trace.put("macro.exists", false) *> trace.setStatus(SpanStatus.NotFound))(
+            cmds => trace.put("macro.exists", true) *> execute(name)(cmds)
+          )
         )
     }
 

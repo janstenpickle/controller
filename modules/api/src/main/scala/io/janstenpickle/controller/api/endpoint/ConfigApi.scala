@@ -25,7 +25,7 @@ import io.janstenpickle.controller.http4s.trace.Http4sUtils
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.model.event.ConfigEvent._
 import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, ConfigEvent, SwitchEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
@@ -58,7 +58,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
       .fixedRate[F](interval)
       .map(_ => true)
       .mergeHaltBoth(subscriptionStream.groupWithin(1000, 50.millis).map(_ => true))
-      .evalMap(_ => trace.put(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
+      .evalMap(_ => trace.putAll(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
       .map(a => Text(a.asJson.noSpaces))
       .translate(lowerName)
 

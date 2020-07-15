@@ -10,7 +10,7 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, KeySeparator}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceDiscoveryMappingConfigSource {
   implicit val keyDecoder: KeyDecoder[DiscoveredDeviceKey] = KeyDecoder { value =>

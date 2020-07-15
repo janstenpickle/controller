@@ -28,7 +28,8 @@ import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 import org.apache.commons.text.WordUtils
 
 import scala.compat.java8.FutureConverters._
@@ -70,10 +71,10 @@ object ControllerAccessories {
           val id = math.abs(MurmurHash3.stringHash(metadata.id.getOrElse(s"${key.name}${key.device}")) + 1)
           val manufacturer = metadata.manufacturer.orNull
 
-          def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
+          def span[A](name: String, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
             trace.span(s"homekit.switch.$name") {
-              trace.put(
-                Seq[(String, TraceValue)](
+              trace.putAll(
+                Seq[(String, AttributeValue)](
                   "device.id" -> id,
                   "device.label" -> label,
                   "device.model" -> model,
@@ -106,7 +107,7 @@ object ControllerAccessories {
                     rootSpan(span("update.subscriber") {
                       Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
                         logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
-                          .put("error" -> true, "error.message" -> th.getMessage)
+                          .setStatus(SpanStatus.Internal(th.getMessage))
                       }
                     })
                   }

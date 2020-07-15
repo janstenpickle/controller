@@ -16,7 +16,7 @@ import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, D
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.switches.store.SwitchStateStore
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 

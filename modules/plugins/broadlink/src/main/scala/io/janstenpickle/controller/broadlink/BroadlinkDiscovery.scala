@@ -33,7 +33,8 @@ import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEven
 import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, DiscoveredDeviceValue, SwitchKey}
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.switches.store.SwitchStateStore
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
@@ -162,7 +163,7 @@ object BroadlinkDiscovery {
           )
           .flatTap {
             case (unmapped, devices) =>
-              trace.put("unmapped.count" -> unmapped.size, "device.count" -> devices.size)
+              trace.putAll("unmapped.count" -> unmapped.size, "device.count" -> devices.size)
           }
       }
 

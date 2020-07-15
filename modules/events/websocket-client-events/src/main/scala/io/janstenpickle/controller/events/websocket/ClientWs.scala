@@ -19,7 +19,6 @@ import io.janstenpickle.controller.model.event.{
   RemoteEvent,
   SwitchEvent
 }
-import natchez.Trace
 
 object ClientWs {
   def receive[F[_]: Concurrent: Parallel: Timer: ContextShift, G[_]: ConcurrentEffect: Timer](
@@ -27,7 +26,7 @@ object ClientWs {
     port: PortNumber,
     blocker: Blocker,
     events: Events[F]
-  )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] =
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] =
     List(
       JavaWebsocket.receive[F, G, ConfigEvent](host, port, "config", blocker, events.config.publisher),
       JavaWebsocket.receive[F, G, RemoteEvent](host, port, "remote", blocker, events.remote.publisher),
@@ -43,7 +42,7 @@ object ClientWs {
     port: PortNumber,
     blocker: Blocker,
     events: Events[F]
-  )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, EventsState[F]] =
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, EventsState[F]] =
     Resource.liftF(EventsState[F]).flatMap { state =>
       List(
         JavaWebsocket

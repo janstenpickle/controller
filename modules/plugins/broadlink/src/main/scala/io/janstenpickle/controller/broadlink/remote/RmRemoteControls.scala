@@ -8,13 +8,13 @@ import io.janstenpickle.controller.broadlink.{BroadlinkDevice, BroadlinkDiscover
 import io.janstenpickle.controller.model.{CommandPayload, RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
-import natchez.Trace
 import cats.syntax.flatMap._
 import cats.instances.list._
 import cats.syntax.traverse._
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
 import io.janstenpickle.controller.remote.trace.TracedRemote
+import io.janstenpickle.trace4cats.inject.Trace
 import scalacache.Cache
 import scalacache.CatsEffect.modes._
 import scalacache.memoization.memoizeF

@@ -15,7 +15,7 @@ import io.janstenpickle.controller.events.Events
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.{Button, Room}
 import io.janstenpickle.controller.switch.{SwitchErrors, Switches}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.http4s.HttpRoutes
 import org.http4s.server.Router
 

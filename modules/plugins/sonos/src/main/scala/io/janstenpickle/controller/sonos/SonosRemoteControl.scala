@@ -12,7 +12,8 @@ import io.janstenpickle.controller.model
 import io.janstenpickle.controller.model.event.RemoteEvent
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.SpanStatus
 
 object SonosRemoteControl {
   def commands[F[_]]: Map[NonEmptyString, SimpleSonosDevice[F] => F[Unit]] =
@@ -48,7 +49,7 @@ object SonosRemoteControl {
                 })
 
               def span[A](n: String)(k: F[A]): F[A] = trace.span(s"sonos.combined.$n") {
-                trace.put("device.name" -> combinedDeviceName.value) *> k
+                trace.put("device.name", combinedDeviceName.value) *> k
               }
 
               override def name: NonEmptyString = combinedDeviceName
@@ -65,14 +66,12 @@ object SonosRemoteControl {
 
             def devices: F[Map[NonEmptyString, SimpleSonosDevice[F]]] = trace.span("sonos.list.devices") {
               discovery.devices.map(_.devices.updated(combinedDeviceName, combinedDevice)).flatTap { devices =>
-                trace.put("device.count" -> devices.size)
+                trace.put("device.count", devices.size)
               }
             }
 
             override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-              trace.put("error" -> true, "reason" -> "learning not supported") *> errors.learningNotSupported(
-                remoteName
-              )
+              trace.setStatus(SpanStatus.Unimplemented) *> errors.learningNotSupported(remoteName)
 
             private val cmds = commands[F]
 
@@ -84,11 +83,11 @@ object SonosRemoteControl {
               if (source == CommandSource)
                 devices.flatMap(_.get(deviceName) match {
                   case None =>
-                    trace.put("error" -> true, "reason" -> "device not found") *> errors
+                    trace.setStatus(SpanStatus.NotFound) *> errors
                       .commandNotFound(remoteName, deviceName, name)
                   case Some(device) =>
                     device.isController.flatMap { isController =>
-                      trace.put("controller" -> isController) *> {
+                      trace.put("controller", isController) *> {
                         cmds.get(name) match {
                           case None => errors.commandNotFound(remoteName, deviceName, name)
                           case Some(command) => command(device)
@@ -103,7 +102,7 @@ object SonosRemoteControl {
                 case (deviceName, device) =>
                   device.isController.flatMap { isController =>
                     trace
-                      .put("controller" -> isController)
+                      .put("controller", isController)
                       .as(cmds.keys.toList.map { command =>
                         model.RemoteCommand(remoteName, CommandSource, deviceName, command)
                       })

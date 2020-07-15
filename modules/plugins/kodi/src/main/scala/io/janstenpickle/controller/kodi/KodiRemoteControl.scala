@@ -9,7 +9,7 @@ import io.janstenpickle.controller.kodi.Commands._
 import io.janstenpickle.controller.model.event.RemoteEvent
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object KodiRemoteControl {
   final val RemoteName = NonEmptyString("kodi")

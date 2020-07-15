@@ -18,7 +18,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource.ConfigFiles
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.apache.commons.io.FileUtils
 
 import scala.concurrent.duration.FiniteDuration
@@ -59,11 +59,11 @@ object ConfigFileSource {
 
         def loadFile(extension: String): F[Option[String]] = trace.span("load.config.file") {
           val file = getFile(extension)
-          trace.put("file.name" -> file.toString) *> blocker.blockOn(for {
+          trace.put("file.name", file.toString) *> blocker.blockOn(for {
             exists <- F.delay(Files.exists(file))
-            _ <- trace.put("file.exists" -> exists)
+            _ <- trace.put("file.exists", exists)
             ret <- if (exists) trace.span("readFile") {
-              trace.put("file.name" -> file.toString) *> F.delay(new String(Files.readAllBytes(file))).map(Some(_))
+              trace.put("file.name", file.toString) *> F.delay(new String(Files.readAllBytes(file))).map(Some(_))
             } else F.pure(None)
 
           } yield ret)
@@ -72,7 +72,7 @@ object ConfigFileSource {
         def writeFile(extension: String)(contents: Array[Byte]): F[Unit] = trace.span("write.config.file") {
           val file = getFile(extension)
           evalMutex(
-            trace.put("file.name" -> file.toString) *> blocker
+            trace.put("file.name", file.toString) *> blocker
               .blockOn(F.delay(FileUtils.forceMkdirParent(file.toFile)) *> F.delay(Files.write(file, contents)).void)
           )
         }

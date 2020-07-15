@@ -20,7 +20,7 @@ import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEven
 import io.janstenpickle.controller.model.{Button, Command, DiscoveredDeviceKey, DiscoveredDeviceValue, Remote}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.schedule.Scheduler
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.http4s.client.Client
 
 import scala.concurrent.duration._

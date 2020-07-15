@@ -33,7 +33,8 @@ import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 import scala.xml._
 import scala.collection.JavaConverters._
@@ -103,7 +104,7 @@ object SonosDiscovery {
           discoveryBlocker
             .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
             .flatTap { devices =>
-              trace.put("device.count" -> devices.size)
+              trace.put("device.count", devices.size)
             }
             .flatMap { discovered =>
               discovered
@@ -122,7 +123,7 @@ object SonosDiscovery {
                             formattedName <- F
                               .fromEither(NonEmptyString.from(snakify(name)).leftMap(new RuntimeException(_)))
                             nonEmptyName <- F.fromEither(NonEmptyString.from(name).leftMap(new RuntimeException(_)))
-                            _ <- trace.put("device.id" -> id, "device.name" -> name)
+                            _ <- trace.putAll("device.id" -> id, "device.name" -> name)
                             dev <- SonosDevice[F](
                               id,
                               formattedName,

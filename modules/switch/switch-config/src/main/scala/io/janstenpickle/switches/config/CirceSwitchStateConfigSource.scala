@@ -9,7 +9,7 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.model.{RemoteSwitchKey, State}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceSwitchStateConfigSource {
 

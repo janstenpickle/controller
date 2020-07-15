@@ -1,18 +1,17 @@
 package io.janstenpickle.controller.remotecontrol
 
-import cats.instances.list._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.syntax.traverse._
-import cats.{Applicative, Apply, FlatMap, Monad, Parallel}
+import cats.{Applicative, Apply, Monad}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remote.Remote
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
 trait RemoteControl[F[_]] {
   def remoteName: NonEmptyString
@@ -22,13 +21,13 @@ trait RemoteControl[F[_]] {
 }
 
 object RemoteControl {
-  def traced[F[_]: Apply](remoteControl: RemoteControl[F], extraFields: (String, TraceValue)*)(
+  def traced[F[_]: Apply](remoteControl: RemoteControl[F], extraFields: (String, AttributeValue)*)(
     implicit trace: Trace[F]
   ): RemoteControl[F] =
     new RemoteControl[F] {
       private def traceInfo(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-        trace.put(
-          extraFields ++ Seq[(String, TraceValue)](
+        trace.putAll(
+          extraFields ++ Seq[(String, AttributeValue)](
             "remote" -> remoteName.value,
             "device" -> device.value,
             "command" -> name.value
@@ -49,7 +48,7 @@ object RemoteControl {
         }
 
       override def listCommands: F[List[RemoteCommand]] = trace.span("remote.control.list.commands") {
-        trace.put(extraFields: _*) *> remoteControl.listCommands
+        trace.putAll(extraFields: _*) *> remoteControl.listCommands
       }
 
       override def remoteName: NonEmptyString = remoteControl.remoteName
@@ -105,7 +104,7 @@ object RemoteControl {
         override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
           remote.learn.flatMap {
             case None =>
-              trace.put("error" -> true, "reason" -> "learn failure") *> errors.learnFailure(remote.name, device, name)
+              trace.setStatus(SpanStatus.Internal("Learn failure")) *> errors.learnFailure(remote.name, device, name)
             case Some(payload) => store.storeCommand(device, name, payload)
           }
 
@@ -116,7 +115,7 @@ object RemoteControl {
         ): F[Unit] =
           store.loadCommand(source, device, name).flatMap {
             case None =>
-              trace.put("error" -> true, "reason" -> "command not found") *> errors
+              trace.setStatus(SpanStatus.NotFound) *> errors
                 .commandNotFound(remote.name, device, name)
             case Some(payload) => remote.sendCommand(payload)
           }

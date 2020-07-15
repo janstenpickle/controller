@@ -23,7 +23,6 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.device.{TplinkDevice, TplinkDeviceErrors}
-import natchez.Trace
 import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
 import cats.instances.string._
@@ -37,6 +36,7 @@ import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEven
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room, SwitchKey}
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.tplink.config.TplinkRemoteConfigSource
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
@@ -219,7 +219,7 @@ object TplinkDiscovery {
                 )
               case _ => F.pure(List.empty[((NonEmptyString, DeviceType), TplinkDevice[F])])
             }
-            _ <- trace.put("device.count" -> devices.size)
+            _ <- trace.put("device.count", devices.size)
           } yield (Map.empty[DiscoveredDeviceKey, Map[String, String]], devices.toMap)
         }
       }

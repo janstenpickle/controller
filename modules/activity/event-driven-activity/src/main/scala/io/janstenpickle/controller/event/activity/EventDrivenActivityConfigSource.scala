@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.event.activity
 
 import cats.effect.{Concurrent, Resource, Timer}
-import cats.syntax.functor._
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.arrow.ContextualLiftLower
@@ -11,7 +10,8 @@ import io.janstenpickle.controller.event.config.EventDrivenConfigSource
 import io.janstenpickle.controller.events.EventSubscriber
 import io.janstenpickle.controller.model.Activity
 import io.janstenpickle.controller.model.event.ConfigEvent
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.duration._
 
@@ -24,13 +24,16 @@ object EventDrivenActivityConfigSource {
     implicit trace: Trace[F],
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, ConfigSource[F, String, Activity]] = {
-    def span[A](name: String, activityName: NonEmptyString, room: NonEmptyString, extraFields: (String, TraceValue)*)(
-      fa: F[A]
-    ): F[A] =
+    def span[A](
+      name: String,
+      activityName: NonEmptyString,
+      room: NonEmptyString,
+      extraFields: (String, AttributeValue)*
+    )(fa: F[A]): F[A] =
       trace.span(name) {
         trace
-          .put(
-            extraFields ++ List[(String, TraceValue)]("activity.name" -> activityName.value, "room" -> room.value): _*
+          .putAll(
+            extraFields ++ List[(String, AttributeValue)]("activity.name" -> activityName.value, "room" -> room.value): _*
           ) *> fa
       }
 

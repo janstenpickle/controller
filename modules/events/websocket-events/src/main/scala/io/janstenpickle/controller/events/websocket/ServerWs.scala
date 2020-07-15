@@ -15,11 +15,11 @@ import io.janstenpickle.controller.model.event.{
   RemoteEvent,
   SwitchEvent
 }
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.http4s.HttpRoutes
 
 object ServerWs {
-  def apply[F[_]: Concurrent: Timer: Trace, G[_]: Applicative](
+  def apply[F[_]: Concurrent: Timer, G[_]: Applicative](
     events: Events[F],
     commandFilter: Event[CommandEvent] => Boolean
   )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, (EventsState[F], HttpRoutes[F])] =
@@ -28,7 +28,7 @@ object ServerWs {
         (state, receive[F, G](events, commandFilter) <+> routes)
     }
 
-  def receive[F[_]: Concurrent: Timer: Trace, G[_]: Applicative](
+  def receive[F[_]: Concurrent: Timer, G[_]: Applicative](
     events: Events[F],
     commandFilter: Event[CommandEvent] => Boolean
   )(implicit liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
@@ -46,7 +46,7 @@ object ServerWs {
     config <+> remote <+> switch <+> `macro` <+> activity <+> discovery <+> commands
   }
 
-  def send[F[_]: Concurrent: Timer: Trace, G[_]: Applicative](events: Events[F])(
+  def send[F[_]: Concurrent: Timer, G[_]: Applicative](events: Events[F])(
     implicit liftLower: ContextualLiftLower[G, F, String]
   ): Resource[F, (EventsState[F], HttpRoutes[F])] = Resource.liftF(EventsState[F]).map { state =>
     val config =

@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.events.discovery
 
 import cats.Applicative
-import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.syntax.apply._
@@ -15,7 +14,8 @@ import io.janstenpickle.controller.events.syntax.all._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.event.{CommandEvent, DeviceDiscoveryEvent}
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.duration._
 
@@ -31,9 +31,9 @@ object EventDrivenDeviceRename {
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, DeviceRename[F]] = {
 
-    def span[A](name: String, key: DiscoveredDeviceKey, extraFields: (String, TraceValue)*)(f: F[A]): F[A] =
+    def span[A](name: String, key: DiscoveredDeviceKey, extraFields: (String, AttributeValue)*)(f: F[A]): F[A] =
       trace.span(name) {
-        trace.put(extraFields ++ List[(String, TraceValue)]("device.id" -> key.deviceId): _*) *> f
+        trace.putAll(extraFields ++ List[(String, AttributeValue)]("device.id" -> key.deviceId): _*) *> f
       }
 
     def listen(

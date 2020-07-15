@@ -29,7 +29,8 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.CommandEvent
 import io.janstenpickle.controller.websocket.client.JavaWebSocketClient
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.SpanStatus
 
 import scala.concurrent.duration._
 
@@ -117,7 +118,7 @@ object DeconzBridge {
         .evalMap {
           case (id, event) =>
             processor.process(id, event).handleErrorWith { th =>
-              trace.put("error" -> true, "message" -> th.getMessage) >> logger
+              trace.setStatus(SpanStatus.Internal(th.getMessage)) >> logger
                 .warn(th)("Processor failed to do handle deconz event")
             }
         }

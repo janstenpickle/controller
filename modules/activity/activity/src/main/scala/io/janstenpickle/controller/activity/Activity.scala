@@ -13,8 +13,9 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.ActivityUpdateEvent
 import io.janstenpickle.controller.model.{Room, State, SwitchKey, Activity => ActivityModel}
 import io.janstenpickle.controller.switch.SwitchProvider
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
 trait Activity[F[_]] {
   def setActivity(room: Room, name: NonEmptyString): F[Unit]
@@ -22,10 +23,10 @@ trait Activity[F[_]] {
 }
 
 object Activity {
-  private def span[F[_]: Apply, A](name: String, room: Room, extraFields: (String, TraceValue)*)(
+  private def span[F[_]: Apply, A](name: String, room: Room, extraFields: (String, AttributeValue)*)(
     k: F[A]
   )(implicit trace: Trace[F]): F[A] = trace.span(name) {
-    trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
+    trace.putAll(extraFields :+ "room" -> StringValue(room.value): _*) *> k
   }
 
   def noop[F[_]: Applicative]: Activity[F] = new Activity[F] {
@@ -82,19 +83,19 @@ object Activity {
         span("depends.on.switch.set.activity", room, "activity" -> name.value) {
           switches.get(room).fold(underlying.setActivity(room, name)) { key =>
             trace
-              .put("switch.device" -> key.device.value, "switch.name" -> key.name.value) *> switchProvider.getSwitches
+              .putAll("switch.device" -> key.device.value, "switch.name" -> key.name.value) *> switchProvider.getSwitches
               .flatMap { sws =>
                 sws.get(key) match {
                   case None =>
-                    trace.put("error" -> true, "reason" -> "switch not found") *> F.raiseError(
+                    trace.setStatus(SpanStatus.NotFound) *> F.raiseError(
                       new RuntimeException(
                         s"Could not find switch '${key.name.value}' of device '${key.device.value}' for room '${room.value}'"
                       )
                     )
                   case Some(switch) =>
                     switch.getState.flatMap {
-                      case State.On => trace.put("switch.on" -> true) *> underlying.setActivity(room, name)
-                      case State.Off => trace.put("switch.on" -> false)
+                      case State.On => trace.put("switch.on", true) *> underlying.setActivity(room, name)
+                      case State.Off => trace.put("switch.on", false)
                     }
                 }
               }

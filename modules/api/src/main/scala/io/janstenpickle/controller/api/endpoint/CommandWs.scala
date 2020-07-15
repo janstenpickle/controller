@@ -11,7 +11,6 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{Event, EventPublisher}
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.event.CommandEvent
-import natchez.Trace
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
@@ -21,7 +20,6 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
-  trace: Trace[F],
   liftLower: ContextualLiftLower[G, F, String]
 ) extends Common[F] {
   def pipe(q: Queue[G, String]): Pipe[G, WebSocketFrame, Unit] =

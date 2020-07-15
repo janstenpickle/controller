@@ -3,16 +3,16 @@ package io.janstenpickle.controller.allinone.environment
 import java.net.http.HttpClient
 import java.util.concurrent.Executor
 
+import cats.Parallel
 import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.syntax.parallel._
 import cats.syntax.semigroup._
-import io.janstenpickle.controller.trace.instances._
-import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
 import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.inject.EntryPoint
 import io.janstenpickle.trace4cats.kernel.SpanSampler
 import io.janstenpickle.trace4cats.model.TraceProcess
-import io.janstenpickle.trace4cats.natchez.Trace4CatsTracer
 import io.prometheus.client.CollectorRegistry
-import natchez.EntryPoint
 import org.http4s.client.Client
 import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
@@ -21,6 +21,7 @@ import org.http4s.metrics.prometheus.Prometheus
 object Resources {
 
   private final val serviceName = "controller"
+  private final val process = TraceProcess(serviceName)
 
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
@@ -28,15 +29,15 @@ object Resources {
       registry
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: Concurrent: ContextShift: Timer](
+  def entryPoint[F[_]: Concurrent: ContextShift: Timer: Parallel](
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    AvroSpanCompleter.udp[F](blocker, TraceProcess(serviceName)).flatMap { completer =>
-      PrometheusTracer
-        .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| Trace4CatsTracer.entryPoint[F](SpanSampler.always, completer))
-    }
+    (AvroSpanCompleter.udp[F](blocker, process), PrometheusSpanCompleter[F](registry, blocker, process))
+      .parMapN(_ |+| _)
+      .map { completer =>
+        EntryPoint[F](SpanSampler.always, completer)
+      }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Clock](
     registry: CollectorRegistry,

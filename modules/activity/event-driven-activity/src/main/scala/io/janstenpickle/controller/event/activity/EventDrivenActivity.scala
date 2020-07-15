@@ -13,8 +13,9 @@ import io.janstenpickle.controller.events.syntax.stream._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, CommandEvent}
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 import scala.concurrent.duration._
 
@@ -29,8 +30,8 @@ object EventDrivenActivity {
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, Activity[F]] = {
 
-    def fields[A](room: Room, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
-      trace.put(extraFields :+ "room" -> StringValue(room.value): _*) *> k
+    def fields[A](room: Room, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
+      trace.putAll(extraFields :+ "room" -> StringValue(room.value): _*) *> k
 
     def listen(current: Cache[F, Room, NonEmptyString]) =
       activityUpdates.filterEvent(_.source != source).subscribeEvent.evalMapTrace("set.activity") {

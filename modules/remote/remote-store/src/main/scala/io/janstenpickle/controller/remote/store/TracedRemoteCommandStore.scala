@@ -5,10 +5,11 @@ import cats.syntax.apply._
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.{RemoteCommandKey, RemoteCommandSource}
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 object TracedRemoteCommandStore {
-  def apply[F[_]: Monad, T](store: RemoteCommandStore[F, T], `type`: String, extraFields: (String, TraceValue)*)(
+  def apply[F[_]: Monad, T](store: RemoteCommandStore[F, T], `type`: String, extraFields: (String, AttributeValue)*)(
     implicit trace: Trace[F]
   ): RemoteCommandStore[F, T] =
     new RemoteCommandStore[F, T] {
@@ -19,10 +20,10 @@ object TracedRemoteCommandStore {
         command: NonEmptyString
       )(k: F[A]): F[A] =
         trace.span(name) {
-          trace.put(
-            Seq[(String, TraceValue)]("device" -> device.value, "command" -> command.value, "store.type" -> `type`) ++ source.toSeq
+          trace.putAll(
+            Seq[(String, AttributeValue)]("device" -> device.value, "command" -> command.value, "store.type" -> `type`) ++ source.toSeq
               .flatMap { src =>
-                Seq[(String, TraceValue)]("source.name" -> src.name.value, "source.type" -> src.`type`.value)
+                Seq[(String, AttributeValue)]("source.name" -> src.name.value, "source.type" -> src.`type`.value)
               } ++ extraFields: _*
           ) *> k
         }
@@ -39,13 +40,13 @@ object TracedRemoteCommandStore {
       ): F[Option[T]] =
         span("macro.load.command", source, device, name) {
           store.loadCommand(source, device, name).flatTap { command =>
-            trace.put("command.exists" -> command.isDefined)
+            trace.put("command.exists", command.isDefined)
           }
         }
 
       override def listCommands: F[List[RemoteCommandKey]] = trace.span("macro.list.commands") {
         store.listCommands.flatTap { commands =>
-          trace.put("commands" -> commands.size)
+          trace.put("commands", commands.size)
         }
       }
     }

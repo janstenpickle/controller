@@ -10,14 +10,13 @@ val kittensVer = "2.1.0"
 val jmdnsVer = "3.5.5"
 val log4catsVer = "1.1.1"
 val maprefVer = "0.1.1"
-val natchezVer = "0.0.11"
 val prometheusVer = "0.9.0"
 val refinedVer = "0.9.14"
 val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.1.2"
-val trace4catsVer = "0.1.0"
+val trace4catsVer = "0.2.0+6-29c0a493"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
@@ -67,7 +66,8 @@ val commonSettings = Seq(
       _.data.getName.contains("slf4j-jdk14")
     }
   },
-  publishArtifact in packageDoc := false
+  publishArtifact in packageDoc := false,
+  resolvers += Resolver.sonatypeRepo("releases")
 )
 
 val graalSettings = Seq(
@@ -184,7 +184,7 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
       "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
-      "io.janstenpickle"  %% "trace4cats-natchez"        % trace4catsVer,
+      "io.janstenpickle"  %% "trace4cats-inject"         % trace4catsVer,
       "io.janstenpickle"  %% "trace4cats-avro-exporter"  % trace4catsVer
     ),
     mappings in Universal := {
@@ -289,7 +289,7 @@ lazy val coordinator = (project in file("modules/coordinator"))
       "org.http4s"        %% "http4s-dsl"                % http4sVer,
       "org.http4s"        %% "http4s-prometheus-metrics" % http4sVer,
       "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer,
-      "io.janstenpickle"  %% "trace4cats-natchez"        % trace4catsVer,
+      "io.janstenpickle"  %% "trace4cats-inject"         % trace4catsVer,
       "io.janstenpickle"  %% "trace4cats-avro-exporter"  % trace4catsVer
     )
   )
@@ -350,12 +350,12 @@ lazy val http4s = (project in file("modules/http4s"))
   .settings(
     name := "controller-http4s",
     libraryDependencies ++= Seq(
-      "org.http4s"        %% "http4s-client"  % http4sVer,
-      "org.http4s"        %% "http4s-core"    % http4sVer,
-      "org.http4s"        %% "http4s-dsl"     % http4sVer,
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "org.typelevel"     %% "cats-mtl-core"  % catsMtlVer,
-      "org.tpolecat"      %% "natchez-core"   % natchezVer
+      "org.http4s"        %% "http4s-client"     % http4sVer,
+      "org.http4s"        %% "http4s-core"       % http4sVer,
+      "org.http4s"        %% "http4s-dsl"        % http4sVer,
+      "io.chrisdavenport" %% "log4cats-slf4j"    % log4catsVer,
+      "org.typelevel"     %% "cats-mtl-core"     % catsMtlVer,
+      "io.janstenpickle"  %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(errors)
@@ -421,7 +421,7 @@ lazy val tracedConfigSource = (project in file("modules/config/trace-config-sour
   .settings(commonSettings)
   .settings(
     name := "controller-trace-config-source",
-    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq("io.janstenpickle" %% "trace4cats-inject" % trace4catsVer)
   )
   .dependsOn(configSource)
 
@@ -460,7 +460,10 @@ lazy val remoteStore = (project in file("modules/remote/remote-store"))
   .settings(commonSettings)
   .settings(
     name := "controller-remote-store",
-    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq(
+      "eu.timepit"       %% "refined"           % refinedVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
+    )
   )
   .dependsOn(model, configSource)
 
@@ -479,10 +482,10 @@ lazy val events = (project in file("modules/events/events"))
   .settings(
     name := "controller-events",
     libraryDependencies ++= Seq(
-      "org.typelevel"     %% "cats-effect"    % catsEffectVer,
-      "co.fs2"            %% "fs2-core"       % fs2Ver,
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "org.tpolecat"      %% "natchez-core"   % natchezVer
+      "org.typelevel"     %% "cats-effect"       % catsEffectVer,
+      "co.fs2"            %% "fs2-core"          % fs2Ver,
+      "io.chrisdavenport" %% "log4cats-slf4j"    % log4catsVer,
+      "io.janstenpickle"  %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(arrow, model, errors)
@@ -514,7 +517,7 @@ lazy val tracedRemote = (project in file("modules/remote/trace-remote"))
   .settings(commonSettings)
   .settings(
     name := "controller-trace-remote",
-    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq("io.janstenpickle" %% "trace4cats-inject" % trace4catsVer)
   )
   .dependsOn(remote)
 
@@ -551,7 +554,7 @@ lazy val `broadlink-server` = (project in file("modules/plugins/broadlink-server
     libraryDependencies ++= Seq(
       "org.http4s"       %% "http4s-ember-client"      % http4sVer,
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
-      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
@@ -579,10 +582,10 @@ lazy val switch = (project in file("modules/switch/switch"))
   .settings(
     name := "controller-switch",
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core"    % catsVer,
-      "eu.timepit"    %% "refined"      % refinedVer,
-      "org.typelevel" %% "kittens"      % kittensVer,
-      "org.tpolecat"  %% "natchez-core" % natchezVer
+      "org.typelevel"    %% "cats-core"         % catsVer,
+      "eu.timepit"       %% "refined"           % refinedVer,
+      "org.typelevel"    %% "kittens"           % kittensVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(model, errors)
@@ -591,7 +594,10 @@ lazy val switchStore = (project in file("modules/switch/switch-store"))
   .settings(commonSettings)
   .settings(
     name := "controller-switch-store",
-    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq(
+      "eu.timepit"       %% "refined"           % refinedVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
+    )
   )
   .dependsOn(model, configSource)
 
@@ -635,7 +641,7 @@ lazy val `tplink-server` = (project in file("modules/plugins/tplink-server"))
     name := "controller-plugin-tplink-server",
     libraryDependencies ++= Seq(
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
-      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
@@ -673,13 +679,13 @@ lazy val deconzBridge = (project in file("modules/deconz-bridge"))
   .settings(
     name := "controller-deconz-bridge",
     libraryDependencies ++= Seq(
-      "eu.timepit"        %% "refined"        % refinedVer,
-      "eu.timepit"        %% "refined-cats"   % refinedVer,
-      "org.typelevel"     %% "kittens"        % kittensVer,
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "io.circe"          %% "circe-parser"   % circeVer,
-      "io.circe"          %% "circe-generic"  % circeVer,
-      "org.tpolecat"      %% "natchez-core"   % natchezVer
+      "eu.timepit"        %% "refined"           % refinedVer,
+      "eu.timepit"        %% "refined-cats"      % refinedVer,
+      "org.typelevel"     %% "kittens"           % kittensVer,
+      "io.chrisdavenport" %% "log4cats-slf4j"    % log4catsVer,
+      "io.circe"          %% "circe-parser"      % circeVer,
+      "io.circe"          %% "circe-generic"     % circeVer,
+      "io.janstenpickle"  %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(arrow, events, model, circeConfigSource, websocketClient)
@@ -691,7 +697,7 @@ lazy val `deconz-server` = (project in file("modules/deconz-server"))
     name := "controller-deconz-server",
     libraryDependencies ++= Seq(
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
-      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
@@ -702,7 +708,7 @@ lazy val tracedSwitch = (project in file("modules/switch/trace-switch"))
   .settings(commonSettings)
   .settings(
     name := "controller-trace-switch",
-    libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq("io.janstenpickle" %% "trace4cats-inject" % trace4catsVer)
   )
   .dependsOn(switch)
 
@@ -716,10 +722,10 @@ lazy val cronScheduler = (project in file("modules/cron-scheduler"))
   .settings(
     name := "controller-cron-scheduler",
     libraryDependencies ++= Seq(
-      "eu.timepit"        %% "fs2-cron-core"  % "0.2.2",
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "io.chrisdavenport" %% "fuuid"          % "0.4.0",
-      "org.tpolecat"      %% "natchez-core"   % natchezVer
+      "eu.timepit"        %% "fs2-cron-core"     % "0.2.2",
+      "io.chrisdavenport" %% "log4cats-slf4j"    % log4catsVer,
+      "io.chrisdavenport" %% "fuuid"             % "0.4.0",
+      "io.janstenpickle"  %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(arrow, schedule, events, configSource, extruder, circeConfigSource)
@@ -741,9 +747,9 @@ lazy val remoteControl = (project in file("modules/remote/remote-control"))
   .settings(
     name := "controller-remote-control",
     libraryDependencies ++= Seq(
-      "eu.timepit"    %% "refined"      % refinedVer,
-      "org.typelevel" %% "cats-core"    % catsVer,
-      "org.tpolecat"  %% "natchez-core" % natchezVer
+      "eu.timepit"       %% "refined"           % refinedVer,
+      "org.typelevel"    %% "cats-core"         % catsVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(events, remote, remoteStore)
@@ -753,8 +759,8 @@ lazy val `macro` = (project in file("modules/macro/macro"))
   .settings(
     name := "controller-macro",
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-effect"  % catsEffectVer,
-      "org.tpolecat"  %% "natchez-core" % natchezVer
+      "org.typelevel"    %% "cats-effect"       % catsEffectVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(remoteControl, switch, macroStore, configSource, errors)
@@ -768,7 +774,10 @@ lazy val macroStore = (project in file("modules/macro/macro-store"))
   .settings(commonSettings)
   .settings(
     name := "controller-macro-store",
-    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq(
+      "eu.timepit"       %% "refined"           % refinedVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
+    )
   )
   .dependsOn(model, configSource)
 
@@ -787,7 +796,10 @@ lazy val eventCommands = (project in file("modules/events/event-commands"))
 
 lazy val activity = (project in file("modules/activity/activity"))
   .settings(commonSettings)
-  .settings(name := "controller-activity", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
+  .settings(
+    name := "controller-activity",
+    libraryDependencies ++= Seq("io.janstenpickle" %% "trace4cats-inject" % trace4catsVer)
+  )
   .dependsOn(`macro`, tracedSwitch, eventsSwitch, activityStore)
 
 lazy val activityConfig = (project in file("modules/activity/activity-config"))
@@ -799,7 +811,10 @@ lazy val activityStore = (project in file("modules/activity/activity-store"))
   .settings(commonSettings)
   .settings(
     name := "controller-activity-store",
-    libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer, "org.tpolecat" %% "natchez-core" % natchezVer)
+    libraryDependencies ++= Seq(
+      "eu.timepit"       %% "refined"           % refinedVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
+    )
   )
   .dependsOn(model, configSource)
 
@@ -811,7 +826,7 @@ lazy val poller = (project in file("modules/poller"))
       "co.fs2"                 %% "fs2-core"                % fs2Ver,
       "io.chrisdavenport"      %% "log4cats-slf4j"          % log4catsVer,
       "eu.timepit"             %% "refined"                 % refinedVer,
-      "org.tpolecat"           %% "natchez-core"            % natchezVer,
+      "io.janstenpickle"       %% "trace4cats-inject"       % trace4catsVer,
       "org.typelevel"          %% "cats-effect"             % catsEffectVer,
       "org.scala-lang.modules" %% "scala-collection-compat" % collectionCompatVer
     )
@@ -849,9 +864,9 @@ lazy val prometheusTrace = (project in file("modules/trace/prometheus-trace"))
   .settings(
     name := "controller-prometheus-trace",
     libraryDependencies ++= Seq(
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "io.prometheus"     % "simpleclient"    % prometheusVer,
-      "org.tpolecat"      %% "natchez-core"   % natchezVer
+      "io.chrisdavenport" %% "log4cats-slf4j"             % log4catsVer,
+      "io.prometheus"     % "simpleclient"                % prometheusVer,
+      "io.janstenpickle"  %% "trace4cats-exporter-common" % trace4catsVer
     )
   )
 
@@ -872,16 +887,16 @@ lazy val gitRemoteStore = (project in file("modules/remote/git-remote-command-st
   .settings(
     name := "controller-git-remote-command-store",
     libraryDependencies ++= Seq(
-      "commons-io"        % "commons-io"      % "2.7",
-      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
-      "org.typelevel"     %% "cats-effect"    % catsEffectVer,
-      "org.typelevel"     %% "kittens"        % kittensVer,
-      "org.tpolecat"      %% "natchez-core"   % natchezVer,
-      "org.http4s"        %% "http4s-dsl"     % http4sVer,
-      "org.http4s"        %% "http4s-client"  % http4sVer,
-      "org.http4s"        %% "http4s-circe"   % http4sVer,
-      "io.circe"          %% "circe-generic"  % circeVer,
-      "eu.timepit"        %% "refined-cats"   % refinedVer
+      "commons-io"        % "commons-io"         % "2.7",
+      "io.chrisdavenport" %% "log4cats-slf4j"    % log4catsVer,
+      "org.typelevel"     %% "cats-effect"       % catsEffectVer,
+      "org.typelevel"     %% "kittens"           % kittensVer,
+      "io.janstenpickle"  %% "trace4cats-inject" % trace4catsVer,
+      "org.http4s"        %% "http4s-dsl"        % http4sVer,
+      "org.http4s"        %% "http4s-client"     % http4sVer,
+      "org.http4s"        %% "http4s-circe"      % http4sVer,
+      "io.circe"          %% "circe-generic"     % circeVer,
+      "eu.timepit"        %% "refined-cats"      % refinedVer
     )
   )
   .dependsOn(poller, remoteStore)
@@ -913,7 +928,7 @@ lazy val `sonos-server` = (project in file("modules/plugins/sonos-server"))
     name := "controller-plugin-sonos-server",
     libraryDependencies ++= Seq(
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
-      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
@@ -938,7 +953,7 @@ lazy val `kodi-server` = (project in file("modules/plugins/kodi-server"))
     libraryDependencies ++= Seq(
       "org.http4s"       %% "http4s-jdk-http-client"   % "0.3.0",
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
-      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
@@ -998,7 +1013,10 @@ lazy val discoveryConfig = (project in file("modules/discovery/discovery-config"
 
 lazy val trace = (project in file("modules/trace/trace"))
   .settings(commonSettings)
-  .settings(name := "controller-trace", libraryDependencies ++= Seq("org.tpolecat" %% "natchez-core" % natchezVer))
+  .settings(
+    name := "controller-trace",
+    libraryDependencies ++= Seq("io.janstenpickle" %% "trace4cats-inject" % trace4catsVer)
+  )
 
 lazy val homekit = (project in file("modules/homekit"))
   .settings(commonSettings)
@@ -1012,7 +1030,7 @@ lazy val homekit = (project in file("modules/homekit"))
       "io.extruder"            %% "extruder-typesafe"    % extruderVer,
       "org.apache.commons"     % "commons-text"          % "1.8",
       "org.typelevel"          %% "cats-effect"          % catsEffectVer,
-      "org.tpolecat"           %% "natchez-core"         % natchezVer,
+      "io.janstenpickle"       %% "trace4cats-inject"    % trace4catsVer,
       "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.1"
     )
   )
@@ -1030,7 +1048,7 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
     javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
     libraryDependencies ++= Seq(
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
-      "io.janstenpickle" %% "trace4cats-natchez"       % trace4catsVer,
+      "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
@@ -1067,11 +1085,11 @@ lazy val websocketEvents = (project in file("modules/events/websocket-events"))
   .settings(
     name := "controller-websocket-events",
     libraryDependencies ++= Seq(
-      "org.http4s"   %% "http4s-circe"  % http4sVer,
-      "org.http4s"   %% "http4s-core"   % http4sVer,
-      "org.http4s"   %% "http4s-dsl"    % http4sVer,
-      "org.http4s"   %% "http4s-server" % http4sVer,
-      "org.tpolecat" %% "natchez-core"  % natchezVer
+      "org.http4s"       %% "http4s-circe"      % http4sVer,
+      "org.http4s"       %% "http4s-core"       % http4sVer,
+      "org.http4s"       %% "http4s-dsl"        % http4sVer,
+      "org.http4s"       %% "http4s-server"     % http4sVer,
+      "io.janstenpickle" %% "trace4cats-inject" % trace4catsVer
     )
   )
   .dependsOn(arrow, events, model, componentsEventsState)
@@ -1081,8 +1099,8 @@ lazy val websocketClientEvents = (project in file("modules/events/websocket-clie
   .settings(
     name := "controller-websocket-client-events",
     libraryDependencies ++= Seq(
-      "org.tpolecat"       %% "natchez-core"  % natchezVer,
-      "org.java-websocket" % "Java-WebSocket" % "1.5.1"
+      "io.janstenpickle"   %% "trace4cats-inject" % trace4catsVer,
+      "org.java-websocket" % "Java-WebSocket"     % "1.5.1"
     )
   )
   .dependsOn(arrow, events, model, componentsEventsState, websocketClient)

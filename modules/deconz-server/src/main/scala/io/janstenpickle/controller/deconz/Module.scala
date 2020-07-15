@@ -5,8 +5,9 @@ import java.util.concurrent.{Executors, ThreadFactory}
 
 import cats.data.Kleisli
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.syntax.parallel._
 import cats.syntax.semigroup._
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.{~>, Parallel}
 import io.janstenpickle.controller.advertiser.{Discoverer, JmDNSResource, ServiceType}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
@@ -14,41 +15,38 @@ import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.events.websocket.JavaWebsocket
 import io.janstenpickle.controller.model.event.CommandEvent
 import io.janstenpickle.controller.server.Server
-import io.janstenpickle.controller.trace.EmptyTrace
-import io.janstenpickle.controller.trace.instances._
-import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
+import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
 import io.janstenpickle.trace4cats.kernel.SpanSampler
-import io.janstenpickle.trace4cats.model.TraceProcess
-import io.janstenpickle.trace4cats.natchez.Trace4CatsTracer
+import io.janstenpickle.trace4cats.model.{SpanKind, TraceProcess}
 import io.prometheus.client.CollectorRegistry
-import natchez.{EntryPoint, Kernel, Span, Trace}
 
 object Module {
-
   private final val serviceName = "deconz"
+  private final val process = TraceProcess(serviceName)
 
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
       new CollectorRegistry(true)
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: Concurrent: ContextShift: Timer](
+  def entryPoint[F[_]: Concurrent: ContextShift: Timer: Parallel](
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    AvroSpanCompleter.udp[F](blocker, TraceProcess(serviceName)).flatMap { completer =>
-      PrometheusTracer
-        .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| Trace4CatsTracer.entryPoint[F](SpanSampler.always, completer))
-    }
+    (AvroSpanCompleter.udp[F](blocker, process), PrometheusSpanCompleter[F](registry, blocker, process))
+      .parMapN(_ |+| _)
+      .map { completer =>
+        EntryPoint[F](SpanSampler.always, completer)
+      }
 
   def components[F[_]: ConcurrentEffect: ContextShift: Timer: Parallel](
     config: Configuration.Config
   ): Resource[F, CollectorRegistry] =
     for {
       blocker <- Blocker[F]
-
       reg <- registry[F]
       ep <- entryPoint[F](reg, blocker)
       _ <- components[F](config, ep)
@@ -63,14 +61,14 @@ object Module {
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
 
     implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
-      λ[G ~> F](_.run(EmptyTrace.emptySpan)),
+      λ[G ~> F](ga => Span.noop[F].use(ga.run)),
       name => λ[G ~> F](ga => ep.root(name).use(ga.run))
     )
 
     implicit val liftLowerContext: ContextualLiftLower[F, G, (String, Map[String, String])] =
       ContextualLiftLower[F, G, (String, Map[String, String])](lift, _ => lift)(
-        λ[G ~> F](_.run(EmptyTrace.emptySpan)), {
-          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, Kernel(headers)).use(ga.run))
+        λ[G ~> F](ga => Span.noop[F].use(ga.run)), {
+          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, SpanKind.Consumer, headers).use(ga.run))
         }
       )
 

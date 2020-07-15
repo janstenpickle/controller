@@ -16,7 +16,7 @@ import io.janstenpickle.controller.model.{Button, Command, Remote}
 import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.sonos.config.{SonosActivityConfigSource, SonosRemoteConfigSource}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 

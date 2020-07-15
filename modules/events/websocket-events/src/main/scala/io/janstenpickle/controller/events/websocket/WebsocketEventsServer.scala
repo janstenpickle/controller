@@ -13,7 +13,7 @@ import io.circe.syntax._
 import io.circe.{Decoder, Encoder}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{Event, EventPublisher, EventSubscriber}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.http4s.dsl.Http4sDsl
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
@@ -23,10 +23,9 @@ import org.http4s.{HttpRoutes, Request}
 import scala.concurrent.duration._
 
 object WebsocketEventsServer {
-  def receive[F[_]: Concurrent, G[_]: Applicative, A: Decoder](
-    path: String,
-    publisher: EventPublisher[F, A]
-  )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
+  def receive[F[_]: Concurrent, G[_]: Applicative, A: Decoder](path: String, publisher: EventPublisher[F, A])(
+    implicit liftLower: ContextualLiftLower[G, F, String]
+  ): HttpRoutes[F] = {
     val pipe: Queue[F, String] => Pipe[F, String, Unit] = q =>
       _.evalMap { str =>
         parse(str).flatMap(_.as[Event[A]]) match {
@@ -43,7 +42,7 @@ object WebsocketEventsServer {
     path: String,
     subscriber: EventSubscriber[F, A],
     state: Option[Deferred[F, F[List[Event[A]]]]] = None
-  )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
     val out =
       state
         .fold(subscriber.subscribeEvent) { state =>
@@ -61,7 +60,7 @@ object WebsocketEventsServer {
     suffix: String,
     in: Queue[F, String] => Pipe[F, String, Unit],
     out: Stream[F, String]
-  )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
+  )(implicit liftLower: ContextualLiftLower[G, F, String]): HttpRoutes[F] = {
     val dsl = new Http4sDsl[F] {}
     import dsl._
 

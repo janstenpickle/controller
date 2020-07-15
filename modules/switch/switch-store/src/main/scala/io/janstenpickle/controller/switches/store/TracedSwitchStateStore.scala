@@ -4,10 +4,11 @@ import cats.Apply
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.State
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 object TracedSwitchStateStore {
-  def apply[F[_]: Apply](store: SwitchStateStore[F], `type`: String, extraFields: (String, TraceValue)*)(
+  def apply[F[_]: Apply](store: SwitchStateStore[F], `type`: String, extraFields: (String, AttributeValue)*)(
     implicit trace: Trace[F]
   ): SwitchStateStore[F] =
     new SwitchStateStore[F] {
@@ -16,8 +17,8 @@ object TracedSwitchStateStore {
       ): F[A] =
         trace.span(n) {
           trace
-            .put(
-              Seq[(String, TraceValue)](
+            .putAll(
+              Seq[(String, AttributeValue)](
                 "remote" -> remote.value,
                 "device" -> device.value,
                 "name" -> name.value,

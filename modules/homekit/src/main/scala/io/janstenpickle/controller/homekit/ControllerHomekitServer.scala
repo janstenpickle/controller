@@ -21,7 +21,7 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.Future
 import scala.concurrent.duration._

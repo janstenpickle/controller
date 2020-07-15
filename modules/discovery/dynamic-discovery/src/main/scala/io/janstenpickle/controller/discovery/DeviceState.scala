@@ -14,7 +14,8 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -25,11 +26,11 @@ object DeviceState {
     errorCount: PosInt,
     discovery: Discovery[F, K, V],
     onUpdate: Pipe[F, V, Unit],
-    traceParams: V => List[(String, TraceValue)] = (_: V) => List.empty
+    traceParams: V => List[(String, AttributeValue)] = (_: V) => List.empty
   )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] = {
     implicit val eq: Eq[Map[String, V]] = Eq.by(_.keySet)
 
-    def span[A](name: String)(fa: F[A]): F[A] = trace.span(name)(trace.put("device.type" -> deviceType) *> fa)
+    def span[A](name: String)(fa: F[A]): F[A] = trace.span(name)(trace.put("device.type", deviceType) *> fa)
 
     def deviceState(current: Map[String, V]): F[Map[String, V]] = trace.span(s"device.state") {
       span("read.devices") {
@@ -37,12 +38,12 @@ object DeviceState {
       }.flatMap(_.devices.values.toList.parTraverse { device =>
           span("read.device") {
             for {
-              _ <- trace.put(traceParams(device): _*)
+              _ <- trace.putAll(traceParams(device): _*)
               _ <- span("refresh.device") {
                 device.refresh
               }
               key <- device.updatedKey
-              _ <- trace.put("key" -> key)
+              _ <- trace.put("key", key)
             } yield key -> device
           }
         })

@@ -2,7 +2,6 @@ package io.janstenpickle.controller.api.validation
 
 import cats.syntax.apply._
 import cats.syntax.flatMap._
-import cats.syntax.functor._
 import cats.{Monad, NonEmptyParallel, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.store.MacroStore
@@ -11,7 +10,8 @@ import io.janstenpickle.controller.model
 import io.janstenpickle.controller.model.{Activity, Button, ContextButtonMapping, Remote, RemoteCommand, SwitchKey}
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.switch.Switches
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 class ConfigValidation[F[_]: Monad: NonEmptyParallel](
   activitySource: ConfigSource[F, String, Activity],
@@ -24,9 +24,11 @@ class ConfigValidation[F[_]: Monad: NonEmptyParallel](
   private def conditionalFailure(cond: Boolean)(error: ValidationFailure): List[ValidationFailure] =
     if (cond) List(error) else List.empty
 
-  private def traceErrors(fields: (String, TraceValue)*)(fe: F[List[ValidationFailure]]): F[List[ValidationFailure]] =
-    trace.put(fields: _*) *> fe.flatTap { errors =>
-      trace.put("error" -> errors.nonEmpty, "error.count" -> errors.size)
+  private def traceErrors(
+    fields: (String, AttributeValue)*
+  )(fe: F[List[ValidationFailure]]): F[List[ValidationFailure]] =
+    trace.putAll(fields: _*) *> fe.flatTap { errors =>
+      trace.putAll("error" -> errors.nonEmpty, "error.count" -> errors.size)
     }
 
   private def validateContextButtons(buttons: List[ContextButtonMapping])(

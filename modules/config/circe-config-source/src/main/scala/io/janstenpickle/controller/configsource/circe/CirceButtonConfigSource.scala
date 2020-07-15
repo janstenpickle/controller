@@ -10,7 +10,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.Button
 import io.janstenpickle.controller.model.event.ConfigEvent
 import io.janstenpickle.controller.model.event.ConfigEvent.{ButtonAddedEvent, ButtonRemovedEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceButtonConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](

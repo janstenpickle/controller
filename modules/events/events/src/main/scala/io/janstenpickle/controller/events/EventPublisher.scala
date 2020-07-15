@@ -7,7 +7,8 @@ import cats.syntax.traverse._
 import cats.{~>, Monad}
 import fs2.{Pipe, Stream}
 import fs2.concurrent.Topic
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.SpanKind
 
 trait EventPublisher[F[_], A] { outer =>
   def publish1(a: A): F[Unit]
@@ -33,26 +34,29 @@ object EventPublisher {
     source: String
   )(implicit clock: Clock[F], trace: Trace[F]): EventPublisher[F, A] = {
     def pub(src: String): EventPublisher[F, A] = new EventPublisher[F, A] {
-      override def publish1(a: A): F[Unit] = trace.kernel.flatMap { kernel =>
-        Event(a, src, kernel.toHeaders).flatMap(evt => topic.publish1(Some(evt)))
+      override def publish1(a: A): F[Unit] = Trace[F].span("publish1", SpanKind.Producer) {
+        trace.headers.flatMap { headers =>
+          Event(a, src, headers).flatMap(evt => topic.publish1(Some(evt)))
+        }
       }
 
       override def pipe: Pipe[F, A, Unit] =
         _.chunks
           .flatMap { as =>
             Stream.evals(
-              trace.kernel
-                .flatMap { kernel =>
-                  as.traverse(Event(_, src, kernel.toHeaders).map(Some(_)))
+              trace.headers
+                .flatMap { headers =>
+                  as.traverse(Event(_, src, headers).map(Some(_)))
                 }
             )
           }
           .through(topic.publish)
 
-      override def publish1Event(a: Event[A]): F[Unit] =
-        trace.kernel.flatMap { kernel =>
-          topic.publish1(Some(a.copy(headers = kernel.toHeaders ++ a.headers)))
+      override def publish1Event(a: Event[A]): F[Unit] = Trace[F].span("publish1Event", SpanKind.Producer) {
+        trace.headers.flatMap { headers =>
+          topic.publish1(Some(a.copy(headers = headers ++ a.headers)))
         }
+      }
 
       override def eventPipe: Pipe[F, Event[A], Unit] = _.map(Some(_)).through(topic.publish)
 

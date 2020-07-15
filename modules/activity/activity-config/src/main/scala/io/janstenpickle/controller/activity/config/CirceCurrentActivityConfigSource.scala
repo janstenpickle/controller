@@ -13,7 +13,7 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.model.event.ActivityUpdateEvent
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceCurrentActivityConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](

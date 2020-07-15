@@ -7,7 +7,7 @@ import cats.syntax.flatMap._
 import cats.syntax.parallel._
 import cats.{Applicative, Parallel}
 import io.janstenpickle.controller.model.event._
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object TopicEvents {
   def apply[F[_]: Concurrent: Clock: Parallel: Trace]: F[Events[F]] =

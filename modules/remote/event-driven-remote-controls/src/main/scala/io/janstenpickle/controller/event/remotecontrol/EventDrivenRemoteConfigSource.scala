@@ -11,7 +11,8 @@ import io.janstenpickle.controller.event.config.EventDrivenConfigSource
 import io.janstenpickle.controller.events.EventSubscriber
 import io.janstenpickle.controller.model.Remote
 import io.janstenpickle.controller.model.event.ConfigEvent
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.duration._
 
@@ -25,9 +26,9 @@ object EventDrivenRemoteConfigSource {
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, ConfigSource[F, NonEmptyString, Remote]] = {
 
-    def span[A](name: String, remoteName: NonEmptyString, extraFields: (String, TraceValue)*)(fa: F[A]): F[A] =
+    def span[A](name: String, remoteName: NonEmptyString, extraFields: (String, AttributeValue)*)(fa: F[A]): F[A] =
       trace.span(name) {
-        trace.put(extraFields ++ List[(String, TraceValue)]("remote.name" -> remoteName.value): _*) *> fa
+        trace.putAll(extraFields ++ List[(String, AttributeValue)]("remote.name" -> remoteName.value): _*) *> fa
       }
 
     EventDrivenConfigSource[F, G, ConfigEvent, NonEmptyString, Remote](subscriber, "remote", source, cacheTimeout) {

@@ -12,7 +12,8 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.RemoteCommandSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 import org.http4s.{HttpRoutes, Response}
 
 class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
@@ -51,23 +52,19 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
     case POST -> Root / "send" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
         trace.span("api.remote.send.command") {
-          trace.put(
-            "name" -> TraceValue.stringToTraceValue(name),
-            "device" -> TraceValue.stringToTraceValue(device),
-            "command" -> TraceValue.stringToTraceValue(command)
-          ) *>
+          trace.putAll("name" -> name, "device" -> device, "command" -> command) *>
             Ok(remotes.send(n, None, d, c))
         }
       }
     case POST -> Root / "send" / name / sourceName / sourceType / device / command =>
       refineOrBadReq(name, sourceName, sourceType, device, command) { (n, cs, d, c) =>
         trace.span("api.remote.send.command") {
-          trace.put(
-            "name" -> TraceValue.stringToTraceValue(name),
-            "device" -> TraceValue.stringToTraceValue(device),
-            "command" -> TraceValue.stringToTraceValue(command),
-            "command_source" -> TraceValue.stringToTraceValue(sourceName),
-            "command_source_type" -> TraceValue.stringToTraceValue(sourceType)
+          trace.putAll(
+            "name" -> name,
+            "device" -> device,
+            "command" -> command,
+            "command_source" -> sourceName,
+            "command_source_type" -> sourceType
           ) *>
             Ok(remotes.send(n, Some(cs), d, c))
         }
@@ -75,11 +72,7 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
     case POST -> Root / "learn" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
         trace.span("api.remote.learn.command") {
-          trace.put(
-            "name" -> TraceValue.stringToTraceValue(name),
-            "device" -> TraceValue.stringToTraceValue(device),
-            "command" -> TraceValue.stringToTraceValue(command)
-          ) *>
+          trace.putAll("name" -> name, "device" -> device, "command" -> command) *>
             Ok(remotes.learn(n, d, c))
         }
       }

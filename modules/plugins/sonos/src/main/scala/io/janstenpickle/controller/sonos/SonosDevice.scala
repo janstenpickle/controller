@@ -19,7 +19,9 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.sonos.SonosDevice.DeviceState
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.{BooleanValue, StringValue}
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.FiniteDuration
@@ -65,9 +67,9 @@ object SonosDevice {
     onUpdate: SonosDevice[F] => F[Unit],
     switchEventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit F: Concurrent[F], trace: Trace[F]): F[SonosDevice[F]] = {
-    def span[A](name: String, extraFields: (String, TraceValue)*)(k: F[A]): F[A] = trace.span(s"sonos.$name") {
-      trace.put(
-        Seq[(String, TraceValue)]("device.id" -> deviceId, "device.name" -> formattedName.value) ++ extraFields: _*
+    def span[A](name: String, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] = trace.span(s"sonos.$name") {
+      trace.putAll(
+        (Seq[(String, AttributeValue)]("device.id" -> deviceId, "device.name" -> formattedName.value) ++ extraFields): _*
       ) *> k
     }
 
@@ -160,7 +162,7 @@ object SonosDevice {
           (for {
             grouped <- isGrouped
             controller <- isController
-            _ <- trace.put("grouped" -> grouped, "controller" -> controller)
+            _ <- trace.putAll("grouped" -> grouped, "controller" -> controller)
             _ <- if (grouped && !controller)
               doIfController(_.play)
             else trace.span("playCmd")(blocker.delay(underlying.play()))
@@ -170,12 +172,12 @@ object SonosDevice {
           } yield ())
             .handleErrorWith(
               th =>
-                trace.put("error" -> true, "reason" -> th.getMessage) *> logger
+                trace.setStatus(SpanStatus.Internal(th.getMessage)) *> logger
                   .error(th)(s"Failed to send play command on Sonos device ${formattedName.value}")
             )
             .timeoutTo(
               commandTimeout,
-              trace.put("error" -> true, "reason" -> "command timed out") *> logger.error(
+              trace.setStatus(SpanStatus.DeadlineExceeded) *> logger.error(
                 s"Timed out sending play command to Sonos device ${formattedName.value}"
               )
             )
@@ -187,7 +189,7 @@ object SonosDevice {
           (for {
             grouped <- isGrouped
             controller <- isController
-            _ <- trace.put("grouped" -> grouped, "controller" -> controller)
+            _ <- trace.putAll("grouped" -> grouped, "controller" -> controller)
             _ <- if (grouped && !controller)
               doIfController(_.pause)
             else trace.span("pauseCmd")(blocker.delay(underlying.pause()))
@@ -197,12 +199,12 @@ object SonosDevice {
           } yield ())
             .handleErrorWith(
               th =>
-                trace.put("error" -> true, "reason" -> th.getMessage) *> logger
+                trace.setStatus(SpanStatus.Internal(th.getMessage)) *> logger
                   .error(th)(s"Failed to send pause command on Sonos device ${formattedName.value}")
             )
             .timeoutTo(
               commandTimeout,
-              trace.put("error" -> true, "reason" -> "command timed out") *> logger.error(
+              trace.setStatus(SpanStatus.DeadlineExceeded) *> logger.error(
                 s"Timed out sending pause command to Sonos device ${formattedName.value}"
               )
             )
@@ -214,7 +216,7 @@ object SonosDevice {
           for {
             grouped <- isGrouped
             controller <- isController
-            _ <- trace.put("grouped" -> grouped, "controller" -> controller)
+            _ <- trace.putAll("grouped" -> grouped, "controller" -> controller)
             playing <- if (grouped && !controller)
               groupDevices
                 .flatMap(_.parFlatTraverse(d => d.isController.map(if (_) List(d) else List.empty)))
@@ -227,12 +229,11 @@ object SonosDevice {
         override def volumeUp: F[Unit] = span("volume.up") {
           for {
             vol <- volume
-            _ <- trace.put("current.volume" -> vol)
+            _ <- trace.put("current.volume", vol)
             _ <- if (vol < 100) {
               val newVol = vol + 1
-              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace.put(
-                "new.volume" -> newVol
-              )
+              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace
+                .put("new.volume", newVol)
             } else {
               F.unit
             }
@@ -242,12 +243,11 @@ object SonosDevice {
         override def volumeDown: F[Unit] = span("volume.down") {
           for {
             vol <- volume
-            _ <- trace.put("current.volume" -> vol)
+            _ <- trace.put("current.volume", vol)
             _ <- if (vol > 0) {
               val newVol = vol - 1
-              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace.put(
-                "new.volume" -> newVol
-              )
+              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace
+                .put("new.volume", newVol)
             } else {
               F.unit
             }
@@ -279,7 +279,7 @@ object SonosDevice {
         override def playPause: F[Unit] = span("play.pause") {
           for {
             playing <- isPlaying
-            _ <- trace.put("is.playing" -> playing)
+            _ <- trace.put("is.playing", playing)
             _ <- if (playing) pause else play
           } yield ()
         }
@@ -294,13 +294,13 @@ object SonosDevice {
 
         override def group: F[Unit] = span("Group") {
           isGrouped.flatMap { grouped =>
-            trace.put("current.grouped" -> grouped) *> {
-              if (grouped) trace.put("new.grouped" -> grouped)
+            trace.put("current.grouped", grouped) *> {
+              if (grouped) trace.put("new.grouped", grouped)
               else
                 masterToJoin.flatMap(_.fold(F.unit) { m =>
                   blocker.delay(underlying.join(m.id)) *> state
                     .update(_.copy(isGrouped = true)) *> refreshGroup *> refreshIsPlaying *> refreshController *> trace
-                    .put("master.id" -> m.id, "master.name" -> m.name.value)
+                    .putAll("master.id" -> m.id, "master.name" -> m.name.value)
                 }) *> onUpdate(this)
             }
           }
@@ -315,7 +315,7 @@ object SonosDevice {
                 .update(_.copy(isGrouped = false, isController = true)) *> refreshGroup *> refreshIsPlaying *> onUpdate(
                 this
               ) *> trace
-                .put("current.grouped" -> true, "new.grouped" -> false)
+                .putAll("current.grouped" -> true, "new.grouped" -> false)
           } yield ()
         }
 
@@ -325,7 +325,7 @@ object SonosDevice {
 
         private def refreshGroup: F[Unit] = span("refresh.group") {
           blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet).flatMap { devs =>
-            trace.put("group.devices" -> devs.mkString(",")) *> state.update(_.copy(devicesInGroup = devs))
+            trace.put("group.devices", devs.mkString(",")) *> state.update(_.copy(devicesInGroup = devs))
           }
         }
 

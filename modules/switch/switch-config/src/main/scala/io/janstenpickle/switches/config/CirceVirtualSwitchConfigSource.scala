@@ -12,7 +12,7 @@ import io.janstenpickle.controller.model.event.ConfigEvent.{VirtualSwitchAddedEv
 import io.janstenpickle.controller.model.event.SwitchEvent.{SwitchAddedEvent, SwitchRemovedEvent}
 import io.janstenpickle.controller.model.event.{ConfigEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{RemoteSwitchKey, SwitchMetadata, SwitchType, VirtualSwitch}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceVirtualSwitchConfigSource {
 

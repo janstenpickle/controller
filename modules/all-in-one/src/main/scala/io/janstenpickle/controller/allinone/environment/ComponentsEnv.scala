@@ -17,11 +17,11 @@ import io.janstenpickle.controller.remotecontrol.RemoteControlErrors
 import io.janstenpickle.controller.sonos.SonosComponents
 import io.janstenpickle.controller.tplink.TplinkComponents
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
-import natchez.Trace
 import org.http4s.client.Client
 import cats.instances.list._
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.switches.store.SwitchStateStore
+import io.janstenpickle.trace4cats.inject.Trace
 
 object ComponentsEnv {
   def create[F[_]: Concurrent: Parallel: ContextShift: Timer: PollingSwitchErrors: Trace: RemoteControlErrors: TplinkDeviceErrors: KodiErrors, G[

@@ -4,13 +4,14 @@ import cats.{Apply, FlatMap, Monad}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors}
-import natchez.Trace
 import cats.syntax.apply._
 import io.janstenpickle.controller.tplink.device.TplinkDevice
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.SpanStatus
 
 object TplinkRemoteControl {
   def commands[F[_]](device: TplinkDevice.SmartBulb[F]): Map[NonEmptyString, F[Unit]] =
@@ -41,20 +42,21 @@ object TplinkRemoteControl {
         RemoteControl.traced(new RemoteControl[F] {
 
           def devices: F[Map[(NonEmptyString, DeviceType), TplinkDevice.SmartBulb[F]]] =
-            trace.span("tplinkListDevices") {
+            trace.span("tplink.list.devices") {
               discovery.devices
                 .map(_.devices.collect {
                   case (k, v: TplinkDevice.SmartBulb[F]) => k -> v
                 })
                 .flatTap { devices =>
-                  trace.put("device.count" -> devices.size)
+                  trace.put("device.count", devices.size)
                 }
             }
 
           override def remoteName: NonEmptyString = remote
 
           override def learn(device: NonEmptyString, name: NonEmptyString): F[Unit] =
-            trace.put("error" -> true, "reason" -> "learning not supported") *> errors.learningNotSupported(remoteName)
+            trace.put("reason", "learning not supported") *> trace.setStatus(SpanStatus.Unimplemented) *> errors
+              .learningNotSupported(remoteName)
 
           override def sendCommand(
             source: Option[RemoteCommandSource],
@@ -64,7 +66,7 @@ object TplinkRemoteControl {
             if (source == CommandSource)
               devices.flatMap(_.find(_._2.roomName == deviceName) match {
                 case None =>
-                  trace.put("error" -> true, "reason" -> "device not found") *> errors
+                  trace.setStatus(SpanStatus.NotFound) *> errors
                     .commandNotFound(remoteName, deviceName, name)
                 case Some((_, device)) =>
                   commands(device).get(name) match {

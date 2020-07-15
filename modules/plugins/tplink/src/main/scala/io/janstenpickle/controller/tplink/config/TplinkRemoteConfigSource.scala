@@ -6,13 +6,13 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
 import io.janstenpickle.controller.tplink.{CommandSource, Commands, TplinkDiscovery}
-import natchez.Trace
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.flatMap._
 import cats.instances.list._
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.tplink.device.TplinkDevice
+import io.janstenpickle.trace4cats.inject.Trace
 
 object TplinkRemoteConfigSource {
   def deviceToRemote[F[_]: Applicative](remoteName: NonEmptyString, device: TplinkDevice[F]): F[Option[Remote]] = {

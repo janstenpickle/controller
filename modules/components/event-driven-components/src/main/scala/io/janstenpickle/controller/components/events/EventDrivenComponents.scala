@@ -14,7 +14,7 @@ import scala.concurrent.duration.FiniteDuration
 import cats.syntax.parallel._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.discovery.EventDrivenDeviceRename
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object EventDrivenComponents {
   def apply[F[_]: Concurrent: Timer: Parallel: RemoteControlErrors: SwitchErrors: Trace, G[_]](

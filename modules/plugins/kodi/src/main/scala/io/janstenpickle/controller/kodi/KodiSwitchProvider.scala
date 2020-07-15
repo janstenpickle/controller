@@ -9,8 +9,8 @@ import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import io.janstenpickle.trace4cats.inject.Trace
 import io.janstepickle.controller.events.switch.EventingSwitch
-import natchez.Trace
 
 object KodiSwitchProvider {
   def deviceToSwitches[F[_]: MonadError[*[_], Throwable]: Clock](

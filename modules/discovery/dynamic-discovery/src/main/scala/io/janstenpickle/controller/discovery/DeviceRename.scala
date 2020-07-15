@@ -7,12 +7,13 @@ import cats.kernel.Monoid
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.semigroup._
-import cats.{Applicative, Apply, FlatMap, Parallel}
+import cats.{Applicative, FlatMap, Parallel}
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 trait DeviceRename[F[_]] {
   def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]]
@@ -38,17 +39,17 @@ object DeviceRename {
     override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] = underlying.assigned
   }
 
-  def traced[F[_]: FlatMap](underlying: DeviceRename[F], source: String, extraFields: (String, TraceValue)*)(
+  def traced[F[_]: FlatMap](underlying: DeviceRename[F], source: String, extraFields: (String, AttributeValue)*)(
     implicit trace: Trace[F]
   ): DeviceRename[F] =
     new DeviceRename[F] {
-      private def span[A](name: String, fields: (String, TraceValue)*)(fa: F[A]) =
-        trace.span[A](name)(trace.put(("source" -> StringValue(source)) :: fields.toList ++ extraFields: _*) *> fa)
+      private def span[A](name: String, fields: (String, AttributeValue)*)(fa: F[A]) =
+        trace.span[A](name)(trace.putAll(("source" -> StringValue(source)) :: fields.toList ++ extraFields: _*) *> fa)
 
       override def rename(k: DiscoveredDeviceKey, v: DiscoveredDeviceValue): F[Option[Unit]] =
         span(
           "renameDevice",
-          List[(String, TraceValue)](
+          List[(String, AttributeValue)](
             "device.id" -> k.deviceId,
             "device.type" -> k.deviceType,
             "device.name" -> v.name.value
@@ -57,15 +58,15 @@ object DeviceRename {
         ) {
           underlying
             .rename(k, v)
-            .flatTap(r => trace.put("device.valid" -> r.isDefined))
+            .flatTap(r => trace.put("device.valid", r.isDefined))
         }
       override def unassigned: F[Map[DiscoveredDeviceKey, Map[String, String]]] =
         span("getUnassignedDevices") {
-          underlying.unassigned.flatTap(d => trace.put("unassigned.count" -> d.size))
+          underlying.unassigned.flatTap(d => trace.put("unassigned.count", d.size))
         }
       override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
         span("getAssignedDevices") {
-          underlying.assigned.flatTap(d => trace.put("assigned.count" -> d.size))
+          underlying.assigned.flatTap(d => trace.put("assigned.count", d.size))
         }
     }
 

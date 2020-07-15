@@ -15,7 +15,7 @@ import io.janstenpickle.controller.model.{Room, State, SwitchKey, SwitchMetadata
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object ActivitySwitchProvider {
   private final val switchDevice = NonEmptyString("activity")

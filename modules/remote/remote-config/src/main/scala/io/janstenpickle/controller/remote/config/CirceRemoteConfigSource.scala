@@ -14,7 +14,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.Remote
 import io.janstenpickle.controller.model.event.ConfigEvent
 import io.janstenpickle.controller.model.event.ConfigEvent.{RemoteAddedEvent, RemoteRemovedEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceRemoteConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](

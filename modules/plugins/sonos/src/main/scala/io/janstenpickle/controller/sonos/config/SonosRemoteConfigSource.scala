@@ -13,7 +13,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
 import io.janstenpickle.controller.sonos.{CommandSource, Commands, SonosDevice, SonosDiscovery}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import scalacache.Cache
 import scalacache.CatsEffect.modes._
 

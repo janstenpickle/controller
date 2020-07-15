@@ -18,7 +18,7 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.KodiDevice.DeviceState
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 trait KodiDevice[F[_]] extends DiscoveredDevice[F] {
   def name: NonEmptyString

@@ -13,7 +13,7 @@ import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.events.Event
 import io.janstenpickle.controller.events.components.ComponentsStateToEvents._
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, MacroEvent, RemoteEvent, SwitchEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 case class EventsState[F[_]](
   config: Deferred[F, F[List[Event[ConfigEvent]]]],
@@ -30,8 +30,8 @@ case class EventsState[F[_]](
     def addTrace[A](as: List[A]): F[List[Event[A]]] =
       for {
         millis <- clock.realTime(TimeUnit.MILLISECONDS)
-        kernel <- trace.kernel
-      } yield as.map(Event[A](_, Instant.ofEpochMilli(millis), eventSource, kernel.toHeaders))
+        headers <- trace.headers
+      } yield as.map(Event[A](_, Instant.ofEpochMilli(millis), eventSource, headers))
 
     config.complete(
       (

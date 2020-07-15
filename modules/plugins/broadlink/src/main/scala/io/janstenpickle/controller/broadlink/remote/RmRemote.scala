@@ -14,11 +14,11 @@ import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey}
 import io.janstenpickle.controller.remote.Remote
 import io.janstenpickle.controller.remote.trace.TracedRemote
 import javax.xml.bind.DatatypeConverter
-import natchez.Trace
 
 import scala.concurrent.duration._
 import cats.syntax.applicativeError._
 import eu.timepit.refined.types.numeric.PosInt
+import io.janstenpickle.trace4cats.inject.Trace
 
 trait RmRemote[F[_]] extends Remote[F, CommandPayload] {
   def host: String
@@ -62,7 +62,7 @@ object RmRemote {
           learning <- trace.span("enterLearning") { blocker.delay(device.enterLearning()) }
           data <- if (learning) waitForPayload
           else F.pure(None)
-          _ <- trace.put("payload.present" -> data.isDefined)
+          _ <- trace.put("payload.present", data.isDefined)
         } yield data
 
       override def sendCommand(payload: CommandPayload): F[Unit] =

@@ -23,7 +23,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.CommandEvent
 import io.janstenpickle.controller.schedule.{NamedScheduler, Scheduler}
 import io.janstenpickle.controller.schedule.model.Schedule
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.collection.immutable.SortedSet
 import scala.concurrent.duration._
@@ -88,7 +88,7 @@ object CronScheduler {
                         .as(
                           awakeEveryCron(cron) >> Stream.eval(logger.info(s"Running schedule '$id'")) >> Stream
                             .eval(liftLower.lift(liftLower.lower("run.schedule") {
-                              trace.put("id" -> id) >> schedule.commands.traverse { cmd =>
+                              trace.put("id", id) >> schedule.commands.traverse { cmd =>
                                 commandPublisher.publish1(CommandEvent.MacroCommand(cmd))
                               }
                             }))
@@ -109,32 +109,32 @@ object CronScheduler {
                 override def create(schedule: Schedule): F[Option[String]] = trace.span("create.schedule") {
                   FUUID.randomFUUID.flatMap { uuid =>
                     val id = uuid.show
-                    trace.put("id" -> id) >> store.upsert(id, schedule) >> signal
+                    trace.put("id", id) >> store.upsert(id, schedule) >> signal
                       .set(true) >> signal.set(false).as(Some(id))
                   }
                 }
 
                 override def update(id: String, schedule: Schedule): F[Option[Unit]] = trace.span("update.schedule") {
-                  trace.put("id" -> id) >> store.getValue(id).flatMap {
+                  trace.put("id", id) >> store.getValue(id).flatMap {
                     case None => F.pure(None)
                     case Some(_) => store.upsert(id, schedule) >> signal.set(true) >> signal.set(false).as(Some(()))
                   }
                 }
 
                 override def delete(id: String): F[Option[Unit]] = trace.span("delete.schedule") {
-                  trace.put("id" -> id) >> store.getValue(id).flatMap {
+                  trace.put("id", id) >> store.getValue(id).flatMap {
                     case None => F.pure(None)
                     case Some(_) => store.deleteItem(id) >> signal.set(true) >> signal.set(false).as(Some(()))
                   }
                 }
 
                 override def info(id: String): F[Option[Schedule]] = trace.span("info.schedule") {
-                  trace.put("id" -> id) >> store.getValue(id)
+                  trace.put("id", id) >> store.getValue(id)
                 }
 
                 override def list: F[Set[(String, String)]] = trace.span("list.schedule") {
                   store.listKeys.map(_.map(name -> _)).flatTap { schedules =>
-                    trace.put("schedule.count" -> schedules.size)
+                    trace.put("schedule.count", schedules.size)
                   }
                 }
               }

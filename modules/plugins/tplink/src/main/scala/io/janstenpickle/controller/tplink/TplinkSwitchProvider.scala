@@ -8,8 +8,8 @@ import io.janstenpickle.controller.model.SwitchKey
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
+import io.janstenpickle.trace4cats.inject.Trace
 import io.janstepickle.controller.events.switch.EventingSwitch
-import natchez.Trace
 
 object TplinkSwitchProvider {
   def apply[F[_]: MonadError[*[_], Throwable]: Trace: Clock](

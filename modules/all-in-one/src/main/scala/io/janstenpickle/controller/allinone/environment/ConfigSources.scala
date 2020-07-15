@@ -38,7 +38,7 @@ import io.janstenpickle.switches.config.{
   CirceSwitchStateConfigSource,
   CirceVirtualSwitchConfigSource
 }
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object ConfigSources {
 

@@ -9,7 +9,7 @@ import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object KodiDeviceRename {
   def apply[F[_]: Trace: Clock](

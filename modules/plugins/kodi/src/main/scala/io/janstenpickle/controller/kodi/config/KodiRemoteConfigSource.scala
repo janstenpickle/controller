@@ -13,7 +13,7 @@ import io.janstenpickle.controller.kodi.KodiRemoteControl._
 import io.janstenpickle.controller.kodi.{Commands, KodiDevice, KodiDiscovery}
 import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, SwitchIcon}
 import io.janstenpickle.controller.model.{Button, Remote}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import scalacache.Cache
 import scalacache.CatsEffect.modes._
 

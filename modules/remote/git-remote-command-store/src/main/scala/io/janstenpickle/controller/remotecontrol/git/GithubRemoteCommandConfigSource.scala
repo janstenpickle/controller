@@ -29,7 +29,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.{CommandPayload, RemoteCommandKey}
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource._
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
@@ -137,7 +137,7 @@ object GithubRemoteCommandConfigSource {
         OptionT(Trace[F].span("github.load.repo.path") {
           for {
             _ <- Trace[F]
-              .put("repo.name" -> repo.name.value, "repo.owner" -> repo.owner.value, "path" -> path)
+              .putAll("repo.name" -> repo.name.value, "repo.owner" -> repo.owner.value, "path" -> path)
             req <- makeRequest(
               s"${repo.owner.value}/${repo.repo.value}/contents/$path${repo.ref.fold("")(r => s"?ref=${r.value}")}"
             )
@@ -211,14 +211,14 @@ object GithubRemoteCommandConfigSource {
         trace.span("github.download.and.cache") {
           repoTraceKeys(repo) *> keyTraceKeys(key) *> downloadData(repo, keyPath(key)).flatMap {
             case Some((content, payload)) =>
-              trace.put("command.present" -> true) *> cacheDownload(cache, repo, key, content, payload)
+              trace.put("command.present", true) *> cacheDownload(cache, repo, key, content, payload)
                 .as(Some(payload))
-            case None => trace.put("command.present" -> false).as(None)
+            case None => trace.put("command.present", false).as(None)
           }
         }
 
       def repoTraceKeys(repo: Repo): F[Unit] =
-        trace.put(
+        trace.putAll(
           "repo.name" -> repo.name.value,
           "repo.owner" -> repo.owner.value,
           "repo.repo" -> repo.repo.value,
@@ -226,7 +226,7 @@ object GithubRemoteCommandConfigSource {
         )
 
       def keyTraceKeys(key: RemoteCommandKey) =
-        trace.put(
+        trace.putAll(
           "source.name" -> key.source.fold("")(_.name.value),
           "source.type" -> key.source.fold("")(_.`type`.value),
           "device" -> key.device.value,
@@ -236,7 +236,7 @@ object GithubRemoteCommandConfigSource {
       def checkUpdates(cache: LocalCache[F]) =
         trace.span("github.check.updates") {
           cache.list.flatMap { data =>
-            trace.put("commands" -> data.size) *> data.keys.toList.parTraverse {
+            trace.put("commands", data.size) *> data.keys.toList.parTraverse {
               case (repo, key) =>
                 trace.span("checkUpdate") {
                   downloadAndCache(cache, repo, key)

@@ -7,6 +7,7 @@ import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resourc
 import cats.mtl.ApplicativeHandle
 import cats.mtl.implicits._
 import cats.syntax.flatMap._
+import cats.syntax.parallel._
 import cats.syntax.semigroup._
 import cats.{~>, Applicative, ApplicativeError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
@@ -16,7 +17,6 @@ import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.advertiser.{Advertiser, Discoverer, JmDNSResource, ServiceType}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.TopicEvents
@@ -29,21 +29,19 @@ import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.plugin.api.PluginApi
 import io.janstenpickle.controller.remote.config.CirceRemoteCommandConfigSource
 import io.janstenpickle.controller.remote.store.{RemoteCommandStore, TracedRemoteCommandStore}
-import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitchStateStore}
-import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
-import io.janstenpickle.controller.trace.prometheus.PrometheusTracer
+import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
 import io.janstenpickle.switches.config.CirceSwitchStateConfigSource
+import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
 import io.janstenpickle.trace4cats.kernel.SpanSampler
-import io.janstenpickle.trace4cats.model.TraceProcess
-import io.janstenpickle.trace4cats.natchez.Trace4CatsTracer
+import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
+import io.janstenpickle.trace4cats.model.{SpanKind, TraceProcess}
 import io.prometheus.client.CollectorRegistry
-import natchez.TraceValue.NumberValue
-import natchez.{EntryPoint, Kernel, Span, Trace}
 import org.http4s.client.Client
 import org.http4s.client.middleware.{GZip, Metrics}
 import org.http4s.ember.client.EmberClientBuilder
@@ -52,21 +50,22 @@ import org.http4s.{HttpRoutes, Request, Response}
 
 object Module {
   private final val serviceName = "broadlink"
+  private final val process = TraceProcess(serviceName)
 
   def registry[F[_]: Sync]: Resource[F, CollectorRegistry] =
     Resource.make[F, CollectorRegistry](Sync[F].delay {
       new CollectorRegistry(true)
     })(r => Sync[F].delay(r.clear()))
 
-  def entryPoint[F[_]: Concurrent: ContextShift: Timer](
+  def entryPoint[F[_]: Concurrent: ContextShift: Timer: Parallel](
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    AvroSpanCompleter.udp[F](blocker, TraceProcess(serviceName)).flatMap { completer =>
-      PrometheusTracer
-        .entryPoint[F](serviceName, registry, blocker)
-        .map(_ |+| Trace4CatsTracer.entryPoint[F](SpanSampler.always, completer))
-    }
+    (AvroSpanCompleter.udp[F](blocker, process), PrometheusSpanCompleter[F](registry, blocker, process))
+      .parMapN(_ |+| _)
+      .map { completer =>
+        EntryPoint[F](SpanSampler.always, completer)
+      }
 
   def httpClient[F[_]: ConcurrentEffect: ContextShift: Timer](
     registry: CollectorRegistry,
@@ -99,14 +98,14 @@ object Module {
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
 
     implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
-      λ[G ~> F](_.run(EmptyTrace.emptySpan)),
+      λ[G ~> F](ga => Span.noop[F].use(ga.run)),
       name => λ[G ~> F](ga => ep.root(name).use(ga.run))
     )
 
     implicit val liftLowerContext: ContextualLiftLower[F, G, (String, Map[String, String])] =
       ContextualLiftLower[F, G, (String, Map[String, String])](lift, _ => lift)(
-        λ[G ~> F](_.run(EmptyTrace.emptySpan)), {
-          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, Kernel(headers)).use(ga.run))
+        λ[G ~> F](ga => Span.noop[F].use(ga.run)), {
+          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, SpanKind.Consumer, headers).use(ga.run))
         }
       )
 
@@ -199,14 +198,14 @@ object Module {
         ),
         "config",
         "path" -> config.dir.resolve("remote-command").toString,
-        "timeout" -> NumberValue(config.writeTimeout.toMillis)
+        "timeout" -> LongValue(config.writeTimeout.toMillis)
       )
 
       switchStateFileStore = TracedSwitchStateStore(
         SwitchStateStore.fromConfigSource(switchStateSource),
         "config",
         "path" -> config.dir.resolve("switch-state").toString,
-        "timeout" -> NumberValue(config.writeTimeout.toMillis)
+        "timeout" -> LongValue(config.writeTimeout.toMillis)
       )
 
       host <- Resource.liftF(Server.hostname[F](config.host))

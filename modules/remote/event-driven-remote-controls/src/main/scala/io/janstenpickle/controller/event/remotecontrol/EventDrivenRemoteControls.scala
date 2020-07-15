@@ -16,8 +16,9 @@ import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.event.{CommandEvent, RemoteEvent}
 import io.janstenpickle.controller.model.{Command, RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
@@ -35,9 +36,9 @@ object EventDrivenRemoteControls {
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
   ): Resource[F, RemoteControls[F]] = {
 
-    def span[A](name: String, remoteName: NonEmptyString, extraFields: (String, TraceValue)*)(k: F[A]): F[A] =
+    def span[A](name: String, remoteName: NonEmptyString, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
       trace.span(name) {
-        trace.put(extraFields :+ "remote.name" -> StringValue(remoteName.value): _*) *> k
+        trace.putAll(extraFields :+ "remote.name" -> StringValue(remoteName.value): _*) *> k
       }
 
     def listen(

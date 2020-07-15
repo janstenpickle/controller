@@ -10,7 +10,7 @@ import io.janstenpickle.controller.model.{State, SwitchMetadata}
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import io.janstenpickle.controller.switch.Switch
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration.FiniteDuration
 

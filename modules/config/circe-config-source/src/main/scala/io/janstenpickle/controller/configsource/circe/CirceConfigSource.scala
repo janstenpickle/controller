@@ -1,32 +1,27 @@
 package io.janstenpickle.controller.configsource.circe
 
-import cats.{Applicative, Eq, Functor}
 import cats.data.Validated.{Invalid, Valid}
 import cats.effect.{Concurrent, Resource, Sync, Timer}
 import cats.kernel.Monoid
-import extruder.cats.effect.EffectValidation
-import io.chrisdavenport.log4cats.Logger
-import io.circe.{Codec, Decoder, Encoder, KeyDecoder, KeyEncoder}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
-import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.extruder.ConfigFileSource
-import io.janstenpickle.controller.model.{Activity, SetEditable}
-import io.janstenpickle.controller.model.event.ConfigEvent
-import natchez.Trace
-import cats.syntax.flatMap._
-
-import scala.concurrent.duration._
 import cats.syntax.apply._
+import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.{Applicative, Eq, Functor}
 import eu.timepit.refined.types.numeric.PosInt
+import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.syntax._
+import io.circe.{Decoder, Encoder, KeyDecoder, KeyEncoder}
+import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.config.trace.TracedConfigSource
+import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
+import io.janstenpickle.controller.extruder.ConfigFileSource
+import io.janstenpickle.controller.model.SetEditable
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
+import io.janstenpickle.trace4cats.inject.Trace
 
-import scala.collection.compat._
+import scala.concurrent.duration._
 
 object CirceConfigSource {
 
@@ -51,7 +46,7 @@ object CirceConfigSource {
                   .toList
                   .mkString("\n")
                 logger.warn(s"Failed to decode configuration: $errorString") *> trace
-                  .put("error" -> true, "error.count" -> errors.size, "error.messages" -> errorString)
+                  .putAll("error" -> true, "error.count" -> errors.size, "error.messages" -> errorString)
                   .as(current.copy(errors = errors.map(_.message).toList))
               case Valid(result) =>
                 Applicative[F].pure(ConfigResult[K, V](result.values, configs.error.map(_.getMessage).toList))

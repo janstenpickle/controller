@@ -1,15 +1,14 @@
 package io.janstenpickle.controller.deconz.config
 
 import cats.effect._
-import cats.instances.string._
-import cats.instances.either._
 import cats.instances.set._
+import cats.instances.string._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
+import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.{Diff, PollingConfig}
-import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.extruder.ConfigFileSource
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceButtonMappingConfigSource {
 

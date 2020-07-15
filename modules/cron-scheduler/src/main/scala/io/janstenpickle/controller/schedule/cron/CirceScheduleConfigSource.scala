@@ -13,7 +13,7 @@ import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.schedule.model._
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceScheduleConfigSource {
   implicit val dayOfWeekShow: Show[DayOfWeek] = Show[Int].contramap(_.getValue)

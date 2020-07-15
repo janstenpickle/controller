@@ -18,9 +18,11 @@ import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import natchez.{Trace, TraceValue}
 import fs2.{Pipe, Stream}
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue.{LongValue, StringValue}
 
 import scala.concurrent.duration._
 
@@ -59,7 +61,7 @@ object Discovery {
     onDeviceRemoved: Pipe[F, V, Unit],
     onDeviceUpdate: Pipe[F, V, Unit],
     discoveryEventProducer: EventPublisher[F, DeviceDiscoveryEvent],
-    traceParams: V => List[(String, TraceValue)] = (_: V) => List.empty
+    traceParams: V => List[(String, AttributeValue)] = (_: V) => List.empty
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
@@ -79,11 +81,11 @@ object Discovery {
     ): F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] =
       trace.span(s"discovery.update.devices") {
         for {
-          _ <- trace.put("current.count" -> current._2.size, "device.type" -> deviceType)
+          _ <- trace.putAll("current.count" -> current._2.size, "device.type" -> deviceType)
           (unmapped, discovered) <- trace.span("discover") {
             doDiscovery.flatTap {
               case (u, d) =>
-                trace.put("discovered.count" -> d.size, "unmapped.count" -> u.size, "device.type" -> deviceType)
+                trace.putAll("discovered.count" -> d.size, "unmapped.count" -> u.size, "device.type" -> deviceType)
             }
           }
           now <- timer.clock.realTime(TimeUnit.MILLISECONDS)
@@ -113,7 +115,7 @@ object Discovery {
           _ <- discoveryEventStream.merge(expiredEventStream).merge(addedEventStream).compile.drain
 
           devices = discovered ++ updatedCurrent
-          _ <- trace.put("new.count" -> devices.size, "device.type" -> deviceType)
+          _ <- trace.putAll("new.count" -> devices.size, "device.type" -> deviceType)
         } yield (unmapped, devices, updatedExpiry)
       }
 

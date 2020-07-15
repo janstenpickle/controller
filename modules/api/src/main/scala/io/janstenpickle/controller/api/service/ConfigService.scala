@@ -26,7 +26,7 @@ import io.janstenpickle.controller.model.Button.{
 import io.janstenpickle.controller.model.event.ConfigEvent
 import io.janstenpickle.controller.model.{SwitchKey, _}
 import io.janstenpickle.controller.switch.Switches
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.collection.immutable.ListMap
 

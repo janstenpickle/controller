@@ -4,7 +4,7 @@ import cats.effect.{Bracket, Clock, Concurrent, Resource}
 import cats.syntax.functor._
 import cats.{~>, Applicative, Defer}
 import fs2.concurrent.Topic
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 trait EventPubSub[F[_], A] { outer =>
   def publisher: EventPublisher[F, A]

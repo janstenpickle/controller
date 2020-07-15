@@ -13,8 +13,8 @@ import io.janstenpickle.controller.model.{MultiSwitch, State, SwitchAction, Swit
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch._
+import io.janstenpickle.trace4cats.inject.Trace
 import io.janstepickle.controller.events.switch.EventingSwitch
-import natchez.Trace
 
 object MultiSwitchProvider {
   def apply[F[_]: MonadError[*[_], Throwable]: Parallel: Trace: Clock](

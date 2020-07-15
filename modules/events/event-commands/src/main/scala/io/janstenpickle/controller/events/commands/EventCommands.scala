@@ -20,9 +20,8 @@ import io.janstenpickle.controller.model.Command
 import io.janstenpickle.controller.model.Command.{Remote, Sleep, SwitchOff, SwitchOn, ToggleSwitch}
 import io.janstenpickle.controller.model.event.CommandEvent
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import natchez.Trace
-
 import io.janstenpickle.controller.events.syntax.stream._
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 

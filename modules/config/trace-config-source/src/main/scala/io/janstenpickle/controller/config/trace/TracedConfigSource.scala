@@ -3,21 +3,22 @@ package io.janstenpickle.controller.config.trace
 import cats.syntax.apply._
 import cats.{Applicative, Apply, Functor}
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource, WritableConfigSource}
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue._
 
 object TracedConfigSource {
   def apply[F[_]: Applicative, K, V](
     source: ConfigSource[F, K, V],
     name: String,
     `type`: String,
-    extraFields: (String, TraceValue)*
+    extraFields: (String, AttributeValue)*
   )(implicit trace: Trace[F]): ConfigSource[F, K, V] = new ConfigSource[F, K, V] {
     override def functor: Functor[F] = Functor[F]
 
     private def span[A](n: String)(k: F[A]): F[A] = trace.span(n) {
       trace
-        .put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
+        .putAll(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
     }
 
     override def getConfig: F[ConfigResult[K, V]] = span("config.get.config") {
@@ -33,12 +34,13 @@ object TracedConfigSource {
     source: WritableConfigSource[F, K, V],
     name: String,
     `type`: String,
-    extraFields: (String, TraceValue)*
+    extraFields: (String, AttributeValue)*
   )(implicit trace: Trace[F]): WritableConfigSource[F, K, V] = new WritableConfigSource[F, K, V] {
     override def functor: Functor[F] = Functor[F]
 
     private def span[B](n: String)(k: F[B]): F[B] = trace.span(n) {
-      trace.put(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
+      trace
+        .putAll(extraFields ++ Seq("source.name" -> StringValue(name), "source.type" -> StringValue(`type`)): _*) *> k
     }
 
     override def getConfig: F[ConfigResult[K, V]] = span("config.get.config") {

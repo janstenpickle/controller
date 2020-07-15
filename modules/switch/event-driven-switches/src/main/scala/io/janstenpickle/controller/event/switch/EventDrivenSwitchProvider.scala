@@ -23,7 +23,8 @@ import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{Command, State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch.{Switch, SwitchErrors, SwitchProvider}
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
@@ -59,10 +60,10 @@ object EventDrivenSwitchProvider {
         // waitFor(SwitchKey(device, name), Command.ToggleSwitch(device, name))
       })
 
-    def span[A](name: String, switchKey: SwitchKey, extraFields: (String, TraceValue)*)(f: F[A]): F[A] =
+    def span[A](name: String, switchKey: SwitchKey, extraFields: (String, AttributeValue)*)(f: F[A]): F[A] =
       trace.span(name) {
-        trace.put(
-          extraFields ++ List[(String, TraceValue)](
+        trace.putAll(
+          extraFields ++ List[(String, AttributeValue)](
             "switch.name" -> switchKey.name.value,
             "switch.device" -> switchKey.device.value
           ): _*

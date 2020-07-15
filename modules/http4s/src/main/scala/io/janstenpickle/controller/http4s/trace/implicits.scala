@@ -7,8 +7,10 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{~>, Applicative}
 import io.janstenpickle.controller.http4s.trace.Http4sUtils._
-import natchez.TraceValue.BooleanValue
-import natchez.{EntryPoint, Kernel, Span, Trace}
+import io.janstenpickle.trace4cats.{Span, ToHeaders}
+import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
+import io.janstenpickle.trace4cats.model.AttributeValue.BooleanValue
+import io.janstenpickle.trace4cats.model.SpanKind
 import org.http4s.client.Client
 import org.http4s.{HttpApp, HttpRoutes, Request, Response}
 
@@ -24,12 +26,12 @@ object implicits {
     Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
       type G[A] = Kleisli[F, Span[F], A]
       val lift = λ[F ~> G](fa => Kleisli(_ => fa))
-      val kernel = Kernel(req.headers.toList.map(h => h.name.value -> h.value).toMap)
-      val spanR = entryPoint.continueOrElseRoot(req.uri.path, kernel)
+      val headers = req.headers.toList.map(h => h.name.value -> h.value).toMap
+      val spanR = entryPoint.continueOrElseRoot(req.uri.path, SpanKind.Server, headers)
       OptionT[F, Response[F]] {
         spanR.use { span =>
           val lower = λ[G ~> F](_(span))
-          span.put(requestFields(req): _*) *> routes
+          span.putAll(requestFields(req): _*) *> routes
             .run(req.mapK(lift))
             .mapK(lower)
             .map(_.mapK(lower))
@@ -37,7 +39,7 @@ object implicits {
             .flatMap {
               case Some(resp) =>
                 span
-                  .put(("stats" -> BooleanValue(false)) :: responseFields(resp): _*)
+                  .putAll(("stats" -> BooleanValue(false)) :: responseFields(resp): _*)
                   .as(Some(resp))
               case None => Applicative[F].pure(None)
             }
@@ -60,8 +62,8 @@ object implicits {
     val responseToTrace: Response[F] => Response[G] = resp => resp.mapK(lift)
     val traceToClientRequest: Request[G] => Request[F] =
       req => {
-        val kernel = Kernel(req.headers.toList.map(h => h.name.value -> h.value).toMap)
-        val spanR = entryPoint.continueOrElseRoot(req.uri.path, kernel)
+        val headers = req.headers.toList.map(h => h.name.value -> h.value).toMap
+        val spanR = entryPoint.continueOrElseRoot(req.uri.path, SpanKind.Client, headers)
         val lower = λ[G ~> F](x => spanR.use(x.run))
         req.mapK(lower)
 
@@ -69,15 +71,15 @@ object implicits {
 
     def contextHttpApp(app: HttpApp[F]): Kleisli[G, Request[G], Response[G]] =
       Kleisli[G, Request[G], Response[G]] { request =>
-        trace.kernel.flatMap { kernel =>
-          val req = request.putHeaders(Http4sUtils.kernelToHeaders(kernel): _*)
+        trace.headers(ToHeaders.w3c).flatMap { headers =>
+          val req = request.putHeaders(Http4sUtils.traceHeadersToHttp(headers): _*)
 
           app
             .mapK(lift)
             .map(responseToTrace)
             .flatMapF { resp =>
               trace
-                .put(
+                .putAll(
                   "http.status_code" -> resp.status.code,
                   "http.status_message" -> resp.status.reason,
                   "stats" -> false

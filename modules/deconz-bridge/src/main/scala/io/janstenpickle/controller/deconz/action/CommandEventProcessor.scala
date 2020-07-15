@@ -10,8 +10,9 @@ import io.janstenpickle.controller.deconz.config.{ActionMapping, ControllerActio
 import io.janstenpickle.controller.deconz.model.ButtonAction
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.CommandEvent
-import natchez.Trace
-import natchez.TraceValue.NumberValue
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.{LongValue, StringValue}
+import io.janstenpickle.trace4cats.model.SpanStatus
 
 import scala.concurrent.duration._
 
@@ -24,19 +25,19 @@ object CommandEventProcessor {
       override def process(id: String, action: ButtonAction): F[Unit] = {
         val exec: Option[ControllerAction] => F[Unit] = {
           case Some(ControllerAction.Macro(cmd)) =>
-            eventPublisher.publish1(CommandEvent.MacroCommand(cmd)) >> trace.put("action.present" -> true)
+            eventPublisher.publish1(CommandEvent.MacroCommand(cmd)) >> trace.put("action.present", true)
           case Some(ControllerAction.Context(room, name)) =>
-            eventPublisher.publish1(CommandEvent.ContextCommand(room, name)) >> trace.put("action.present" -> true)
-          case None => trace.put("action.present" -> false)
+            eventPublisher.publish1(CommandEvent.ContextCommand(room, name)) >> trace.put("action.present", true)
+          case None => trace.put("action.present", false)
         }
 
         val fa = trace.span("deconz.action.processor") {
-          trace.put("id" -> id, "action" -> action.stringValue) >>
+          trace.putAll("id" -> id, "action" -> action.stringValue) >>
             config.getValue(id).flatMap {
               case Some(mappings) =>
                 action match {
                   case ButtonAction.LongPressOn(duration) =>
-                    trace.put("duration" -> NumberValue(duration.toMillis)) >> exec(
+                    trace.put("duration", LongValue(duration.toMillis)) >> exec(
                       mappings.toList
                         .sortBy {
                           case ActionMapping(ButtonAction.LongPressOn(d), _) => d
@@ -47,7 +48,7 @@ object CommandEventProcessor {
                         }
                     )
                   case ButtonAction.LongPressOff(duration) =>
-                    trace.put("duration" -> NumberValue(duration.toMillis)) >> exec(
+                    trace.put("duration", LongValue(duration.toMillis)) >> exec(
                       mappings.toList
                         .sortBy {
                           case ActionMapping(ButtonAction.LongPressOff(d), _) => d
@@ -62,7 +63,7 @@ object CommandEventProcessor {
                 }
               case None =>
                 logger.warn(s"Could not find mapping for button id '$id'") >> trace
-                  .put("error" -> true, "mapping.present" -> false)
+                  .put("mapping.present", false) >> trace.setStatus(SpanStatus.NotFound)
             }
         }
 

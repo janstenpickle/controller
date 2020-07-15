@@ -1,12 +1,13 @@
 package io.janstenpickle.controller.events.syntax
 
 import cats.FlatMap
+import cats.syntax.flatMap._
 import fs2.Stream
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.Event
-import natchez.{Trace, TraceValue}
-import cats.syntax.flatMap._
-import natchez.TraceValue.StringValue
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 trait StreamSyntax {
   implicit class EventStreamTraceContext[F[_]: FlatMap, G[_], A](stream: Stream[F, Event[A]])(
@@ -17,20 +18,20 @@ trait StreamSyntax {
       spanName: String,
       headers: Map[String, String],
       source: String,
-      fields: Seq[(String, TraceValue)]
+      fields: Seq[(String, AttributeValue)]
     )(fa: F[B]): F[B] =
       liftLower.lift(spanName -> headers)(
-        liftLower.lower(spanName -> headers)(trace.put(fields :+ ("event.source" -> StringValue(source)): _*) >> fa)
+        liftLower.lower(spanName -> headers)(trace.putAll(fields :+ ("event.source" -> StringValue(source)): _*) >> fa)
       )
 
-    def evalMapEventTrace[B](spanName: String, fields: (String, TraceValue)*)(f: Event[A] => F[B]): Stream[F, B] =
+    def evalMapEventTrace[B](spanName: String, fields: (String, AttributeValue)*)(f: Event[A] => F[B]): Stream[F, B] =
       stream.evalMap { event =>
         startSpan(spanName, event.headers, event.source, fields)(f(event))
       }
 
-    def evalMapTrace[B](spanName: String, fields: (String, TraceValue)*)(f: A => F[B]): Stream[F, B] = stream.evalMap {
-      event =>
+    def evalMapTrace[B](spanName: String, fields: (String, AttributeValue)*)(f: A => F[B]): Stream[F, B] =
+      stream.evalMap { event =>
         startSpan(spanName, event.headers, event.source, fields)(f(event.value))
-    }
+      }
   }
 }

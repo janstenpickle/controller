@@ -11,7 +11,7 @@ import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.Activity
 import io.janstenpickle.controller.model.event.ConfigEvent
 import io.janstenpickle.controller.model.event.ConfigEvent.{ActivityAddedEvent, ActivityRemovedEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceActivityConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](

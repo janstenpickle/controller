@@ -13,7 +13,7 @@ import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.events.EventSubscriber
 import io.janstenpickle.controller.events.syntax.stream._
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.duration._
 

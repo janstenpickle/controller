@@ -8,7 +8,7 @@ import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.kodi.KodiRemoteControl._
 import io.janstenpickle.controller.kodi.{Commands, KodiDevice, KodiDiscovery}
 import io.janstenpickle.controller.model.{Activity, ContextButtonMapping}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object KodiActivityConfigSource {
   case class Config(

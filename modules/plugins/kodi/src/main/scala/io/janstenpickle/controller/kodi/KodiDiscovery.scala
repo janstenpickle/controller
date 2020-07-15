@@ -21,7 +21,6 @@ import eu.timepit.refined.cats._
 import cats.instances.map._
 import cats.instances.string._
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import natchez.Trace
 import cats.instances.int._
 import cats.instances.tuple._
 import cats.instances.long._
@@ -41,6 +40,8 @@ import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 import org.http4s.Uri
 
 import scala.collection.JavaConverters._
@@ -323,7 +324,7 @@ object KodiDiscovery {
           .blockOn[F, List[ServiceInfo]](jmDNS.use { js =>
             trace.span("bonjour.list.devices") {
               F.delay(js.map(_.getInetAddress.toString).mkString(",")).flatMap { addrs =>
-                trace.put("bind.addresses" -> addrs)
+                trace.put("bind.addresses", addrs)
               } *> js.parFlatTraverse(j => F.delay(j.list("_http._tcp.local.").toList))
             }
           })
@@ -342,7 +343,7 @@ object KodiDiscovery {
           }
           .flatTap {
             case (unmapped, devices) =>
-              trace.put("unmapped.count" -> unmapped.size, "device.count" -> devices.size)
+              trace.putAll("unmapped.count" -> unmapped.size.toLong, "device.count" -> devices.size)
           }
       }
 

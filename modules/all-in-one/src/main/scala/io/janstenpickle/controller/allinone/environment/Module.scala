@@ -32,13 +32,11 @@ import io.janstenpickle.controller.deconz.{action, DeconzBridge}
 import io.janstenpickle.controller.events.TopicEvents
 import io.janstenpickle.controller.events.commands.EventCommands
 import io.janstenpickle.controller.events.websocket.ServerWs
-import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.http4s.client.EitherTClient
 import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
 import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.multiswitch.{MultiSwitchEventListenter, MultiSwitchProvider}
 import io.janstenpickle.controller.remote.store.{RemoteCommandStore, TracedRemoteCommandStore}
-import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource
 import io.janstenpickle.controller.schedule.cron.CronScheduler
 import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.stats.StatsTranslator
@@ -46,11 +44,12 @@ import io.janstenpickle.controller.stats.prometheus.MetricsSink
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitchStateStore}
-import io.janstenpickle.controller.trace.EmptyTrace
 import io.janstenpickle.controller.trace.instances._
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
+import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
+import io.janstenpickle.trace4cats.model.SpanKind
 import io.prometheus.client.CollectorRegistry
-import natchez.TraceValue.NumberValue
-import natchez._
 import org.http4s.client.Client
 import org.http4s.server.Router
 import org.http4s.{HttpRoutes, Request, Response}
@@ -91,14 +90,14 @@ object Module {
     val lift = λ[F ~> G](fa => Kleisli(_ => fa))
 
     implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
-      λ[G ~> F](_.run(EmptyTrace.emptySpan)),
+      λ[G ~> F](ga => Span.noop[F].use(ga.run)),
       name => λ[G ~> F](ga => ep.root(name).use(ga.run))
     )
 
     implicit val liftLowerContext: ContextualLiftLower[F, G, (String, Map[String, String])] =
       ContextualLiftLower[F, G, (String, Map[String, String])](lift, _ => lift)(
-        λ[G ~> F](_.run(EmptyTrace.emptySpan)), {
-          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, Kernel(headers)).use(ga.run))
+        λ[G ~> F](ga => Span.noop[F].use(ga.run)), {
+          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, SpanKind.Consumer, headers).use(ga.run))
         }
       )
 
@@ -208,14 +207,14 @@ object Module {
         ActivityStore.fromConfigSource(currentActivityConfig),
         "config",
         "path" -> config.config.dir.resolve("current-activity").toString,
-        "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        "timeout" -> LongValue(config.config.writeTimeout.toMillis)
       )
 
       macroStore = TracedMacroStore(
         MacroStore.fromConfigSource(macroConfig),
         "config",
         "path" -> config.config.dir.resolve("macro").toString,
-        "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        "timeout" -> LongValue(config.config.writeTimeout.toMillis)
       )
 //
 //      githubRemoteConfigSource <- GithubRemoteCommandConfigSource[F, G](
@@ -230,14 +229,14 @@ object Module {
         ),
         "config",
         "path" -> config.config.dir.resolve("remote-command").toString,
-        "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        "timeout" -> LongValue(config.config.writeTimeout.toMillis)
       )
 
       switchStateFileStore = TracedSwitchStateStore(
         SwitchStateStore.fromConfigSource(switchStateConfig),
         "config",
         "path" -> config.config.dir.resolve("switch-state").toString,
-        "timeout" -> NumberValue(config.config.writeTimeout.toMillis)
+        "timeout" -> LongValue(config.config.writeTimeout.toMillis)
       )
 
       components <- ComponentsEnv

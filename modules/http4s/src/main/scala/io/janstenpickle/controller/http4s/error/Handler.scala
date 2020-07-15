@@ -5,7 +5,8 @@ import cats.mtl.ApplicativeHandle
 import cats.syntax.apply._
 import cats.syntax.functor._
 import io.chrisdavenport.log4cats.Logger
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.model.SpanStatus
 import org.http4s.Response
 import org.http4s.dsl.Http4sDsl
 
@@ -18,21 +19,21 @@ object Handler {
 
     ah.handleWith(result) {
       case err @ ControlError.Missing(message) =>
-        trace.put("error" -> true, "reason" -> "missing", "message" -> message) *> logger
+        trace.put("message", message) *> trace.setStatus(SpanStatus.NotFound) *> logger
           .warn(err)("Missing resource") *> NotFound(message).map(Some(_))
       case err @ ControlError.Internal(message) =>
-        trace.put("error" -> true, "reason" -> "internal error", "message" -> message) *> logger
+        trace.setStatus(SpanStatus.Internal(message)) *> logger
           .error(err)("Internal error") *> InternalServerError(message)
           .map(Some(_))
       case err @ ControlError.InvalidInput(message) =>
-        trace.put("error" -> true, "reason" -> "invalid input", "message" -> message) *> logger
+        trace.put("message", message) *> trace.setStatus(SpanStatus.InvalidArgument) *> logger
           .info(err)("Invalid input") *> BadRequest(message).map(Some(_))
       case err @ ControlError.Combined(_, _) if err.isSevere =>
-        trace.put("error" -> true, "reason" -> "internal error", "message" -> err.message) *> logger
+        trace.setStatus(SpanStatus.Internal(err.message)) *> logger
           .error(err)("Internal error") *> InternalServerError(err.message)
           .map(Some(_))
       case err @ ControlError.Combined(_, _) =>
-        trace.put("error" -> true, "reason" -> "missing", "message" -> err.message) *> logger
+        trace.put("message", err.message) *> trace.setStatus(SpanStatus.Unknown) *> logger
           .warn(err)("Missing resource") *> NotFound(err.message).map(Some(_))
     }
   }

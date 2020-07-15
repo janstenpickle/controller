@@ -8,7 +8,7 @@ import io.janstenpickle.controller.configsource.circe.CirceConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.{CommandPayload, RemoteCommandKey}
-import natchez.Trace
+import io.janstenpickle.trace4cats.inject.Trace
 
 object CirceRemoteCommandConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](config: ConfigFileSource[F], pollingConfig: PollingConfig)(

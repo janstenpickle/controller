@@ -13,14 +13,12 @@ import io.circe.refined._
 import io.janstenpickle.controller.api.service.WritableConfigService
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model._
-import natchez.Trace
 import org.http4s._
 
 class WritableConfigApi[F[_]: Timer](service: WritableConfigService[F])(
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
-  ah: ApplicativeHandle[F, ControlError],
-  trace: Trace[F]
+  ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {
 
   def refineOrBadReq(room: String, name: String)(
