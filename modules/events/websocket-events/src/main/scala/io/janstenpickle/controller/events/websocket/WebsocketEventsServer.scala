@@ -48,7 +48,7 @@ object WebsocketEventsServer {
         .fold(subscriber.subscribeEvent) { state =>
           val periodic = Stream.awakeEvery[F](10.minutes).flatMap(_ => Stream.evals(state.get.flatten))
 
-          (Stream.evals(state.get.flatten) ++ subscriber.subscribeEvent).merge(periodic)
+          (Stream.evals(state.get.flatten) ++ subscriber.subscribeEvent.drop(1)).merge(periodic)
         }
         .map(_.asJson.noSpacesSortKeys)
 

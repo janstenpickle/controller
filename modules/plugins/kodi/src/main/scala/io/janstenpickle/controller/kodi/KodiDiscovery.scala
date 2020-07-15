@@ -343,7 +343,7 @@ object KodiDiscovery {
           }
           .flatTap {
             case (unmapped, devices) =>
-              trace.putAll("unmapped.count" -> unmapped.size.toLong, "device.count" -> devices.size)
+              trace.putAll("unmapped.count" -> LongValue(unmapped.size.toLong), "device.count" -> devices.size)
           }
       }
 

@@ -26,8 +26,8 @@ object TplinkComponents {
     instances: List[TplinkDiscovery.TplinkInstance] = List.empty,
     remoteName: NonEmptyString = NonEmptyString("tplink"),
     discoveryPort: PortNumber = PortNumber(9999),
-    commandTimeout: FiniteDuration = 5.seconds,
-    discoveryTimeout: FiniteDuration = 5.seconds,
+    commandTimeout: FiniteDuration = 7.seconds,
+    discoveryTimeout: FiniteDuration = 10.seconds,
     enabled: Boolean = false
   )
 

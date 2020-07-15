@@ -23,11 +23,11 @@ class RenameApi[F[_]: Sync](rename: DeviceRename[F])(implicit trace: Trace[F]) e
       trace.span("api.assigned.devices") {
         Ok(rename.assigned.map(_.toList.map((AssignedDevice.apply _).tupled)))
       }
-    case req @ PUT -> Root / "devices" / "rename" / t / name =>
+    case req @ PUT -> Root / "devices" / "rename" / t / id =>
       trace.span("api.rename.device") {
-        trace.putAll("device.type" -> t, "device.name" -> name) *> req
+        trace.putAll("device.type" -> t, "device.id" -> id) *> req
           .as[DiscoveredDeviceValue]
-          .flatMap(rename.rename(DiscoveredDeviceKey(name, t), _))
+          .flatMap(rename.rename(DiscoveredDeviceKey(id, t), _))
           .flatMap(_.fold(NotFound())(_ => Ok()))
       }
   }

@@ -26,8 +26,7 @@ object TplinkDeviceRename {
               discovery.devices.flatMap(
                 _.devices
                   .collectFirst {
-                    case ((name, t), dev) if name.value == k.deviceId && s"$DevName-${t.model.value}" == k.deviceType =>
-                      dev
+                    case (_, dev) if dev.key == k => dev
                   }
                   .traverse(_.rename(v.name, v.room) *> discovery.reinit)
               )
@@ -37,11 +36,8 @@ object TplinkDeviceRename {
 
             override def assigned: F[Map[DiscoveredDeviceKey, DiscoveredDeviceValue]] =
               discovery.devices.map(_.devices.map {
-                case ((name, t), dev) =>
-                  DiscoveredDeviceKey(name.value, s"$DevName-${t.model.value}") -> DiscoveredDeviceValue(
-                    dev.name,
-                    dev.room
-                  )
+                case (_, dev) =>
+                  dev.key -> DiscoveredDeviceValue(dev.name, dev.room)
               })
           },
           "tplink"

@@ -145,7 +145,7 @@ object TplinkDevice {
     name: NonEmptyString,
     host: NonEmptyString,
     port: PortNumber = refineMV(9999),
-    timeout: FiniteDuration = 5.seconds
+    timeout: FiniteDuration = 7.seconds
   )
 
   case class PollingConfig(pollInterval: FiniteDuration = 2.seconds, errorThreshold: PosInt = PosInt(2))

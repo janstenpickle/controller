@@ -55,11 +55,11 @@ object EventCommands {
           logger.error(th)("Event command stream failed, restarting") *> timer.sleep(15.seconds) *> repeatStream(stream)
         }
 
-      def handleErrors(fa: F[Unit], message: String): F[Unit] = {
+      def handleErrors(fa: F[Unit], message: String, timeout: FiniteDuration = 10.seconds): F[Unit] = {
         def log(th: Throwable) = logger.warn(th)(message)
 
         errorHandler
-          .handleWith(fa.timeoutTo(2.seconds, logger.error("Timed out executing command")).handleErrorWith(log))(log)
+          .handleWith(fa.timeoutTo(timeout, logger.error("Timed out executing command")).handleErrorWith(log))(log)
       }
 
       val stream = subscriber.subscribeEvent
@@ -88,7 +88,7 @@ object EventCommands {
               s"Failed to learn command '$name' on remote '$remote' for device '$device'"
             )
           case CommandEvent.RenameDeviceCommand(key, value) =>
-            handleErrors(devices.rename(key, value).void, s"Failed to rename device '$key' to '$value'")
+            handleErrors(devices.rename(key, value).void, s"Failed to rename device '$key' to '$value'", 2.minutes)
         }
 
       repeatStream(stream).background

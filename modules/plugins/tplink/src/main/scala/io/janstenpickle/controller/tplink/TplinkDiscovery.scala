@@ -5,6 +5,7 @@ import java.net.{DatagramPacket, DatagramSocket, InetAddress, SocketTimeoutExcep
 
 import cats.derived.auto.eq._
 import cats.effect.{Blocker, Clock, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.syntax.concurrent._
 import cats.instances.list._
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
@@ -132,11 +133,12 @@ object TplinkDiscovery {
     def socketResource: Resource[F, DatagramSocket] =
       Resource.make {
         F.delay {
-          val socket = new DatagramSocket(config.discoveryPort.value)
-          socket.setBroadcast(true)
-          socket.setSoTimeout(config.discoveryTimeout.toMillis.toInt)
-          socket
-        }
+            val socket = new DatagramSocket(config.discoveryPort.value)
+            socket.setBroadcast(true)
+            socket.setSoTimeout(config.discoveryTimeout.toMillis.toInt)
+            socket
+          }
+          .timeout(config.discoveryTimeout)
       } { s =>
         F.delay(s.close())
       }
