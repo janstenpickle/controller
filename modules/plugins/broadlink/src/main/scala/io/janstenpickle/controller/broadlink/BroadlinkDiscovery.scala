@@ -170,8 +170,9 @@ object BroadlinkDiscovery {
     val onRemoteDiscovered: Pipe[F, BroadlinkDevice[F], Unit] = _.flatMap {
       case BroadlinkDevice.Remote(remote) =>
         Stream.evals(store.listCommands.map { commands =>
-          RemoteEvent.RemoteAddedEvent(remote.name, eventSource) :: commands.map[RemoteEvent] { commandKey =>
-            RemoteEvent.RemoteLearntCommand(remote.name, commandKey.device, commandKey.source, commandKey.name)
+          RemoteEvent.RemoteAddedEvent(remote.name, supportsLearning = true, eventSource) :: commands.map[RemoteEvent] {
+            commandKey =>
+              RemoteEvent.RemoteLearntCommand(remote.name, commandKey.device, commandKey.source, commandKey.name)
           }
         })
       case _ => Stream.empty

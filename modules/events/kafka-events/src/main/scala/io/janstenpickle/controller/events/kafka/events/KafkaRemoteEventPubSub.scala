@@ -29,7 +29,7 @@ object KafkaRemoteEventPubSub {
 
   implicit def remoteEventKeySerializer[F[_]: Sync]: Serializer[F, RemoteEvent] =
     Serializer.string.contramap[RemoteEvent] {
-      case e @ RemoteAddedEvent(_, _) => deriveConfiguredCodec[RemoteAddedEvent].apply(e).noSpacesSortKeys
+      case e @ RemoteAddedEvent(_, _, _) => deriveConfiguredCodec[RemoteAddedEvent].apply(e).noSpacesSortKeys
       case e @ RemoteRemovedEvent(_, _) => deriveConfiguredCodec[RemoteRemovedEvent].apply(e).noSpacesSortKeys
       case RemoteLearntCommand(remoteName, remoteDevice, source, command) =>
         s"learn-$remoteName-$remoteDevice-$source-$command"

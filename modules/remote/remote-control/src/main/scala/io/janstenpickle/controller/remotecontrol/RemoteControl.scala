@@ -15,6 +15,7 @@ import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
 trait RemoteControl[F[_]] {
   def remoteName: NonEmptyString
+  def supportsLearning: Boolean
   def learn(device: NonEmptyString, name: NonEmptyString): F[Unit]
   def sendCommand(source: Option[RemoteCommandSource], device: NonEmptyString, name: NonEmptyString): F[Unit]
   def listCommands: F[List[RemoteCommand]]
@@ -52,6 +53,8 @@ object RemoteControl {
       }
 
       override def remoteName: NonEmptyString = remoteControl.remoteName
+
+      override def supportsLearning: Boolean = remoteControl.supportsLearning
     }
 
   def evented[F[_]: Monad](
@@ -74,6 +77,8 @@ object RemoteControl {
           .publish1(RemoteEvent.RemoteSentCommandEvent(RemoteCommand(remoteName, source, device, name)))
 
       override def listCommands: F[List[RemoteCommand]] = underlying.listCommands
+
+      override def supportsLearning: Boolean = underlying.supportsLearning
     })
 
   def empty[F[_]](
@@ -91,6 +96,8 @@ object RemoteControl {
     override def listCommands: F[List[RemoteCommand]] = F.pure(List.empty)
 
     override def remoteName: NonEmptyString = remote
+
+    override def supportsLearning: Boolean = false
   }
 
   def apply[F[_]: Monad, T](
@@ -126,6 +133,8 @@ object RemoteControl {
           })
 
         override def remoteName: NonEmptyString = remote.name
+
+        override def supportsLearning: Boolean = true
       }),
       eventPublisher
     )

@@ -86,6 +86,8 @@ object TplinkRemoteControl {
             }
 
           }
+
+          override def supportsLearning: Boolean = false
         }),
         eventPublisher
       )

@@ -188,7 +188,7 @@ object KodiDiscovery {
           )
           .compile
           .drain *> remoteEventPublisher.publish1(
-          RemoteEvent.RemoteAddedEvent(KodiRemoteControl.RemoteName, eventSource)
+          RemoteEvent.RemoteAddedEvent(KodiRemoteControl.RemoteName, supportsLearning = false, eventSource)
         )
       })(
         _ =>
@@ -359,9 +359,10 @@ object KodiDiscovery {
       traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.room.value)
     ).flatMap { disc =>
       Resource
-        .make(remoteEventPublisher.publish1(RemoteEvent.RemoteAddedEvent(KodiRemoteControl.RemoteName, eventSource)))(
-          _ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(KodiRemoteControl.RemoteName, eventSource))
-        )
+        .make(
+          remoteEventPublisher
+            .publish1(RemoteEvent.RemoteAddedEvent(KodiRemoteControl.RemoteName, supportsLearning = false, eventSource))
+        )(_ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(KodiRemoteControl.RemoteName, eventSource)))
         .map(_ => disc)
     }
   }

@@ -61,5 +61,7 @@ object RmRemoteControls {
         underlying.flatMap(_.listCommands)
 
       override def provides(remote: NonEmptyString): F[Boolean] = underlying.flatMap(_.provides(remote))
+
+      override def listRemotes: F[Set[RemoteControls.RemoteControlDef]] = underlying.flatMap(_.listRemotes)
     }
 }

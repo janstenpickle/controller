@@ -5,7 +5,7 @@ import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
-import cats.{Applicative, Apply, Functor, Monad}
+import cats.{Applicative, Apply, FlatMap, Functor, Monad}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.discovery.DeviceRename
@@ -16,17 +16,15 @@ import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.switch.SwitchProvider
 
 object ComponentsStateToEvents {
-  def remoteControls[F[_]: Functor](remoteControls: RemoteControls[F], source: String): F[List[RemoteEvent]] =
-    remoteControls.listCommands.map { commands =>
-      val remotes = commands
-        .map[RemoteEvent] { command =>
-          RemoteEvent.RemoteAddedEvent(command.remote, source)
-        }
-        .distinct
-
-      remotes ++ commands.map[RemoteEvent] { command =>
-        RemoteEvent.RemoteLearntCommand(command.remote, command.device, command.source, command.name)
-      }
+  def remoteControls[F[_]: FlatMap](remoteControls: RemoteControls[F], source: String): F[List[RemoteEvent]] =
+    remoteControls.listCommands.flatMap { commands =>
+      remoteControls.listRemotes
+        .map(_.map[RemoteEvent] { remoteDef =>
+          RemoteEvent.RemoteAddedEvent(remoteDef.name, remoteDef.supportsLearning, source)
+        })
+        .map(_.toList ++ commands.map[RemoteEvent] { command =>
+          RemoteEvent.RemoteLearntCommand(command.remote, command.device, command.source, command.name)
+        })
     }
 
   def switches[F[_]: Monad](switches: SwitchProvider[F]): F[List[SwitchEvent]] =

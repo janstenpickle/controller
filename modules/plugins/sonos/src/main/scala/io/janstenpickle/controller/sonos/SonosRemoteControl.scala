@@ -110,6 +110,8 @@ object SonosRemoteControl {
               })
 
             override def remoteName: NonEmptyString = remote
+
+            override def supportsLearning: Boolean = false
           },
           "manufacturer" -> "sonos"
         ),

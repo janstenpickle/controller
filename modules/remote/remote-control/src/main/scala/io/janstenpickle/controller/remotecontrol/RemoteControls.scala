@@ -9,6 +9,7 @@ import cats.syntax.parallel._
 import cats.{FlatMap, Monad, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
+import io.janstenpickle.controller.remotecontrol.RemoteControls.RemoteControlDef
 
 trait RemoteControls[F[_]] {
   def send(
@@ -19,10 +20,12 @@ trait RemoteControls[F[_]] {
   ): F[Unit]
   def learn(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit]
   def listCommands: F[List[RemoteCommand]]
+  def listRemotes: F[Set[RemoteControlDef]]
   def provides(remote: NonEmptyString): F[Boolean]
 }
 
 object RemoteControls { self =>
+  case class RemoteControlDef(name: NonEmptyString, supportsLearning: Boolean)
 
   def apply[F[_]: Monad: Parallel](
     remotes: Map[NonEmptyString, RemoteControl[F]]
@@ -44,6 +47,14 @@ object RemoteControls { self =>
     def listCommands: F[List[RemoteCommand]] = remotes.values.toList.parFlatTraverse(_.listCommands)
 
     override def provides(remote: NonEmptyString): F[Boolean] = remotes.contains(remote).pure[F]
+
+    override def listRemotes: F[Set[RemoteControlDef]] =
+      remotes
+        .map {
+          case (k, remote) => RemoteControlDef(k, remote.supportsLearning)
+        }
+        .toSet
+        .pure[F]
   }
 
   def apply[F[_]: Monad: Parallel: RemoteControlErrors](remotes: List[RemoteControl[F]]): RemoteControls[F] =
@@ -80,6 +91,8 @@ object RemoteControls { self =>
 
     override def provides(remote: NonEmptyString): F[Boolean] =
       x.provides(remote).map2(y.provides(remote))(_ || _)
+
+    override def listRemotes: F[Set[RemoteControlDef]] = x.listRemotes.map2(y.listRemotes)(_ ++ _)
   }
 
   implicit def remoteControlsMonoid[F[_]: Monad: Parallel: RemoteControlErrors]: Monoid[RemoteControls[F]] =

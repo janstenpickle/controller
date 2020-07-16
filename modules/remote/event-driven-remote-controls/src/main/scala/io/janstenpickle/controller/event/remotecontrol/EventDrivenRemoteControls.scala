@@ -41,10 +41,7 @@ object EventDrivenRemoteControls {
         trace.putAll(extraFields :+ "remote.name" -> StringValue(remoteName.value): _*) *> k
       }
 
-    def listen(
-      commands: Cache[F, NonEmptyString, Set[RemoteCommand]],
-      remotes: Cache[F, NonEmptyString, NonEmptyString]
-    ) =
+    def listen(commands: Cache[F, NonEmptyString, Set[RemoteCommand]], remotes: Cache[F, NonEmptyString, Boolean]) =
       eventListener.filterEvent(_.source != source).subscribeEvent.evalMapTrace("receive.remote.event") {
         case RemoteEvent.RemoteLearntCommand(remoteName, remoteDevice, commandSource, command) =>
           span(
@@ -59,9 +56,9 @@ object EventDrivenRemoteControls {
               _ <- commands.set(remoteName, rcs.fold(Set(rc))(_ + rc))
             } yield ()
           }
-        case RemoteEvent.RemoteAddedEvent(remoteName, _) =>
+        case RemoteEvent.RemoteAddedEvent(remoteName, supportsLearning, _) =>
           span("remotes.added", remoteName) {
-            remotes.set(remoteName, remoteName)
+            remotes.set(remoteName, supportsLearning)
           }
         case RemoteEvent.RemoteRemovedEvent(remoteName, _) =>
           span("remotes.removed", remoteName) {
@@ -72,7 +69,7 @@ object EventDrivenRemoteControls {
 
     def listener(
       commands: Cache[F, NonEmptyString, Set[RemoteCommand]],
-      remotes: Cache[F, NonEmptyString, NonEmptyString]
+      remotes: Cache[F, NonEmptyString, Boolean]
     ): Resource[F, F[Unit]] =
       Stream
         .retry(listen(commands, remotes).compile.drain, 5.seconds, _ + 1.second, Int.MaxValue)
@@ -85,7 +82,7 @@ object EventDrivenRemoteControls {
 
     for {
       commands <- CacheResource.caffeine[F, NonEmptyString, Set[RemoteCommand]](cacheTimeout)
-      remotes <- CacheResource.caffeine[F, NonEmptyString, NonEmptyString](cacheTimeout)
+      remotes <- CacheResource.caffeine[F, NonEmptyString, Boolean](cacheTimeout)
       _ <- listener(commands, remotes)
     } yield
       new RemoteControls[F] {
@@ -136,6 +133,9 @@ object EventDrivenRemoteControls {
           span("remotes.provides", remote) {
             remotes.get(remote).map(_.isDefined)
           }
+
+        override def listRemotes: F[Set[RemoteControls.RemoteControlDef]] =
+          remotes.getAll.map(_.toSet.map((RemoteControls.RemoteControlDef.apply _).tupled))
       }
   }
 }

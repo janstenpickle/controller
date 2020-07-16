@@ -280,9 +280,10 @@ object TplinkDiscovery {
       traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.roomName.value)
     ).flatMap { disc =>
       Resource
-        .make(remoteEventPublisher.publish1(RemoteEvent.RemoteAddedEvent(config.remoteName, eventSource)))(
-          _ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(config.remoteName, eventSource))
-        )
+        .make(
+          remoteEventPublisher
+            .publish1(RemoteEvent.RemoteAddedEvent(config.remoteName, supportsLearning = false, eventSource))
+        )(_ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(config.remoteName, eventSource)))
         .map(_ => disc)
     }
   }

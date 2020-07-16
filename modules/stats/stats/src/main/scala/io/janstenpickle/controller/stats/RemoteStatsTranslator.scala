@@ -9,7 +9,7 @@ object RemoteStatsTranslator {
   def apply[F[_]](remoteEventSubscriber: EventSubscriber[F, RemoteEvent]): fs2.Stream[F, Stats] =
     remoteEventSubscriber.subscribe
       .mapAccumulate(Set.empty[NonEmptyString]) {
-        case (state, RemoteAddedEvent(remoteName, _)) =>
+        case (state, RemoteAddedEvent(remoteName, _, _)) =>
           val newState = state + remoteName
           (newState, Stats.RemoteDevices(newState.size))
         case (state, RemoteRemovedEvent(remoteName, _)) =>

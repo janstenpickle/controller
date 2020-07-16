@@ -9,7 +9,8 @@ import io.janstenpickle.controller.model.{RemoteCommand, RemoteCommandSource}
 sealed trait RemoteEvent
 
 object RemoteEvent {
-  case class RemoteAddedEvent(remoteName: NonEmptyString, eventSource: String) extends RemoteEvent
+  case class RemoteAddedEvent(remoteName: NonEmptyString, supportsLearning: Boolean, eventSource: String)
+      extends RemoteEvent
 
   case class RemoteRemovedEvent(remoteName: NonEmptyString, eventSource: String) extends RemoteEvent
 

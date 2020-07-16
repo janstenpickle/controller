@@ -207,9 +207,10 @@ object SonosDiscovery {
           traceParams = device => List("device.name" -> device.name.value, "device.id" -> device.id)
         ).flatMap { disc =>
           Resource
-            .make(remoteEventPublisher.publish1(RemoteEvent.RemoteAddedEvent(config.remote, eventSource)))(
-              _ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(config.remote, eventSource))
-            )
+            .make(
+              remoteEventPublisher
+                .publish1(RemoteEvent.RemoteAddedEvent(config.remote, supportsLearning = false, eventSource))
+            )(_ => remoteEventPublisher.publish1(RemoteEvent.RemoteRemovedEvent(config.remote, eventSource)))
             .map(_ => disc)
         }
       }

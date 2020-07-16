@@ -6,20 +6,25 @@ import cats.effect.Sync
 import cats.mtl.ApplicativeHandle
 import cats.syntax.apply._
 import cats.syntax.either._
+import cats.syntax.functor._
 import eu.timepit.refined._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.refined._
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.RemoteCommandSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls
+import io.janstenpickle.controller.remotecontrol.RemoteControls.RemoteControlDef
 import io.janstenpickle.trace4cats.inject.Trace
-import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
+import org.http4s.dsl.impl.OptionalQueryParamDecoderMatcher
 import org.http4s.{HttpRoutes, Response}
 
 class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
   implicit trace: Trace[F],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {
+  import RemoteApi._
+
   def refineOrBadReq(name: String, device: String, command: String)(
     f: (NonEmptyString, NonEmptyString, NonEmptyString) => F[Response[F]]
   ): F[Response[F]] =
@@ -76,6 +81,19 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
             Ok(remotes.learn(n, d, c))
         }
       }
-    case GET -> Root => trace.span("remoteListCommands") { Ok(remotes.listCommands) }
+    case GET -> Root / "commands" => trace.span("api.remote.list.commands") { Ok(remotes.listCommands) }
+
+    case GET -> Root :? IncludeAllRemotesParamMatcher(all) =>
+      trace.span("api.remote.list.remotes") {
+        Ok(remotes.listRemotes.map { remotes =>
+          if (all.getOrElse(false)) remotes.map(_.name)
+          else remotes.collect { case RemoteControlDef(name, supportsLearning) if supportsLearning => name }
+        })
+      }
+
   }
+}
+
+object RemoteApi {
+  object IncludeAllRemotesParamMatcher extends OptionalQueryParamDecoderMatcher[Boolean]("all")
 }

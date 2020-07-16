@@ -59,6 +59,8 @@ object KodiRemoteControl {
               }
 
             override def remoteName: NonEmptyString = RemoteName
+
+            override def supportsLearning: Boolean = false
           },
           "type" -> "kodi"
         ),
