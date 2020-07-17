@@ -48,14 +48,14 @@ object RmRemote {
           if (retries == 0) F.pure(Right(None))
           else
             blocker
-              .blockOn(timer.sleep(10.second) *> F.delay(Option(device.checkData())))
+              .blockOn(timer.sleep(10.seconds) *> F.delay(Option(device.checkData())))
               .recover { case _: ArrayIndexOutOfBoundsException => None }
               .map(_.fold[Either[Int, Option[CommandPayload]]](Left(retries - 1)) { data =>
+                println(DatatypeConverter.printHexBinary(data))
                 Right(Some(CommandPayload(DatatypeConverter.printHexBinary(data))))
               })
         }
       }
-
       override def learn: F[Option[CommandPayload]] =
         for {
           _ <- trace.span("auth") { blocker.delay(device.auth()) }

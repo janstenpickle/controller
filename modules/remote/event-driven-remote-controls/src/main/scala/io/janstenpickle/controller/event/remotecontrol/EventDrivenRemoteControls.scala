@@ -2,7 +2,7 @@ package io.janstenpickle.controller.event.remotecontrol
 
 import cats.Applicative
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Concurrent, Resource, Sync, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
@@ -22,6 +22,7 @@ import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
+import scala.util.control.NoStackTrace
 
 object EventDrivenRemoteControls {
   def apply[F[_]: Concurrent: Timer, G[_]](
@@ -29,6 +30,7 @@ object EventDrivenRemoteControls {
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
     commandTimeout: FiniteDuration,
+    learnTimeout: FiniteDuration,
     cacheTimeout: FiniteDuration = 20.minutes
   )(
     implicit errors: RemoteControlErrors[F],
@@ -77,8 +79,10 @@ object EventDrivenRemoteControls {
         .drain
         .background
 
-    def waitFor(event: CommandEvent)(selector: PartialFunction[RemoteEvent, Boolean]): F[Option[Unit]] =
-      eventListener.waitFor(commandPublisher.publish1(event), commandTimeout)(selector)
+    def waitFor(event: CommandEvent, timeout: FiniteDuration = commandTimeout)(
+      selector: PartialFunction[RemoteEvent, Boolean]
+    ): F[Option[Unit]] =
+      eventListener.waitFor(commandPublisher.publish1(event), timeout)(selector)
 
     for {
       commands <- CacheResource.caffeine[F, NonEmptyString, Set[RemoteCommand]](cacheTimeout)
@@ -91,7 +95,8 @@ object EventDrivenRemoteControls {
           else errors.missingRemote[A](remote)
         }
 
-        private def timeout(message: String): F[Unit] = new TimeoutException(message).raiseError[F, Unit]
+        private def timeout(message: String): F[Unit] =
+          (new TimeoutException(message) with NoStackTrace).raiseError[F, Unit]
 
         override def send(
           remote: NonEmptyString,
@@ -101,26 +106,25 @@ object EventDrivenRemoteControls {
         ): F[Unit] =
           doIfPresent(remote)(
             span("remotes.send", remote, "remote.device" -> device.value, "remote.command" -> name.value) {
-              commandPublisher.publish1(CommandEvent.MacroCommand(Command.Remote(remote, commandSource, device, name)))
-
-//              waitFor(CommandEvent.MacroCommand(Command.Remote(remote, commandSource, device, name))) {
-//                case RemoteEvent.RemoteSentCommandEvent(RemoteCommand(r, c, d, n)) =>
-//                  r == remote && c == commandSource && d == device && n == name
-//              }
-//            }.flatMap {
-//              case None =>
-//                timeout(
-//                  s"Timed out sending remote control command '$name' for device '$device' on '$remote' with source $commandSource"
-//                )
-//              case Some(_) => Applicative[F].unit
+              waitFor(CommandEvent.MacroCommand(Command.Remote(remote, commandSource, device, name))) {
+                case RemoteEvent.RemoteSentCommandEvent(RemoteCommand(r, c, d, n)) =>
+                  r == remote && c == commandSource && d == device && n == name
+              }
+            }.flatMap {
+              case None =>
+                timeout(
+                  s"Timed out sending remote control command '$name' for device '$device' on '$remote' with source $commandSource"
+                )
+              case Some(_) => Applicative[F].unit
             }
           )
 
         override def learn(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString): F[Unit] =
-          doIfPresent(remote)(waitFor(CommandEvent.RemoteLearnCommand(remote, device, name)) {
+          doIfPresent(remote)(waitFor(CommandEvent.RemoteLearnCommand(remote, device, name), learnTimeout) {
             case RemoteEvent.RemoteLearntCommand(r, d, None, n) => r == remote && d == device && n == name
           }.flatMap {
-            case None => timeout(s"Timed out learning remote control command '$name' for device '$device' on '$remote'")
+            case None =>
+              timeout(s"Timed out learning remote control command '$name' for device '$device' on '$remote'")
             case Some(_) => Applicative[F].unit
           })
 

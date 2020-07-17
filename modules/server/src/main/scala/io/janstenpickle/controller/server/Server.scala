@@ -28,8 +28,8 @@ object Server {
   case class Config(
     host: NonEmptyString = NonEmptyString("0.0.0.0"),
     port: PortNumber = PortNumber(8090),
-    responseHeaderTimeout: FiniteDuration = 4.seconds,
-    idleTimeout: FiniteDuration = 5.seconds
+    responseHeaderTimeout: FiniteDuration = 1.minute,
+    idleTimeout: FiniteDuration = 65.seconds
   )
 
   def configOrError[F[_], A](result: F[Either[ValidationErrors, A]])(implicit F: MonadError[F, Throwable]): F[A] =

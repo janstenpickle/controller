@@ -158,7 +158,7 @@ object Module {
 
       events <- Resource.liftF(TopicEvents[F])
 
-      eventComponents <- EventDrivenComponents(events, 5.seconds)
+      eventComponents <- EventDrivenComponents(events, 5.seconds, 30.seconds)
 
       _ <- MultiSwitchEventListenter(events.switch, events.config)
 

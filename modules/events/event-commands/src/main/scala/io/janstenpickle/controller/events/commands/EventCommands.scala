@@ -85,7 +85,8 @@ object EventCommands {
           case CommandEvent.RemoteLearnCommand(remote, device, name) =>
             handleErrors(
               remotes.learn(remote, device, name),
-              s"Failed to learn command '$name' on remote '$remote' for device '$device'"
+              s"Failed to learn command '$name' on remote '$remote' for device '$device'",
+              2.minutes
             )
           case CommandEvent.RenameDeviceCommand(key, value) =>
             handleErrors(devices.rename(key, value).void, s"Failed to rename device '$key' to '$value'", 2.minutes)

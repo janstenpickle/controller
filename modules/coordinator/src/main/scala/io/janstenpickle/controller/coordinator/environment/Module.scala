@@ -180,7 +180,7 @@ object Module {
         MetricsSink[F](registry, workBlocker)
       )
 
-      components <- EventDrivenComponents(events, 10.seconds)
+      components <- EventDrivenComponents(events, 10.seconds, 30.seconds)
 
       (
         activityConfig,

@@ -81,6 +81,7 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
             Ok(remotes.learn(n, d, c))
         }
       }
+
     case GET -> Root / "commands" => trace.span("api.remote.list.commands") { Ok(remotes.listCommands) }
 
     case GET -> Root :? IncludeAllRemotesParamMatcher(all) =>

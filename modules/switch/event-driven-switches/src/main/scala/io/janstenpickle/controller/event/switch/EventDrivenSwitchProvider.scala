@@ -53,11 +53,9 @@ object EventDrivenSwitchProvider {
         override def switchOn: F[Unit] =
           commandPublisher.publish1(CommandEvent.MacroCommand(Command.SwitchOn(device, name)))
         override def switchOff: F[Unit] =
-          commandPublisher
-            .publish1(CommandEvent.MacroCommand(Command.SwitchOff(device, name))) //waitFor(SwitchKey(device, name), Command.SwitchOn(device, name))
+          waitFor(SwitchKey(device, name), Command.SwitchOn(device, name))
         override def toggle(implicit F: FlatMap[F]): F[Unit] =
-          commandPublisher.publish1(CommandEvent.MacroCommand(Command.ToggleSwitch(device, name)))
-        // waitFor(SwitchKey(device, name), Command.ToggleSwitch(device, name))
+          waitFor(SwitchKey(device, name), Command.ToggleSwitch(device, name))
       })
 
     def span[A](name: String, switchKey: SwitchKey, extraFields: (String, AttributeValue)*)(f: F[A]): F[A] =

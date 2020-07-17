@@ -19,7 +19,8 @@ import io.janstenpickle.trace4cats.inject.Trace
 object EventDrivenComponents {
   def apply[F[_]: Concurrent: Timer: Parallel: RemoteControlErrors: SwitchErrors: Trace, G[_]](
     events: Events[F],
-    commandTimeout: FiniteDuration
+    commandTimeout: FiniteDuration,
+    learnTimeout: FiniteDuration
   )(
     implicit
     liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
@@ -29,7 +30,8 @@ object EventDrivenComponents {
         events.remote.subscriberStream,
         events.command.publisher,
         events.source,
-        commandTimeout
+        commandTimeout,
+        learnTimeout
       ),
       EventDrivenSwitchProvider(
         events.switch.subscriberStream,
