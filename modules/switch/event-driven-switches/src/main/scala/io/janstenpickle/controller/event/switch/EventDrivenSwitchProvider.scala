@@ -51,9 +51,9 @@ object EventDrivenSwitchProvider {
         override def metadata: SwitchMetadata = meta
         override def getState: F[State] = states.get(key).map(_.getOrElse(State.Off))
         override def switchOn: F[Unit] =
-          commandPublisher.publish1(CommandEvent.MacroCommand(Command.SwitchOn(device, name)))
-        override def switchOff: F[Unit] =
           waitFor(SwitchKey(device, name), Command.SwitchOn(device, name))
+        override def switchOff: F[Unit] =
+          waitFor(SwitchKey(device, name), Command.SwitchOff(device, name))
         override def toggle(implicit F: FlatMap[F]): F[Unit] =
           waitFor(SwitchKey(device, name), Command.ToggleSwitch(device, name))
       })
