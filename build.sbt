@@ -16,7 +16,7 @@ val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
 val scalaTestVer = "3.1.2"
-val trace4catsVer = "0.2.0+6-29c0a493"
+val trace4catsVer = "0.3.0"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
