@@ -13,7 +13,6 @@ jobs:
     strategy:
       matrix:
         native-image:
-          - 'all-in-one'
           - coordinator
           - 'deconz-server'
           - 'broadlink-server'
