@@ -1,26 +1,26 @@
-val catsVer = "2.1.1"
-val catsEffectVer = "2.1.3"
+val catsVer = "2.3.0"
+val catsEffectVer = "2.3.0"
 val catsMtlVer = "0.7.1"
 val circeVer = "0.13.0"
-val collectionCompatVer = "2.1.6"
+val collectionCompatVer = "2.3.1"
 val extruderVer = "0.11.0"
-val fs2Ver = "2.3.0"
-val http4sVer = "0.21.4"
-val kittensVer = "2.1.0"
-val jmdnsVer = "3.5.5"
+val fs2Ver = "2.4.6"
+val http4sVer = "0.21.13"
+val kittensVer = "2.2.0"
+val jmdnsVer = "3.5.6"
 val log4catsVer = "1.1.1"
 val maprefVer = "0.1.1"
 val prometheusVer = "0.9.0"
-val refinedVer = "0.9.14"
+val refinedVer = "0.9.18"
 val scalaCacheVer = "0.28.0"
 val scalaCheckVer = "1.13.5"
 val scalaCheckShapelessVer = "1.1.8"
-val scalaTestVer = "3.1.2"
-val trace4catsVer = "0.3.0"
+val scalaTestVer = "3.2.3"
+val trace4catsVer = "0.7.0"
 
 val commonSettings = Seq(
   organization := "io.janstenpickle",
-  scalaVersion := "2.13.2",
+  scalaVersion := "2.13.4",
   scalacOptions ++= Seq(
     "-deprecation",
     "-unchecked",
@@ -34,7 +34,7 @@ val commonSettings = Seq(
     "-encoding",
     "UTF-8"
   ),
-  addCompilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.0").cross(CrossVersion.patch)),
+  addCompilerPlugin(("org.typelevel" %% "kind-projector" % "0.11.1").cross(CrossVersion.patch)),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   //  addCompilerPlugin(("io.tryp"        % "splain"         % "0.4.0").cross(CrossVersion.patch)),
   publishMavenStyle := true,
@@ -59,7 +59,6 @@ val commonSettings = Seq(
   logBuffered in Test := false,
   resolvers += Resolver.jcenterRepo,
   libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalaTestVer % Test),
-  packExcludeJars := Seq("slf4j-jdk14.*\\.jar"),
   assemblyExcludedJars in assembly := {
     val cp = (fullClasspath in assembly).value
     cp.filter {
@@ -67,7 +66,8 @@ val commonSettings = Seq(
     }
   },
   publishArtifact in packageDoc := false,
-  resolvers += Resolver.sonatypeRepo("releases")
+  resolvers += Resolver.sonatypeRepo("releases"),
+  resolvers += Resolver.sonatypeRepo("snapshots")
 )
 
 val graalSettings = Seq(
@@ -177,7 +177,7 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
-      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.0",
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.1",
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
@@ -282,7 +282,7 @@ lazy val coordinator = (project in file("modules/coordinator"))
       "io.extruder"       %% "extruder-typesafe"         % extruderVer,
       "ch.qos.logback"    % "logback-classic"            % "1.2.3",
       "io.chrisdavenport" %% "log4cats-slf4j"            % log4catsVer,
-      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.0",
+      "org.http4s"        %% "http4s-jdk-http-client"    % "0.3.1",
       "org.http4s"        %% "http4s-blaze-server"       % http4sVer,
       "org.http4s"        %% "http4s-circe"              % http4sVer,
       "org.http4s"        %% "http4s-core"               % http4sVer,
@@ -526,7 +526,7 @@ lazy val broadlink = (project in file("modules/plugins/broadlink"))
   .settings(
     name := "controller-plugin-broadlink",
     libraryDependencies ++= Seq(
-      "javax.xml.bind" % "jaxb-api"     % "2.3.0",
+      "javax.xml.bind" % "jaxb-api"     % "2.3.1",
       "eu.timepit"     %% "refined"     % refinedVer,
       "org.typelevel"  %% "cats-effect" % catsEffectVer
     )
@@ -887,7 +887,7 @@ lazy val gitRemoteStore = (project in file("modules/remote/git-remote-command-st
   .settings(
     name := "controller-git-remote-command-store",
     libraryDependencies ++= Seq(
-      "commons-io"        % "commons-io"         % "2.7",
+      "commons-io"        % "commons-io"         % "2.8.0",
       "io.chrisdavenport" %% "log4cats-slf4j"    % log4catsVer,
       "org.typelevel"     %% "cats-effect"       % catsEffectVer,
       "org.typelevel"     %% "kittens"           % kittensVer,
@@ -951,7 +951,7 @@ lazy val `kodi-server` = (project in file("modules/plugins/kodi-server"))
   .settings(
     name := "controller-plugin-kodi-server",
     libraryDependencies ++= Seq(
-      "org.http4s"       %% "http4s-jdk-http-client"   % "0.3.0",
+      "org.http4s"       %% "http4s-jdk-http-client"   % "0.3.1",
       "ch.qos.logback"   % "logback-classic"           % "1.2.3",
       "io.janstenpickle" %% "trace4cats-inject"        % trace4catsVer,
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
@@ -1028,10 +1028,10 @@ lazy val homekit = (project in file("modules/homekit"))
       "io.chrisdavenport"      %% "log4cats-slf4j"       % log4catsVer,
       "io.extruder"            %% "extruder-cats-effect" % extruderVer,
       "io.extruder"            %% "extruder-typesafe"    % extruderVer,
-      "org.apache.commons"     % "commons-text"          % "1.8",
+      "org.apache.commons"     % "commons-text"          % "1.9",
       "org.typelevel"          %% "cats-effect"          % catsEffectVer,
       "io.janstenpickle"       %% "trace4cats-inject"    % trace4catsVer,
-      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.1"
+      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.1",
     )
   )
   .dependsOn(events, extruder, poller, switch, hapJavaSubmodule)
@@ -1062,8 +1062,8 @@ lazy val mqttClient = (project in file("modules/events/mqtt-client"))
     libraryDependencies ++= Seq(
       "org.typelevel"          %% "cats-effect"          % catsEffectVer,
       "co.fs2"                 %% "fs2-reactive-streams" % fs2Ver,
-      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.0",
-      "com.hivemq"             % "hivemq-mqtt-client"    % "1.2.0"
+      "org.scala-lang.modules" %% "scala-java8-compat"   % "0.9.1",
+      "com.hivemq"             % "hivemq-mqtt-client"    % "1.2.1"
     )
   )
 
@@ -1167,12 +1167,12 @@ lazy val sonosClientSubmodule = (project in file("submodules/sonos-controller"))
     organization := "com.vmichalak",
     name := "sonos-controller",
     libraryDependencies ++= Seq(
-      "com.squareup.okhttp3" % "okhttp"                         % "4.7.2",
-      "org.apache.commons"   % "commons-text"                   % "1.1",
-      "junit"                % "junit"                          % "4.11" % Test,
-      "org.mockito"          % "mockito-core"                   % "1.10.8" % Test,
+      "com.squareup.okhttp3" % "okhttp"                         % "4.9.0",
+      "org.apache.commons"   % "commons-text"                   % "1.9",
+      "junit"                % "junit"                          % "4.13.1" % Test,
+      "org.mockito"          % "mockito-core"                   % "1.10.19" % Test,
       "org.powermock"        % "powermock-mockito-release-full" % "1.6.4" % Test,
-      "org.slf4j"            % "slf4j-api"                      % "1.7.10" % Test
+      "org.slf4j"            % "slf4j-api"                      % "1.7.30" % Test
     )
   )
   .dependsOn(ssdpClientSubmodule)
@@ -1189,7 +1189,7 @@ lazy val broadlinkApiSubmodule = (project in file("submodules/broadlink-java-api
     libraryDependencies ++= Seq(
       "javax.xml.bind" % "jaxb-api"     % "2.3.1",
       "org.slf4j"      % "slf4j-api"    % "1.7.22",
-      "junit"          % "junit"        % "4.12" % Test,
+      "junit"          % "junit"        % "4.13.1" % Test,
       "org.slf4j"      % "slf4j-simple" % "1.7.22" % Test
     )
   )
@@ -1200,17 +1200,17 @@ lazy val hapJavaSubmodule = (project in file("submodules/HAP-Java"))
     organization := "io.github.hap-java",
     name := "hap-java",
     libraryDependencies ++= Seq(
-      "org.slf4j"        % "slf4j-api"       % "1.7.22",
-      "io.netty"         % "netty-all"       % "4.1.48.Final",
-      "com.nimbusds"     % "srp6a"           % "1.5.2",
-      "org.bouncycastle" % "bcprov-jdk15on"  % "1.51",
-      "net.vrallev.ecc"  % "ecc-25519-java"  % "1.0.1",
+      "org.slf4j"        % "slf4j-api"       % "1.7.30",
+      "io.netty"         % "netty-all"       % "4.1.54.Final",
+      "com.nimbusds"     % "srp6a"           % "2.1.0",
+      "org.bouncycastle" % "bcprov-jdk15on"  % "1.67",
+      "net.vrallev.ecc"  % "ecc-25519-java"  % "1.0.3",
       "org.zeromq"       % "curve25519-java" % "0.1.0",
-      "javax.json"       % "javax.json-api"  % "1.0",
-      "org.glassfish"    % "javax.json"      % "1.0.4",
+      "javax.json"       % "javax.json-api"  % "1.1.4",
+      "org.glassfish"    % "javax.json"      % "1.1.4",
       "org.jmdns"        % "jmdns"           % jmdnsVer,
-      "commons-io"       % "commons-io"      % "2.6",
-      "junit"            % "junit"           % "4.12" % Test,
+      "commons-io"       % "commons-io"      % "2.8.0",
+      "junit"            % "junit"           % "4.13.1" % Test,
       "org.mockito"      % "mockito-all"     % "1.10.19" % Test
     )
   )
