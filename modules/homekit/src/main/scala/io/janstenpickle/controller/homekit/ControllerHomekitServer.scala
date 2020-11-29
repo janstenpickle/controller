@@ -16,9 +16,9 @@ import fs2.Stream
 import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.github.hapjava.HomekitServer
+import io.github.hapjava.server.impl.HomekitServer
 import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
+import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
 import io.janstenpickle.trace4cats.inject.Trace
@@ -57,7 +57,7 @@ object ControllerHomekitServer {
       )(s => F.delay(s.stop()))
 
       root <- Resource.make(
-        F.delay(server.createBridge(authInfo, config.label, "controller", "controller", "1"))
+        F.delay(server.createBridge(authInfo, config.label, "controller", "controller", "1", "1", "1"))
           .flatTap(r => F.delay(r.start()))
       )(r => F.delay(r.stop()))
 

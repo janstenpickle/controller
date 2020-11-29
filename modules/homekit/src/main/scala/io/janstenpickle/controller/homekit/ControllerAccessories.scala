@@ -16,8 +16,9 @@ import cats.syntax.applicativeError._
 import eu.timepit.refined.auto._
 import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.github.hapjava.accessories.{Lightbulb, Outlet, Switch}
-import io.github.hapjava.{HomekitAccessory, HomekitCharacteristicChangeCallback, HomekitRoot}
+import io.github.hapjava.accessories.{HomekitAccessory, LightbulbAccessory, OutletAccessory, SwitchAccessory}
+import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback
+import io.github.hapjava.server.impl.HomekitRoot
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn}
@@ -38,6 +39,8 @@ import scala.concurrent.duration._
 import scala.util.hashing.MurmurHash3
 
 object ControllerAccessories {
+  private def completedFuture[A](a: A): CompletableFuture[A] = Future.successful(a).toJava.toCompletableFuture
+
   def apply[F[_]: Timer: ContextShift, G[_]](
     root: HomekitRoot,
     switchEvents: EventSubscriber[F, SwitchEvent],
@@ -117,14 +120,16 @@ object ControllerAccessories {
               )
             }
 
-          def switch = new Switch with Closeable {
+          def switch = new SwitchAccessory with Closeable {
             private var switchChanges: Fiber[F, Unit] = _
 
-            override lazy val getLabel: String = label
+            override def getName: CompletableFuture[String] = completedFuture(label)
+            override def getFirmwareRevision: CompletableFuture[String] =
+              completedFuture(metadata.others.getOrElse("version", ""))
             override lazy val getId: Int = id
-            override lazy val getSerialNumber: String = metadata.id.orNull
-            override lazy val getModel: String = model
-            override lazy val getManufacturer: String = manufacturer
+            override def getSerialNumber: CompletableFuture[String] = completedFuture(metadata.id.orNull)
+            override def getModel: CompletableFuture[String] = completedFuture(model)
+            override def getManufacturer: CompletableFuture[String] = completedFuture(manufacturer)
 
             override def getSwitchState: CompletableFuture[lang.Boolean] = switchState
             override def setSwitchState(state: Boolean): CompletableFuture[Void] = setState(state)
@@ -139,14 +144,16 @@ object ControllerAccessories {
             override def close(): Unit = unsubscribeSwitchState()
           }
 
-          def bulb = new Lightbulb with Closeable {
+          def bulb = new LightbulbAccessory with Closeable {
             private var switchChanges: Fiber[F, Unit] = _
 
-            override lazy val getLabel: String = label
+            override def getName: CompletableFuture[String] = completedFuture(label)
+            override def getFirmwareRevision: CompletableFuture[String] =
+              completedFuture(metadata.others.getOrElse("version", ""))
             override lazy val getId: Int = id
-            override lazy val getSerialNumber: String = metadata.id.orNull
-            override lazy val getModel: String = model
-            override lazy val getManufacturer: String = manufacturer
+            override def getSerialNumber: CompletableFuture[String] = completedFuture(metadata.id.orNull)
+            override def getModel: CompletableFuture[String] = completedFuture(model)
+            override def getManufacturer: CompletableFuture[String] = completedFuture(manufacturer)
 
             override def getLightbulbPowerState: CompletableFuture[lang.Boolean] = switchState
 
@@ -166,14 +173,16 @@ object ControllerAccessories {
 
           }
 
-          def plug = new Outlet with Closeable {
+          def plug = new OutletAccessory with Closeable {
             private var switchChanges: Fiber[F, Unit] = _
 
-            override lazy val getLabel: String = label
+            override def getName: CompletableFuture[String] = completedFuture(label)
+            override def getFirmwareRevision: CompletableFuture[String] =
+              completedFuture(metadata.others.getOrElse("version", ""))
             override lazy val getId: Int = id
-            override lazy val getSerialNumber: String = metadata.id.orNull
-            override lazy val getModel: String = model
-            override lazy val getManufacturer: String = manufacturer
+            override def getSerialNumber: CompletableFuture[String] = completedFuture(metadata.id.orNull)
+            override def getModel: CompletableFuture[String] = completedFuture(model)
+            override def getManufacturer: CompletableFuture[String] = completedFuture(manufacturer)
 
             override def getPowerState: CompletableFuture[lang.Boolean] = switchState
 

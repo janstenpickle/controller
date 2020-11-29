@@ -21,12 +21,13 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.generic.extras.Configuration
 import io.circe.{Codec, Decoder, Encoder}
 import io.circe.generic.extras.semiauto._
-import io.github.hapjava.{HomekitAuthInfo, HomekitServer}
 import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import io.circe.syntax._
+import io.github.hapjava.server.HomekitAuthInfo
+import io.github.hapjava.server.impl.HomekitServer
 import io.janstenpickle.trace4cats.inject.Trace
 import io.janstenpickle.trace4cats.model.AttributeValue
 import io.janstenpickle.trace4cats.model.AttributeValue.LongValue

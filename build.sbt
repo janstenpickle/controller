@@ -1030,7 +1030,7 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
     packageName in Docker := "controller-homekit-server",
     dockerRepository := Some("janstenpickle"),
     dockerUpdateLatest := true,
-    dockerBaseImage := "openjdk:13",
+    dockerBaseImage := "openjdk:15",
     daemonUserUid in Docker := Some("9000"),
     javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
     libraryDependencies ++= Seq(
