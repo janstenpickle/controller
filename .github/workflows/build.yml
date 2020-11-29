@@ -117,3 +117,44 @@ jobs:
         run: |
           docker tag janstenpickle/controller-homekit-server:latest janstenpickle/controller-homekit-server:$GITHUB_RUN_NUMBER
           docker push janstenpickle/controller-homekit-server:$GITHUB_RUN_NUMBER
+
+  all-in-one:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v1
+        with:
+          submodules: true
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '15'
+      - name: Cache ivy2
+        uses: actions/cache@v1
+        with:
+          path: ~/.ivy2/cache
+          key: ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
+          restore-keys: |
+            ${{ runner.os }}-ivy2-
+            ${{ runner.os }}-ivy2-${{ hashFiles('**/build.sbt') }}-${{ hashFiles('**/project/Dependencies.scala') }}
+
+      - name: Cache SBT
+        uses: actions/cache@v1
+        with:
+          path: ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+            ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}
+            ${{ runner.os }}-sbt-${{ hashFiles('**/project/build.properties') }}-${{ hashFiles('**/project/plugins.sbt') }}
+
+      - name: scala build
+        run: |
+          sbt -Dsbt.coursier.home=~/.sbt/coursier/ '; project all-in-one; docker:publishLocal' -J-Xms3G -J-Xmx6G
+      - name: docker login
+        run: docker login -u janstenpickle -p '${{secrets.DOCKERHUB}}'
+      - name: docker build
+        run: |
+          docker tag janstenpickle/controller:latest janstenpickle/controller-all-in-one:$GITHUB_RUN_NUMBER
+          docker push janstenpickle/controller-all-in-one:$GITHUB_RUN_NUMBER

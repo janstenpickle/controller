@@ -164,7 +164,7 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
     packageName in Docker := "controller",
     dockerRepository := Some("janstenpickle"),
     dockerUpdateLatest := true,
-    dockerBaseImage := "openjdk:13",
+    dockerBaseImage := "adoptopenjdk:15-jre",
     dockerExposedPorts += 8090,
     daemonUserUid in Docker := Some("9000"),
     javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
@@ -230,7 +230,7 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
     server,
     websocketClientEvents
   )
-  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, PackPlugin, GraalVMNativeImagePlugin)
+  .enablePlugins(UniversalPlugin, JavaAppPackaging, DockerPlugin, AshScriptPlugin, GraalVMNativeImagePlugin)
 
 lazy val api = (project in file("modules/api"))
   .settings(commonSettings)
