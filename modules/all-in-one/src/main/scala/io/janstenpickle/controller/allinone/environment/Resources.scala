@@ -33,7 +33,7 @@ object Resources {
     registry: CollectorRegistry,
     blocker: Blocker
   ): Resource[F, EntryPoint[F]] =
-    (AvroSpanCompleter.udp[F](blocker, process), PrometheusSpanCompleter[F](registry, blocker, process))
+    (AvroSpanCompleter.tcp[F](blocker, process), PrometheusSpanCompleter[F](registry, blocker, process))
       .parMapN(_ |+| _)
       .map { completer =>
         EntryPoint[F](SpanSampler.always, completer)
