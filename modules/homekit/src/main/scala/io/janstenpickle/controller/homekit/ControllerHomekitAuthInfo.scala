@@ -72,7 +72,7 @@ object ControllerHomekitAuthInfo {
       for {
         config <- configFile.configs.map(_.json)
         authInfo <- ApplicativeError[F, Throwable].fromEither(config.as[AuthInfo])
-      } yield authInfo
+      } yield authInfo.copy(users = current.value.users ++ authInfo.users)
 
     def write(authInfo: AuthInfo): F[Unit] =
       configFile.write(authInfo.asJson)
@@ -152,7 +152,7 @@ object ControllerHomekitAuthInfo {
           override def removeUser(username: String): Unit =
             fk(span("remove.user", "username" -> username) {
               get().flatMap { authInfo =>
-                val updated = authInfo.copy(users = authInfo.users.view.filterKeys(_ != formatUsername(username)).toMap)
+                val updated = authInfo.copy(users = authInfo.users - formatUsername(username))
 
                 write(updated) *> update(updated)
               }
@@ -163,6 +163,11 @@ object ControllerHomekitAuthInfo {
               get().flatMap { authInfo =>
                 F.delay(authInfo.users(formatUsername(username)))
               }
+            })
+
+          override def hasUser: Boolean =
+            fk(span("has.user") {
+              get().map(_.users.nonEmpty)
             })
         }
       }

@@ -897,6 +897,26 @@ lazy val gitRemoteStore = (project in file("modules/remote/git-remote-command-st
   )
   .dependsOn(poller, remoteStore)
 
+lazy val http = (project in file("modules/plugins/http"))
+  .settings(commonSettings)
+  .settings(
+    name := "controller-plugin-http",
+    libraryDependencies ++= Seq(
+      "io.chrisdavenport" %% "log4cats-slf4j" % log4catsVer,
+      "org.http4s"        %% "http4s-client"               % http4sVer)
+  )
+  .dependsOn(
+    components,
+    remoteControl,
+    tracedRemote,
+    switch,
+    eventsSwitch,
+    tracedSwitch,
+    configSource,
+    tracedConfigSource,
+    dynamicDiscovery
+  )
+
 lazy val sonos = (project in file("modules/plugins/sonos"))
   .settings(commonSettings)
   .settings(
@@ -1030,7 +1050,7 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
     packageName in Docker := "controller-homekit-server",
     dockerRepository := Some("janstenpickle"),
     dockerUpdateLatest := true,
-    dockerBaseImage := "openjdk:15",
+    dockerBaseImage := "adoptopenjdk:15-jre",
     daemonUserUid in Docker := Some("9000"),
     javaOptions in Universal ++= Seq("-Djava.net.preferIPv4Stack=true"),
     libraryDependencies ++= Seq(
