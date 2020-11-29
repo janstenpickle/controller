@@ -30,7 +30,7 @@ import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.plugin.api.PluginApi
 import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.switch.Switches
-import io.janstenpickle.controller.trace.instances._
+
 import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.avro.AvroSpanCompleter

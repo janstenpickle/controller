@@ -32,7 +32,7 @@ import io.janstenpickle.controller.remote.store.{RemoteCommandStore, TracedRemot
 import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitchStateStore}
-import io.janstenpickle.controller.trace.instances._
+
 import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
 import io.janstenpickle.switches.config.CirceSwitchStateConfigSource
 import io.janstenpickle.trace4cats.Span

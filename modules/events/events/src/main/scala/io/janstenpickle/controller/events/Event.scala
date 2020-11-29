@@ -14,7 +14,7 @@ case class Event[A](value: A, time: Instant, source: String, headers: Map[String
   def map[B](f: A => B): Event[B] = copy(value = f(value))
 
   override def equals(obj: Any): Boolean = obj match {
-    case evt: Event[A] => evt.value.equals(value)
+    case evt: Event[A] => evt.value == value
     case _: Any => false
   }
 

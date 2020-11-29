@@ -2,6 +2,7 @@ package io.janstenpickle.controller.trace.prometheus
 
 import cats.data.NonEmptyList
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import fs2.Chunk
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.trace.prometheus.PrometheusSpanExporter.DefaultHistogramBuckets
@@ -24,7 +25,7 @@ object PrometheusSpanCompleter {
   ): Resource[F, SpanCompleter[F]] =
     for {
       implicit0(logger: Logger[F]) <- Resource.liftF(Slf4jLogger.create[F])
-      exporter <- PrometheusSpanExporter[F](registry, blocker)
+      exporter <- PrometheusSpanExporter[F, Chunk](registry, blocker)
       completer <- QueuedSpanCompleter[F](process, exporter, bufferSize, batchSize, batchTimeout)
     } yield completer
 }

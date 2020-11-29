@@ -221,7 +221,6 @@ lazy val `all-in-one` = (project in file("modules/all-in-one"))
     stats,
     prometheusStats,
     prometheusTrace,
-    trace,
     kafkaEvents,
     cronScheduler,
     deconzBridge,
@@ -251,7 +250,6 @@ lazy val api = (project in file("modules/api"))
   .dependsOn(
     arrow,
     http4s,
-    trace,
     events,
     remoteControl,
     switch,
@@ -298,7 +296,6 @@ lazy val coordinator = (project in file("modules/coordinator"))
     advertiser,
     server,
     websocketEvents,
-    trace,
     prometheusTrace,
     eventCommands,
     remoteControl,
@@ -311,7 +308,6 @@ lazy val coordinator = (project in file("modules/coordinator"))
     stats,
     prometheusStats,
     prometheusTrace,
-    trace,
     circeConfigSource,
     gitRemoteStore,
     `macro`,
@@ -343,7 +339,7 @@ lazy val server = (project in file("modules/server"))
       "org.typelevel"     %% "cats-mtl-core"             % catsMtlVer
     )
   )
-  .dependsOn(advertiser, poller, arrow, http4s, websocketEvents, components, trace)
+  .dependsOn(advertiser, poller, arrow, http4s, websocketEvents, components)
 
 lazy val http4s = (project in file("modules/http4s"))
   .settings(commonSettings)
@@ -569,7 +565,7 @@ lazy val `broadlink-server` = (project in file("modules/plugins/broadlink-server
     advertiser,
     server,
     websocketClientEvents,
-    trace,
+    
     prometheusTrace,
     eventCommands,
     extruder,
@@ -651,7 +647,7 @@ lazy val `tplink-server` = (project in file("modules/plugins/tplink-server"))
     advertiser,
     server,
     websocketClientEvents,
-    trace,
+    
     prometheusTrace,
     eventCommands,
     extruder
@@ -701,7 +697,7 @@ lazy val `deconz-server` = (project in file("modules/deconz-server"))
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
-  .dependsOn(deconzBridge, server, websocketClientEvents, trace, prometheusTrace)
+  .dependsOn(deconzBridge, server, websocketClientEvents,  prometheusTrace)
   .enablePlugins(GraalVMNativeImagePlugin)
 
 lazy val tracedSwitch = (project in file("modules/switch/trace-switch"))
@@ -938,7 +934,6 @@ lazy val `sonos-server` = (project in file("modules/plugins/sonos-server"))
     advertiser,
     server,
     websocketClientEvents,
-    trace,
     prometheusTrace,
     eventCommands,
     extruder
@@ -963,7 +958,6 @@ lazy val `kodi-server` = (project in file("modules/plugins/kodi-server"))
     advertiser,
     server,
     websocketClientEvents,
-    trace,
     prometheusTrace,
     eventCommands,
     extruder,
@@ -1011,13 +1005,6 @@ lazy val discoveryConfig = (project in file("modules/discovery/discovery-config"
   .settings(name := "controller-discovery-config", libraryDependencies ++= Seq("eu.timepit" %% "refined" % refinedVer))
   .dependsOn(model, configSource, circeConfigSource)
 
-lazy val trace = (project in file("modules/trace/trace"))
-  .settings(commonSettings)
-  .settings(
-    name := "controller-trace",
-    libraryDependencies ++= Seq("io.janstenpickle" %% "trace4cats-inject" % trace4catsVer)
-  )
-
 lazy val homekit = (project in file("modules/homekit"))
   .settings(commonSettings)
   .settings(
@@ -1052,7 +1039,7 @@ lazy val homekitServer = (project in file("modules/homekit-server"))
       "io.janstenpickle" %% "trace4cats-avro-exporter" % trace4catsVer
     )
   )
-  .dependsOn(homekit, server, websocketClientEvents, trace, prometheusTrace)
+  .dependsOn(homekit, server, websocketClientEvents, prometheusTrace)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
 
 lazy val mqttClient = (project in file("modules/events/mqtt-client"))
@@ -1202,8 +1189,8 @@ lazy val hapJavaSubmodule = (project in file("submodules/HAP-Java"))
     libraryDependencies ++= Seq(
       "org.slf4j"        % "slf4j-api"       % "1.7.30",
       "io.netty"         % "netty-all"       % "4.1.54.Final",
-      "com.nimbusds"     % "srp6a"           % "2.1.0",
-      "org.bouncycastle" % "bcprov-jdk15on"  % "1.67",
+      "com.nimbusds"     % "srp6a"           % "1.5.2",
+      "org.bouncycastle" % "bcprov-jdk15on"  % "1.51",
       "net.vrallev.ecc"  % "ecc-25519-java"  % "1.0.3",
       "org.zeromq"       % "curve25519-java" % "0.1.0",
       "javax.json"       % "javax.json-api"  % "1.1.4",

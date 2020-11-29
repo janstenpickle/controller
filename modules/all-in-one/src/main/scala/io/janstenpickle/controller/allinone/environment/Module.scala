@@ -44,7 +44,7 @@ import io.janstenpickle.controller.stats.prometheus.MetricsSink
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.controller.switch.virtual.{SwitchDependentStore, SwitchesForRemote}
 import io.janstenpickle.controller.switches.store.{SwitchStateStore, TracedSwitchStateStore}
-import io.janstenpickle.controller.trace.instances._
+
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue.LongValue

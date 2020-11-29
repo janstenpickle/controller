@@ -16,9 +16,10 @@ import fs2.{Pipe, Stream}
 import io.janstenpickle.controller.mqtt.Fs2MqttClient.MqttMessage
 import io.reactivex.Flowable
 
-import scala.collection.JavaConverters._
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.duration._
+
+import scala.jdk.CollectionConverters._
 
 trait Fs2MqttClient[F[_]] { outer =>
   def subscribe(topic: String): Stream[F, MqttMessage]
@@ -61,10 +62,10 @@ object Fs2MqttClient {
       new Fs2MqttClient[F] {
         override def subscribe(topic: String): Stream[F, MqttMessage] =
           rxClient
-            .subscribeStream(
+            .subscribePublishes(
               Mqtt5Subscribe.builder().addSubscription(Mqtt5Subscription.builder().topicFilter(topic).build()).build()
             )
-            .toStream[F]()
+            .toStream[F]
             .map { msg =>
               MqttMessage(
                 msg.getPayloadAsBytes,
@@ -82,23 +83,17 @@ object Fs2MqttClient {
         override def publish: Pipe[F, MqttMessage, Unit] =
           stream =>
             rxClient
-              .publish(
-                Flowable.fromPublisher[Mqtt5Publish](
-                  stream
-                    .map { msg =>
-                      Mqtt5Publish
-                        .builder()
-                        .topic(msg.topic)
-                        .payload(msg.payload)
-                        .userProperties(Mqtt5UserProperties.of(msg.properties.map {
-                          case (k, v) => Mqtt5UserProperty.of(k, v)
-                        }.toSeq: _*))
-                        .build()
-                    }
-                    .toUnicastPublisher()
-                )
-              )
-              .toStream[F]()
+              .publish(Flowable.fromPublisher[Mqtt5Publish](stream.map { msg =>
+                Mqtt5Publish
+                  .builder()
+                  .topic(msg.topic)
+                  .payload(msg.payload)
+                  .userProperties(Mqtt5UserProperties.of(msg.properties.map {
+                    case (k, v) => Mqtt5UserProperty.of(k, v)
+                  }.toSeq: _*))
+                  .build()
+              }.toUnicastPublisher))
+              .toStream[F]
               .evalMap { result =>
                 val error = result.getError
                 if (error.isEmpty) F.unit
