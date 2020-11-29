@@ -118,7 +118,7 @@ object ControllerHomekitAuthInfo {
                     span("generate.salt") {
                       val salt = HomekitServer.generateSalt()
                       val updated = authInfo.copy(salt = Some(salt))
-                      write(updated) *> trace.put("salt", LongValue(salt.longValueExact())) *> update(updated)
+                      write(updated) *> trace.put("salt", salt.toString) *> update(updated)
                         .as(salt)
                     }
                   case Some(v) => F.pure(v)
@@ -152,7 +152,7 @@ object ControllerHomekitAuthInfo {
           override def removeUser(username: String): Unit =
             fk(span("remove.user", "username" -> username) {
               get().flatMap { authInfo =>
-                val updated = authInfo.copy(users = authInfo.users.filterKeys(_ != formatUsername(username)).toMap)
+                val updated = authInfo.copy(users = authInfo.users.view.filterKeys(_ != formatUsername(username)).toMap)
 
                 write(updated) *> update(updated)
               }
