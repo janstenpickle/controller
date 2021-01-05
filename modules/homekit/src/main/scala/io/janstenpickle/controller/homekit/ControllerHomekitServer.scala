@@ -2,7 +2,6 @@ package io.janstenpickle.controller.homekit
 
 import java.net.InetAddress
 import java.util.concurrent.{Executors, ThreadFactory}
-
 import cats.data.Reader
 import cats.effect.{Blocker, Concurrent, ContextShift, ExitCode, Resource, Sync, Timer}
 import cats.syntax.flatMap._
@@ -16,12 +15,14 @@ import fs2.Stream
 import fs2.concurrent.Signal
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.github.hapjava.HomekitServer
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.events.{EventPubSub, EventPublisher, EventSubscriber}
+import io.github.hapjava.server.impl.HomekitServer
+import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
-import natchez.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, Trace}
+import io.janstenpickle.trace4cats.model.SpanKind
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -29,7 +30,6 @@ import scala.concurrent.duration._
 object ControllerHomekitServer {
 
   case class Config(
-    enabled: Boolean = false,
     label: NonEmptyString = NonEmptyString("Controller"),
     port: PortNumber = PortNumber(8091),
     threadCount: Option[PosInt],
@@ -45,11 +45,17 @@ object ControllerHomekitServer {
     blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id,
-    exitSignal: Signal[F, Boolean]
-  )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): F[ExitCode] =
+    exitSignal: Signal[F, Boolean],
+    k: ResourceKleisli[G, (String, SpanKind), Span[G]]
+  )(implicit F: Concurrent[F], provide: Provide[G, F, Span[G]]): F[ExitCode] =
     (for {
       address <- Resource.liftF[F, InetAddress](F.delay(InetAddress.getByName(host)))
-      authInfo <- ControllerHomekitAuthInfo[F, G](configFile, config.auth, fk)
+      authInfo <- ControllerHomekitAuthInfo[F, G](
+        configFile,
+        config.auth,
+        fk,
+        k.local(name => name -> SpanKind.Internal)
+      )
 
       server <- Resource.make[F, HomekitServer](
         F.delay(
@@ -58,11 +64,11 @@ object ControllerHomekitServer {
       )(s => F.delay(s.stop()))
 
       root <- Resource.make(
-        F.delay(server.createBridge(authInfo, config.label, "controller", "controller", "1"))
+        F.delay(server.createBridge(authInfo, config.label, "controller", "controller", "1", "1", "1"))
           .flatTap(r => F.delay(r.start()))
       )(r => F.delay(r.stop()))
 
-      _ <- ControllerAccessories[F, G](root, switchEvents, commands, blocker, fkFuture, fk)
+      _ <- ControllerAccessories[F, G](root, switchEvents, commands, blocker, fkFuture, fk, k)
     } yield ())
       .use(
         _ => exitSignal.discrete.map(if (_) None else Some(ExitCode.Success)).unNoneTerminate.compile.toList.map(_.head)
@@ -78,10 +84,11 @@ object ControllerHomekitServer {
     fkFuture: F ~> Future,
     fk: F ~> Id,
     exitSignal: Signal[F, Boolean],
-    logger: Logger[F]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Stream[F, ExitCode] =
+    logger: Logger[F],
+    k: ResourceKleisli[G, (String, SpanKind), Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Stream[F, ExitCode] =
     Stream
-      .eval(create[F, G](host, config, configFile, switchEvents, commands, blocker, fkFuture, fk, exitSignal))
+      .eval(create[F, G](host, config, configFile, switchEvents, commands, blocker, fkFuture, fk, exitSignal, k))
       .handleErrorWith { th =>
         Stream.eval(logger.error(th)("Homekit failed")) >> Stream
           .sleep[F](10.seconds) >> streamLoop[F, G](
@@ -94,7 +101,8 @@ object ControllerHomekitServer {
           fkFuture,
           fk,
           exitSignal,
-          logger
+          logger,
+          k
         )
       }
 
@@ -113,28 +121,27 @@ object ControllerHomekitServer {
     configFile: ConfigFileSource[F],
     switchEvents: EventSubscriber[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
-  )(
-    implicit liftLower: ContextualLiftLower[G, F, String]
-  ): Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]] =
+    k: ResourceKleisli[G, (String, SpanKind), Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Reader[(F ~> Future, F ~> Id, Signal[F, Boolean]), Stream[F, ExitCode]] =
     Reader {
       case (fkFuture, fk, exitSignal) =>
-        if (config.enabled)
-          for {
-            blocker <- Stream.resource(makeBlocker[F])
-            logger <- Stream.eval(Slf4jLogger.create[F])
-            exitCode <- streamLoop[F, G](
-              host,
-              config,
-              configFile,
-              switchEvents,
-              commands,
-              blocker,
-              fkFuture,
-              fk,
-              exitSignal,
-              logger
-            )
-          } yield exitCode
-        else Stream.empty
+        for {
+          blocker <- Stream.resource(makeBlocker[F])
+          logger <- Stream.eval(Slf4jLogger.create[F])
+          _ <- Stream.eval(logger.info("Starting homekit"))
+          exitCode <- streamLoop[F, G](
+            host,
+            config,
+            configFile,
+            switchEvents,
+            commands,
+            blocker,
+            fkFuture,
+            fk,
+            exitSignal,
+            logger,
+            k
+          )
+        } yield exitCode
     }
 }

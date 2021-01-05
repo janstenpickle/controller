@@ -2,6 +2,9 @@ package io.janstenpickle.controller.model.event
 
 import cats.data.NonEmptyList
 import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.Codec
+import io.circe.generic.extras.semiauto._
+import io.circe.refined._
 import io.janstenpickle.controller.model.{
   Activity,
   Button,
@@ -52,4 +55,6 @@ object ConfigEvent {
     case _: RemoteRemovedEvent => None
     case e: Any => Some(e)
   }
+
+  implicit val configEventCodec: Codec[ConfigEvent] = deriveConfiguredCodec
 }

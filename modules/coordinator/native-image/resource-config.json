@@ -1,0 +1,18 @@
+{
+  "resources":[
+    {"pattern":"\\Qapplication.conf\\E"}, 
+    {"pattern":"\\Qlogback.xml\\E"}, 
+    {"pattern":"\\Qorg/slf4j/impl/StaticLoggerBinder.class\\E"}, 
+    {"pattern":"\\Qstatic/icons.css\\E"}, 
+    {"pattern":"\\Qstatic/icons.ttf\\E"}, 
+    {"pattern":"\\Qstatic/index.css\\E"}, 
+    {"pattern":"\\Qstatic/index.html\\E"}, 
+    {"pattern":"\\Qstatic/service-worker.js\\E"}, 
+    {"pattern":"\\Qstatic/static/css/2..*.chunk.css\\E"},
+    {"pattern":"\\Qstatic/static/css/main..*.chunk.css\\E"},
+    {"pattern":"\\Qstatic/static/js/2..*.chunk.js\\E"},
+    {"pattern":"\\Qstatic/static/js/main..*.chunk.js\\E"},
+    {"pattern":"\\Qversion.properties\\E"}
+  ],
+  "bundles":[]
+}

@@ -6,19 +6,25 @@ import cats.effect.Sync
 import cats.mtl.ApplicativeHandle
 import cats.syntax.apply._
 import cats.syntax.either._
+import cats.syntax.functor._
 import eu.timepit.refined._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.api.error.ControlError
+import io.circe.refined._
+import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.RemoteCommandSource
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.controller.remotecontrol.RemoteControls.RemoteControlDef
+import io.janstenpickle.trace4cats.inject.Trace
+import org.http4s.dsl.impl.OptionalQueryParamDecoderMatcher
 import org.http4s.{HttpRoutes, Response}
 
 class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
   implicit trace: Trace[F],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {
+  import RemoteApi._
+
   def refineOrBadReq(name: String, device: String, command: String)(
     f: (NonEmptyString, NonEmptyString, NonEmptyString) => F[Response[F]]
   ): F[Response[F]] =
@@ -51,23 +57,19 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
     case POST -> Root / "send" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
         trace.span("api.remote.send.command") {
-          trace.put(
-            "name" -> TraceValue.stringToTraceValue(name),
-            "device" -> TraceValue.stringToTraceValue(device),
-            "command" -> TraceValue.stringToTraceValue(command)
-          ) *>
+          trace.putAll("name" -> name, "device" -> device, "command" -> command) *>
             Ok(remotes.send(n, None, d, c))
         }
       }
     case POST -> Root / "send" / name / sourceName / sourceType / device / command =>
       refineOrBadReq(name, sourceName, sourceType, device, command) { (n, cs, d, c) =>
         trace.span("api.remote.send.command") {
-          trace.put(
-            "name" -> TraceValue.stringToTraceValue(name),
-            "device" -> TraceValue.stringToTraceValue(device),
-            "command" -> TraceValue.stringToTraceValue(command),
-            "command_source" -> TraceValue.stringToTraceValue(sourceName),
-            "command_source_type" -> TraceValue.stringToTraceValue(sourceType)
+          trace.putAll(
+            "name" -> name,
+            "device" -> device,
+            "command" -> command,
+            "command_source" -> sourceName,
+            "command_source_type" -> sourceType
           ) *>
             Ok(remotes.send(n, Some(cs), d, c))
         }
@@ -75,14 +77,29 @@ class RemoteApi[F[_]: Sync](remotes: RemoteControls[F])(
     case POST -> Root / "learn" / name / device / command =>
       refineOrBadReq(name, device, command) { (n, d, c) =>
         trace.span("api.remote.learn.command") {
-          trace.put(
-            "name" -> TraceValue.stringToTraceValue(name),
-            "device" -> TraceValue.stringToTraceValue(device),
-            "command" -> TraceValue.stringToTraceValue(command)
-          ) *>
+          trace.putAll("name" -> name, "device" -> device, "command" -> command) *>
             Ok(remotes.learn(n, d, c))
         }
       }
-    case GET -> Root => trace.span("remoteListCommands") { Ok(remotes.listCommands) }
+
+    case GET -> Root / "commands" => trace.span("api.remote.list.commands") { Ok(remotes.listCommands) }
+
+    case GET -> Root / remote / "commands" =>
+      trace.span("api.remote.list.commands") {
+        trace.put("remote", remote) *> Ok(remotes.listCommands.map(_.filter(_.remote.value == remote)))
+      }
+
+    case GET -> Root :? IncludeAllRemotesParamMatcher(all) =>
+      trace.span("api.remote.list.remotes") {
+        Ok(remotes.listRemotes.map { remotes =>
+          if (all.getOrElse(false)) remotes.map(_.name)
+          else remotes.collect { case RemoteControlDef(name, supportsLearning) if supportsLearning => name }
+        })
+      }
+
   }
+}
+
+object RemoteApi {
+  object IncludeAllRemotesParamMatcher extends OptionalQueryParamDecoderMatcher[Boolean]("all")
 }

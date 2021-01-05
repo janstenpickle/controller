@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.extruder
 
 import java.nio.file.{Files, Path, Paths}
-
 import cats.{~>, Eq}
 import cats.effect._
 import cats.effect.concurrent.Semaphore
@@ -14,11 +13,12 @@ import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 import eu.timepit.refined.types.numeric.PosInt
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.{parser, Json}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource.ConfigFiles
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import natchez.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import org.apache.commons.io.FileUtils
 
 import scala.concurrent.duration.FiniteDuration
@@ -59,11 +59,11 @@ object ConfigFileSource {
 
         def loadFile(extension: String): F[Option[String]] = trace.span("load.config.file") {
           val file = getFile(extension)
-          trace.put("file.name" -> file.toString) *> blocker.blockOn(for {
+          trace.put("file.name", file.toString) *> blocker.blockOn(for {
             exists <- F.delay(Files.exists(file))
-            _ <- trace.put("file.exists" -> exists)
+            _ <- trace.put("file.exists", exists)
             ret <- if (exists) trace.span("readFile") {
-              trace.put("file.name" -> file.toString) *> F.delay(new String(Files.readAllBytes(file))).map(Some(_))
+              trace.put("file.name", file.toString) *> F.delay(new String(Files.readAllBytes(file))).map(Some(_))
             } else F.pure(None)
 
           } yield ret)
@@ -72,7 +72,7 @@ object ConfigFileSource {
         def writeFile(extension: String)(contents: Array[Byte]): F[Unit] = trace.span("write.config.file") {
           val file = getFile(extension)
           evalMutex(
-            trace.put("file.name" -> file.toString) *> blocker
+            trace.put("file.name", file.toString) *> blocker
               .blockOn(F.delay(FileUtils.forceMkdirParent(file.toFile)) *> F.delay(Files.write(file, contents)).void)
           )
         }
@@ -107,8 +107,9 @@ object ConfigFileSource {
     configFile: Path,
     pollInterval: FiniteDuration,
     blocker: Blocker,
-    timeout: FiniteDuration
-  )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, ConfigFileSource[F]] =
+    timeout: FiniteDuration,
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit F: Concurrent[F], provide: Provide[G, F, Span[G]]): Resource[F, ConfigFileSource[F]] =
     Resource.liftF(Slf4jLogger.fromName[F](s"configFilePoller-${configFile.toString}")).flatMap { implicit logger =>
       Resource.liftF(apply[F](configFile, blocker, timeout)).flatMap { source =>
         DataPoller
@@ -117,7 +118,8 @@ object ConfigFileSource {
             pollInterval,
             PosInt(1),
             (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
-            (_: ConfigFiles, _: ConfigFiles) => F.unit
+            (_: ConfigFiles, _: ConfigFiles) => F.unit,
+            k
           ) { (get, set) =>
             new ConfigFileSource[F] {
               override def configs: F[ConfigFiles] = get()

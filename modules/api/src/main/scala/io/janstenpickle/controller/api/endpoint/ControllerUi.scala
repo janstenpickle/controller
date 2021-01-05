@@ -1,5 +1,8 @@
 package io.janstenpickle.controller.api.endpoint
 
+import java.io.{FileInputStream, InputStream}
+import java.nio.file.{Path => JPath}
+
 import cats.effect.{Blocker, ContextShift, Sync}
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
@@ -8,26 +11,39 @@ import cats.syntax.functor._
 import org.http4s.dsl.Http4sDsl
 import org.http4s.{HttpRoutes, Response}
 
-class ControllerUi[F[_]: Sync: ContextShift](blocker: Blocker) extends Http4sDsl[F] {
+class ControllerUi[F[_]: Sync: ContextShift](blocker: Blocker, basePath: Option[JPath] = None) extends Http4sDsl[F] {
 
   private def resourceExists(path: String): F[Boolean] =
     blocker.delay(getClass.getClassLoader.getResource(path)).map(_ != null).recover {
       case _: NullPointerException => false
     }
 
-  private def fetch(name: String): F[Response[F]] = {
+  private def fileExists(base: JPath, path: String): F[Boolean] =
+    blocker.delay(base.resolve(path).toFile.exists())
+
+  private def fetchFile(base: JPath, path: String): F[Response[F]] =
+    for {
+      exists <- fileExists(base, path)
+      response <- if (exists) readInput(Sync[F].delay(new FileInputStream(base.resolve(path).toFile))) else NotFound()
+    } yield response
+
+  private def fetchResource(name: String): F[Response[F]] = {
     val path = s"static/$name"
     for {
       exists <- resourceExists(path)
-      response <- if (exists) fetchResource(path) else NotFound()
+      response <- if (exists) readInput(Sync[F].delay(getClass.getClassLoader.getResourceAsStream(path)))
+      else NotFound()
     } yield response
   }
 
-  private def fetchResource(path: String): F[Response[F]] =
+  private def readInput(is: F[InputStream]): F[Response[F]] =
     Response(
       body = fs2.io
-        .readInputStream(Sync[F].delay(getClass.getClassLoader.getResourceAsStream(path)), 200, blocker)
+        .readInputStream(is, 200, blocker)
     ).pure[F]
+
+  private def fetch(name: String): F[Response[F]] =
+    basePath.fold(fetchResource(name))(fetchFile(_, name))
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case GET -> Root => fetch("index.html")

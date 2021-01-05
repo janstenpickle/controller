@@ -5,7 +5,7 @@ import cats.effect.Sync
 import cats.mtl.ApplicativeHandle
 import io.circe.refined._
 import io.janstenpickle.controller.`macro`.Macro
-import io.janstenpickle.controller.api.error.ControlError
+import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.Command
 import org.http4s.HttpRoutes
 

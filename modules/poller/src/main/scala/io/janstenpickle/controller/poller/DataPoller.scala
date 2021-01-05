@@ -1,7 +1,5 @@
 package io.janstenpickle.controller.poller
 
-import java.util.concurrent.TimeUnit
-
 import cats.effect._
 import cats.effect.concurrent.Ref
 import cats.syntax.applicativeError._
@@ -9,14 +7,17 @@ import cats.syntax.apply._
 import cats.syntax.eq._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.{Applicative, Apply, Eq}
+import cats.{~>, Applicative, Apply, Eq}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.Stream
 import io.chrisdavenport.log4cats.Logger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import natchez.TraceValue.StringValue
-import natchez.{Trace, TraceValue}
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
+import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.FiniteDuration
 
 object DataPoller {
@@ -39,7 +40,7 @@ object DataPoller {
             data <- getData(current)
             _ <- dataRef.set(Data(data, now))
             updated = current.value.neqv(data)
-            _ <- trace.put("updated" -> updated)
+            _ <- trace.put("updated", updated)
             _ <- if (updated) onUpdate(current.value, data) else F.unit
           } yield ()
         }
@@ -47,10 +48,10 @@ object DataPoller {
           th =>
             trace
               .span("poller.error") {
-                trace.put("error.message" -> th.getMessage, "error" -> true) *>
+                trace.setStatus(SpanStatus.Internal(th.getMessage)) *>
                   logger.warn(th)(s"Failed to update polled data") *> dataRef
                   .tryUpdate(d => d.copy(errorCount = d.errorCount + 1, error = Some(th))) *> dataRef.get
-                  .flatMap(d => trace.put("error.count" -> d.errorCount))
+                  .flatMap(d => trace.putAll("error.count" -> d.errorCount))
               }
               .handleError(_ => ())
         )
@@ -79,8 +80,8 @@ object DataPoller {
     handle: (Data[A], Throwable) => F[A]
   )(implicit F: Applicative[F], trace: Trace[F]): (Data[A], Throwable) => F[A] = { (data, error) =>
     trace.span("poller.handle.error") {
-      trace.put("error.count" -> data.errorCount, "error.threshold" -> threshold.value) *> {
-        if (data.errorCount >= threshold.value) trace.put("error" -> true) *> handle(data, error)
+      trace.putAll("error.count" -> data.errorCount, "error.threshold" -> threshold.value) *> {
+        if (data.errorCount >= threshold.value) trace.put("error", true) *> handle(data, error)
         else F.pure(data.value)
       }
     }
@@ -121,18 +122,22 @@ object DataPoller {
     })
   }
 
-  def traced[F[_], G[_], A, B](name: String, fields: (String, TraceValue)*): TracedPollerPartiallyApplied[F, G, A, B] =
+  def traced[F[_], G[_], A, B](
+    name: String,
+    fields: (String, AttributeValue)*
+  ): TracedPollerPartiallyApplied[F, G, A, B] =
     new TracedPollerPartiallyApplied[F, G, A, B] {
 
       private def span[C](n: String)(k: F[C])(implicit F: Apply[F], trace: Trace[F]): F[C] = trace.span(n) {
-        trace.put(fields ++ List("poller.name" -> StringValue(name)): _*) *> k
+        trace.putAll(fields ++ List("poller.name" -> StringValue(name)): _*) *> k
       }
 
       override def apply(
         getData: Data[A] => F[A],
         pollInterval: FiniteDuration,
         errorThreshold: PosInt,
-        onUpdate: (A, A) => F[Unit]
+        onUpdate: (A, A) => F[Unit],
+        k: ResourceKleisli[G, SpanName, Span[G]]
       )(create: (() => F[A], A => F[Unit]) => B)(
         implicit F: Sync[F],
         trace: Trace[F],
@@ -141,20 +146,24 @@ object DataPoller {
         empty: Empty[A],
         eq: Eq[A],
         logger: Logger[F],
-        liftLower: ContextualLiftLower[G, F, String]
+        provide: Provide[G, F, Span[G]],
       ): Resource[F, B] = {
-        val low = liftLower.lower(s"$name.poll")
+        def low[AA](fa: F[AA]): G[AA] = k.run(s"$name.poll").use(provide.provide(fa))
 
-        implicit val l: Logger[G] = logger.mapK(low)
+        def noop: F ~> G = new (F ~> G) {
+          override def apply[AA](fa: F[AA]): G[AA] = Span.noop[G].use(provide.provide(fa))
+        }
+
+        implicit val l: Logger[G] = logger.mapK(noop)
 
         DataPoller[G, A, B](getData.andThen { read =>
           low(span("poll")(read))
         }, pollInterval, errorThreshold, (o: A, n: A) => low(onUpdate(o, n))) { (get, update) =>
           create(
-            () => span("poller.read.state") { liftLower.lift(get()) },
-            a => span("poller.update.state") { liftLower.lift(update(a)) }
+            () => span("poller.read.state") { provide.lift(get()) },
+            a => span("poller.update.state") { provide.lift(update(a)) }
           )
-        }.mapK(liftLower.lift)
+        }.mapK(provide.liftK)
       }
 
       override def apply(
@@ -162,7 +171,8 @@ object DataPoller {
         pollInterval: FiniteDuration,
         errorThreshold: PosInt,
         handleError: (Data[A], Throwable) => F[A],
-        onUpdate: (A, A) => F[Unit]
+        onUpdate: (A, A) => F[Unit],
+        k: ResourceKleisli[G, SpanName, Span[G]]
       )(create: (() => F[A], A => F[Unit]) => B)(
         implicit F: Sync[F],
         trace: Trace[F],
@@ -171,11 +181,15 @@ object DataPoller {
         empty: Empty[A],
         eq: Eq[A],
         logger: Logger[F],
-        liftLower: ContextualLiftLower[G, F, String]
+        provide: Provide[G, F, Span[G]],
       ): Resource[F, B] = {
-        val low = liftLower.lower(s"$name.poll")
+        def low[AA](fa: F[AA]): G[AA] = k.run(s"$name.poll").use(provide.provide(fa))
 
-        implicit val l: Logger[G] = logger.mapK(low)
+        def noop: F ~> G = new (F ~> G) {
+          override def apply[AA](fa: F[AA]): G[AA] = Span.noop[G].use(provide.provide(fa))
+        }
+
+        implicit val l: Logger[G] = logger.mapK(noop)
 
         DataPoller[G, A, B](
           getData.andThen { read =>
@@ -189,15 +203,15 @@ object DataPoller {
           create(
             () =>
               span("read.state") {
-                liftLower.lift(get())
+                provide.lift(get())
             },
             a =>
               span("update.state") {
-                liftLower.lift(update(a))
+                provide.lift(update(a))
             }
           )
         }
-      }.mapK(liftLower.lift)
+      }.mapK(provide.liftK)
     }
 
   trait TracedPollerPartiallyApplied[F[_], G[_], A, B] {
@@ -205,7 +219,8 @@ object DataPoller {
       getData: Data[A] => F[A],
       pollInterval: FiniteDuration,
       errorThreshold: PosInt,
-      onUpdate: (A, A) => F[Unit]
+      onUpdate: (A, A) => F[Unit],
+      k: ResourceKleisli[G, SpanName, Span[G]]
     )(create: (() => F[A], A => F[Unit]) => B)(
       implicit F: Sync[F],
       trace: Trace[F],
@@ -214,7 +229,7 @@ object DataPoller {
       empty: Empty[A],
       eq: Eq[A],
       logger: Logger[F],
-      liftLower: ContextualLiftLower[G, F, String]
+      provide: Provide[G, F, Span[G]],
     ): Resource[F, B]
 
     def apply(
@@ -222,7 +237,8 @@ object DataPoller {
       pollInterval: FiniteDuration,
       errorThreshold: PosInt,
       handleError: (Data[A], Throwable) => F[A],
-      onUpdate: (A, A) => F[Unit]
+      onUpdate: (A, A) => F[Unit],
+      k: ResourceKleisli[G, SpanName, Span[G]]
     )(create: (() => F[A], A => F[Unit]) => B)(
       implicit F: Sync[F],
       trace: Trace[F],
@@ -231,7 +247,7 @@ object DataPoller {
       empty: Empty[A],
       eq: Eq[A],
       logger: Logger[F],
-      liftLower: ContextualLiftLower[G, F, String]
+      provide: Provide[G, F, Span[G]],
     ): Resource[F, B]
   }
 

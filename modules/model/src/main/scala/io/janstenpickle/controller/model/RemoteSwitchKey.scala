@@ -6,7 +6,9 @@ import cats.instances.string._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.string.NonEmptyString
-import io.circe.{KeyDecoder, KeyEncoder}
+import io.circe.{Codec, KeyDecoder, KeyEncoder}
+import io.circe.generic.semiauto._
+import io.circe.refined._
 
 case class RemoteSwitchKey(remote: NonEmptyString, device: NonEmptyString, name: NonEmptyString) {
   lazy val toSwitchKey: SwitchKey =
@@ -31,4 +33,6 @@ object RemoteSwitchKey {
   implicit val remoteSwitchKeyEncoder: KeyEncoder[RemoteSwitchKey] = KeyEncoder.encodeKeyString.contramap { sk =>
     s"${sk.remote}$KeySeparator${sk.device}$KeySeparator${sk.name}"
   }
+
+  implicit val remoteSwitchKeyCodec: Codec[RemoteSwitchKey] = deriveCodec
 }

@@ -1,6 +1,6 @@
 [submodule "submodules/broadlink-java-api"]
 	path = submodules/broadlink-java-api
-	url = https://github.com/janstenpickle/broadlink-java-api.git
+	url = https://github.com/mob41/broadlink-java-api.git
 	ignore = dirty
 [submodule "submodules/ssdp-client"]
 	path = submodules/ssdp-client
@@ -8,8 +8,8 @@
 	ignore = dirty
 [submodule "submodules/HAP-Java"]
 	path = submodules/HAP-Java
-	url = https://github.com/janstenpickle/HAP-Java.git
-	branch = fix_ios13_discoverability
+	url = https://github.com/hap-java/HAP-Java.git
+	branch = master
 [submodule "submodules/sonos-controller"]
 	path = submodules/sonos-controller
 	url = https://github.com/janstenpickle/sonos-controller.git

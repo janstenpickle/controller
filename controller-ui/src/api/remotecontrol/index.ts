@@ -2,7 +2,7 @@ import { RemoteCommand } from "../../types";
 import { baseURL } from '../../common/Api';
 
 export async function fetchRemoteCommandsAsync(): Promise<RemoteCommand[]> {
-  const remoteControlUrl = `${baseURL}/control/remote`;
+  const remoteControlUrl = `${baseURL}/control/remote/commands`;
 
   return fetch(remoteControlUrl)
     .then((response) => (response.json()))
