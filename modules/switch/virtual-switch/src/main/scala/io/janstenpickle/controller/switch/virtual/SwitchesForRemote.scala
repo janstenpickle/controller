@@ -14,7 +14,6 @@ import cats.{Applicative, Eq, MonadError}
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.{SwitchKey, SwitchMetadata, RemoteSwitchKey => ModelSwitchKey, _}
@@ -24,7 +23,9 @@ import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.switches.store.SwitchStateStore
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.switch.{Switch, SwitchProvider}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 
@@ -93,14 +94,16 @@ object SwitchesForRemote {
     virtualSwitches: ConfigSource[F, ModelSwitchKey, VirtualSwitch],
     remotes: RemoteControls[F],
     state: SwitchStateStore[F],
-    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, SwitchProvider[F]] =
+    eventPublisher: EventPublisher[F, SwitchStateUpdateEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Resource[F, SwitchProvider[F]] =
     Resource.liftF(Slf4jLogger.fromName[F](s"switchesForRemotePoller")).flatMap { implicit logger =>
       DataPoller.traced[F, G, Map[SwitchKey, Switch[F]], SwitchProvider[F]]("switchesForRemote")(
         (_: Data[Map[SwitchKey, Switch[F]]]) => make(virtualSwitches, remotes, state, eventPublisher),
         pollingConfig.pollInterval,
         pollingConfig.errorThreshold,
-        (_: Map[SwitchKey, Switch[F]], _: Map[SwitchKey, Switch[F]]) => Applicative[F].unit
+        (_: Map[SwitchKey, Switch[F]], _: Map[SwitchKey, Switch[F]]) => Applicative[F].unit,
+        k
       ) { (getData, _) =>
         new SwitchProvider[F] {
           override def getSwitches: F[Map[SwitchKey, Switch[F]]] = getData()

@@ -1,13 +1,14 @@
 package io.janstenpickle.controller.homekit
 
+import cats.data.Kleisli
+
 import java.io.Closeable
 import java.lang
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
-
 import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Concurrent, ContextShift, Fiber, Resource, Timer}
+import cats.effect.{Blocker, BracketThrow, Concurrent, ContextShift, Fiber, Resource, Timer}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -19,7 +20,6 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.github.hapjava.accessories.{HomekitAccessory, LightbulbAccessory, OutletAccessory, SwitchAccessory}
 import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback
 import io.github.hapjava.server.impl.HomekitRoot
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn}
 import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
@@ -29,8 +29,10 @@ import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
-import io.janstenpickle.trace4cats.inject.Trace
-import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, Trace}
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanKind, SpanStatus}
 import org.apache.commons.text.WordUtils
 
 import scala.compat.java8.FutureConverters._
@@ -41,14 +43,15 @@ import scala.util.hashing.MurmurHash3
 object ControllerAccessories {
   private def completedFuture[A](a: A): CompletableFuture[A] = Future.successful(a).toJava.toCompletableFuture
 
-  def apply[F[_]: Timer: ContextShift, G[_]](
+  def apply[F[_]: Timer: ContextShift, G[_]: BracketThrow](
     root: HomekitRoot,
     switchEvents: EventSubscriber[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
     blocker: Blocker,
     fkFuture: F ~> Future,
-    fk: F ~> Id
-  )(implicit F: Concurrent[F], trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] =
+    fk: F ~> Id,
+    k: ResourceKleisli[G, (String, SpanKind), Span[G]]
+  )(implicit F: Concurrent[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, Unit] =
     (for {
       logger <- Resource.liftF(Slf4jLogger.create[F])
       source <- Resource.liftF(F.delay(UUID.randomUUID().toString))
@@ -56,7 +59,8 @@ object ControllerAccessories {
       case (logger, source) =>
         val cmds = commands.updateSource(source)
 
-        def rootSpan[A](fa: F[A]): F[A] = liftLower.lift(liftLower.lower("homekit.accessories")(fa))
+        def rootSpan[A](fa: F[A]): F[A] =
+          provide.lift(k.run("homekit.accessories" -> SpanKind.Server).use(provide.provide(fa)))
 
         def switchToService(
           key: SwitchKey,

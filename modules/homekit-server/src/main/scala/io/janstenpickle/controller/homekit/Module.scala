@@ -2,7 +2,6 @@ package io.janstenpickle.controller.homekit
 
 import java.util.UUID
 import java.util.concurrent.{Executors, ThreadFactory}
-
 import cats.data.{Kleisli, Reader}
 import cats.effect.syntax.concurrent._
 import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, ExitCode, Resource, Sync, Timer}
@@ -12,7 +11,6 @@ import cats.{~>, Id, Parallel}
 import fs2.Stream
 import fs2.concurrent.Signal
 import io.janstenpickle.controller.advertiser.{Discoverer, JmDNSResource, ServiceType}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.events.websocket.JavaWebsocket
 import io.janstenpickle.controller.extruder.ConfigFileSource
@@ -21,9 +19,10 @@ import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
+import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
 import io.janstenpickle.trace4cats.kernel.SpanSampler
-import io.janstenpickle.trace4cats.model.{SpanKind, TraceProcess}
+import io.janstenpickle.trace4cats.model.{SpanKind, TraceHeaders, TraceProcess}
 import io.prometheus.client.CollectorRegistry
 
 import scala.concurrent.Future
@@ -65,30 +64,15 @@ object Module {
   ): Resource[F, Homekit[F]] = {
     type G[A] = Kleisli[F, Span[F], A]
 
-    val lift = λ[F ~> G](fa => Kleisli(_ => fa))
+    val lower = λ[G ~> F](ga => Span.noop[F].use(ga.run))
 
-    implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
-      λ[G ~> F](ga => Span.noop[F].use(ga.run)),
-      name => λ[G ~> F](ga => ep.root(name).use(ga.run))
-    )
-
-    implicit val liftLowerContext: ContextualLiftLower[F, G, (String, Map[String, String])] =
-      ContextualLiftLower[F, G, (String, Map[String, String])](lift, _ => lift)(
-        λ[G ~> F](ga => Span.noop[F].use(ga.run)), {
-          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, SpanKind.Consumer, headers).use(ga.run))
-        }
-      )
-
-    tracedComponents[G, F](config).mapK(liftLower.lower)
+    tracedComponents[G, F](config, ep).mapK(lower)
   }
 
   private def tracedComponents[F[_]: ContextShift: Timer: Trace: Parallel, G[_]: ConcurrentEffect: ContextShift: Timer](
-    config: Configuration.Config
-  )(
-    implicit F: Concurrent[F],
-    liftLower: ContextualLiftLower[G, F, String],
-    liftLowerContext: ContextualLiftLower[G, F, (String, Map[String, String])]
-  ): Resource[F, Homekit[G]] = {
+    config: Configuration.Config,
+    ep: EntryPoint[G]
+  )(implicit F: Concurrent[F], provide: Provide[G, F, Span[G]]): Resource[F, Homekit[G]] = {
     def makeBlocker(name: String) =
       Blocker.fromExecutorService(Sync[F].delay(Executors.newCachedThreadPool(new ThreadFactory {
         def newThread(r: Runnable) = {
@@ -97,6 +81,8 @@ object Module {
           t
         }
       })))
+
+    val lower = λ[F ~> G](ga => ep.root("homekit").use(provide.provide(ga)))
 
     for {
       source <- Resource.liftF(Sync[F].delay(UUID.randomUUID().toString))
@@ -121,19 +107,39 @@ object Module {
       )(Resource.pure[F, Configuration.Coordinator])
 
       _ <- JavaWebsocket
-        .receive[F, G, SwitchEvent](coordinator.host, coordinator.port, "switch", workBlocker, switchEvents.publisher)
-      _ <- JavaWebsocket.send[F, G, CommandEvent](
+        .receive[F, G, SwitchEvent, Span[G]](
+          coordinator.host,
+          coordinator.port,
+          "switch",
+          workBlocker,
+          switchEvents.publisher,
+          ep.toKleisli.local { name: String =>
+            (name, SpanKind.Consumer, TraceHeaders.empty)
+          }
+        )
+      _ <- JavaWebsocket.send[F, G, CommandEvent, Span[G]](
         coordinator.host,
         coordinator.port,
         "command",
         workBlocker,
-        commandEvents.subscriberStream
+        commandEvents.subscriberStream,
+        ep.toKleisli.local { name: String =>
+          (name, SpanKind.Producer, TraceHeaders.empty)
+        }
       )
 
       homeKitSwitchEventSubscriber <- switchEvents.subscriberResource
 
       homekitConfigFileSource <- ConfigFileSource
-        .polling[F, G](config.dir.resolve("homekit"), config.pollInterval, workBlocker, config.writeTimeout)
+        .polling[F, G](
+          config.dir.resolve("homekit"),
+          config.pollInterval,
+          workBlocker,
+          config.writeTimeout,
+          ep.toKleisli.local { name =>
+            (name, SpanKind.Internal, TraceHeaders.empty)
+          }
+        )
 
     } yield
       ControllerHomekitServer
@@ -142,20 +148,17 @@ object Module {
           config.homekit,
           homekitConfigFileSource,
           homeKitSwitchEventSubscriber,
-          commandEvents.publisher
+          commandEvents.publisher,
+          ep.toKleisli.local { case (name, kind) => (name, kind, TraceHeaders.empty) }
         )
         .local[(G ~> Future, G ~> Id, Signal[G, Boolean])] {
           case (fkFuture, fk, signal) =>
-            (
-              fkFuture.compose(liftLower.lower("homekit")),
-              fk.compose(liftLower.lower("homekit")),
-              new Signal[F, Boolean] {
-                override def discrete: Stream[F, Boolean] = signal.discrete.translate(liftLower.lift)
-                override def continuous: Stream[F, Boolean] = signal.continuous.translate(liftLower.lift)
-                override def get: F[Boolean] = liftLower.lift(signal.get)
-              }
-            )
+            (fkFuture.compose(lower), fk.compose(lower), new Signal[F, Boolean] {
+              override def discrete: Stream[F, Boolean] = signal.discrete.translate(provide.liftK)
+              override def continuous: Stream[F, Boolean] = signal.continuous.translate(provide.liftK)
+              override def get: F[Boolean] = provide.lift(signal.get)
+            })
         }
-        .map(_.translate(liftLower.lower("homekit")))
+        .map(_.translate(lower))
   }
 }

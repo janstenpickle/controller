@@ -5,7 +5,6 @@ import cats.effect.{Concurrent, Timer}
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.apply._
 import cats.syntax.either._
-import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{~>, Semigroupal}
 import eu.timepit.refined.collection.NonEmpty
@@ -17,15 +16,17 @@ import io.circe.refined._
 import io.circe.syntax._
 import io.janstenpickle.controller.api.ValidatingOptionalQueryParamDecoderMatcher
 import io.janstenpickle.controller.api.service.ConfigService
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.ConfigResult
 import io.janstenpickle.controller.events.EventPubSub
 import io.janstenpickle.controller.http4s.error.ControlError
-import io.janstenpickle.controller.http4s.trace.Http4sUtils
 import io.janstenpickle.controller.model._
 import io.janstenpickle.controller.model.event.ConfigEvent._
 import io.janstenpickle.controller.model.event.{ActivityUpdateEvent, ConfigEvent, SwitchEvent}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.http4s.common.{AnyK, Http4sHeaders}
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
+import io.janstenpickle.trace4cats.model.SpanKind
 import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
@@ -36,13 +37,14 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
   service: ConfigService[F],
   activityPubSub: EventPubSub[F, ActivityUpdateEvent],
   configEventPubSub: EventPubSub[F, ConfigEvent],
-  switchEventPubSub: EventPubSub[F, SwitchEvent]
+  switchEventPubSub: EventPubSub[F, SwitchEvent],
+  k: ResourceKleisli[G, SpanName, Span[G]]
 )(
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
   trace: Trace[F],
-  liftLower: ContextualLiftLower[G, F, String]
+  provide: Provide[G, F, Span[G]]
 ) extends Common[F] {
   import ConfigApi._
 
@@ -52,17 +54,19 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
     op: F[A],
     errorMap: ControlError => A
   )(interval: FiniteDuration) = {
-    val lowerName: F ~> G = liftLower.lower(req.uri.path)
+    val lowerName: F ~> G = new (F ~> G) {
+      override def apply[AA](fa: F[AA]): G[AA] = k.run(req.uri.path).use(provide.provide(fa))
+    }
 
     val stream = Stream
       .fixedRate[F](interval)
       .map(_ => true)
       .mergeHaltBoth(subscriptionStream.groupWithin(1000, 50.millis).map(_ => true))
-      .evalMap(_ => trace.putAll(Http4sUtils.requestFields(req): _*) *> ah.handle(op)(errorMap))
+      .evalMap(_ => trace.putAll(Http4sHeaders.requestFields(req.covary[AnyK]): _*) *> ah.handle(op)(errorMap))
       .map(a => Text(a.asJson.noSpaces))
       .translate(lowerName)
 
-    liftLower
+    provide
       .lift(
         WebSocketBuilder[G]
           .build(
@@ -70,7 +74,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
             _.map(_ => ()) // throw away input from listener
           )
       )
-      .map(_.mapK(liftLower.lift))
+      .map(_.mapK(provide.liftK))
   }
 
   private def intervalOrBadRequest(

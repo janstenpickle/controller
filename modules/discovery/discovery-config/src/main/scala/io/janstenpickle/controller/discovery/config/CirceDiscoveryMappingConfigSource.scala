@@ -2,7 +2,6 @@ package io.janstenpickle.controller.discovery.config
 
 import cats.effect.{Concurrent, Resource, Sync, Timer}
 import io.circe.{KeyDecoder, KeyEncoder}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
 import io.janstenpickle.controller.configsource.circe.{CirceConfigSource, Events}
@@ -10,7 +9,9 @@ import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, KeySeparator}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceDiscoveryMappingConfigSource {
   implicit val keyDecoder: KeyDecoder[DiscoveredDeviceKey] = KeyDecoder { value =>
@@ -27,9 +28,10 @@ object CirceDiscoveryMappingConfigSource {
   def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
-    implicit liftLower: ContextualLiftLower[G, F, String]
+    implicit provide: Provide[G, F, Span[G]]
   ): Resource[F, WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue]] =
     CirceConfigSource.polling[F, G, DiscoveredDeviceKey, DiscoveredDeviceValue](
       "discovered.devices",
@@ -39,6 +41,7 @@ object CirceDiscoveryMappingConfigSource {
         discoveryEventPublisher,
         DeviceDiscoveryEvent.DeviceDiscovered,
         (k, _) => DeviceDiscoveryEvent.DeviceRemoved(k)
-      )
+      ),
+      k
     )
 }

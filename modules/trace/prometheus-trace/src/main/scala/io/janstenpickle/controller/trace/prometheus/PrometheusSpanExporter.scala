@@ -75,20 +75,20 @@ object PrometheusSpanExporter {
               lazy val attributes = span.allAttributes
 
               lazy val stats = attributes.get("stats").fold(true) {
-                case BooleanValue(b) => b
+                case BooleanValue(b) => b.value
                 case _ => true
               }
 
               lazy val labels = attributes
                 .collect {
-                  case (k, StringValue(v)) => sanitise(k) -> v
-                  case (k, BooleanValue(v)) => sanitise(k) -> v.toString
+                  case (k, StringValue(v)) => sanitise(k) -> v.value
+                  case (k, BooleanValue(v)) => sanitise(k) -> v.value.toString
                 }
                 .updated(ServiceNameHeader, span.serviceName)
 
               lazy val doubleValues = attributes.collect {
-                case (k, LongValue(v)) => k -> v.toDouble
-                case (k, DoubleValue(v)) => k -> v
+                case (k, LongValue(v)) => k -> v.value.toDouble
+                case (k, DoubleValue(v)) => k -> v.value
               }
 
               lazy val labelKeys = labels.keys.toList

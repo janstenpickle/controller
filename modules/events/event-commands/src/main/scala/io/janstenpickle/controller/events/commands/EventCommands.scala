@@ -2,7 +2,7 @@ package io.janstenpickle.controller.events.commands
 
 import cats.Show
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.functor._
@@ -11,7 +11,6 @@ import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.errors.ErrorHandler
@@ -21,7 +20,9 @@ import io.janstenpickle.controller.model.Command.{Remote, Sleep, SwitchOff, Swit
 import io.janstenpickle.controller.model.event.CommandEvent
 import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.events.syntax.stream._
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 
@@ -36,18 +37,19 @@ object EventCommands {
     case Command.Macro(name) => s"Execute macro ${name.value}"
   }
 
-  def apply[F[_]: Concurrent, G[_]](
+  def apply[F[_]: Concurrent, G[_]: BracketThrow](
     subscriber: EventSubscriber[F, CommandEvent],
     context: Context[F],
     `macro`: Macro[F],
     activity: Activity[F],
     remotes: RemoteControls[F],
-    devices: DeviceRename[F]
+    devices: DeviceRename[F],
+    k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],
   )(
     implicit timer: Timer[F],
     trace: Trace[F],
     errorHandler: ErrorHandler[F],
-    liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, F[Unit]] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
       def repeatStream(stream: Stream[F, Unit]): F[Unit] =
@@ -75,7 +77,7 @@ object EventCommands {
           case CommandEvent.RenameDeviceCommand(key, value) =>
             logger.info(s"Rename device with key '$key' to '$value''")
         })
-        .evalMapTrace("run.command") {
+        .evalMapTrace("run.command", k) {
           case CommandEvent.ContextCommand(room, name) =>
             handleErrors(context.action(room, name), s"Failed to execute context action $name in room $room")
           case CommandEvent.ActivityCommand(room, name) =>

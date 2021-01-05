@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.extruder
 
 import java.nio.file.{Files, Path, Paths}
-
 import cats.{~>, Eq}
 import cats.effect._
 import cats.effect.concurrent.Semaphore
@@ -14,11 +13,12 @@ import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 import eu.timepit.refined.types.numeric.PosInt
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.{parser, Json}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource.ConfigFiles
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import org.apache.commons.io.FileUtils
 
 import scala.concurrent.duration.FiniteDuration
@@ -107,8 +107,9 @@ object ConfigFileSource {
     configFile: Path,
     pollInterval: FiniteDuration,
     blocker: Blocker,
-    timeout: FiniteDuration
-  )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, ConfigFileSource[F]] =
+    timeout: FiniteDuration,
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit F: Concurrent[F], provide: Provide[G, F, Span[G]]): Resource[F, ConfigFileSource[F]] =
     Resource.liftF(Slf4jLogger.fromName[F](s"configFilePoller-${configFile.toString}")).flatMap { implicit logger =>
       Resource.liftF(apply[F](configFile, blocker, timeout)).flatMap { source =>
         DataPoller
@@ -117,7 +118,8 @@ object ConfigFileSource {
             pollInterval,
             PosInt(1),
             (data: Data[ConfigFiles], th: Throwable) => F.pure(data.value.copy(error = Some(th))),
-            (_: ConfigFiles, _: ConfigFiles) => F.unit
+            (_: ConfigFiles, _: ConfigFiles) => F.unit,
+            k
           ) { (get, set) =>
             new ConfigFileSource[F] {
               override def configs: F[ConfigFiles] = get()

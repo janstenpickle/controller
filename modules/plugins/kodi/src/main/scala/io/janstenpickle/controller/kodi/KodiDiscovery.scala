@@ -1,10 +1,10 @@
 package io.janstenpickle.controller.kodi
 
 import java.net.{Inet4Address, InetAddress, NetworkInterface}
-
 import cats.{MonadError, Parallel}
 import cats.effect.{Blocker, Clock, Concurrent, ContextShift, Resource, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
+
 import javax.jmdns.{JmDNS, ServiceInfo}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
@@ -18,12 +18,7 @@ import org.http4s.client.Client
 import cats.syntax.functor._
 import cats.derived.auto.eq._
 import eu.timepit.refined.cats._
-import cats.instances.map._
 import cats.instances.string._
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import cats.instances.int._
-import cats.instances.tuple._
-import cats.instances.long._
 import io.janstenpickle.controller.configsource.{ConfigSource, WritableConfigSource}
 import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery, MetadataConstants}
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
@@ -40,7 +35,9 @@ import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 import org.http4s.Uri
 
@@ -131,8 +128,9 @@ object KodiDiscovery {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
-  )(implicit F: Concurrent[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, KodiDiscovery[F]] = {
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit F: Concurrent[F], provide: Provide[G, F, Span[G]]): Resource[F, KodiDiscovery[F]] = {
     val discovery = Resource
       .liftF(
         config.instances
@@ -177,6 +175,7 @@ object KodiDiscovery {
           config.polling.errorCount,
           disc,
           onDeviceUpdate(config, configEventPublisher),
+          k
         )
       else Resource.pure[F, Unit](())
       _ <- Resource.make(disc.devices.flatMap { discovered =>
@@ -213,12 +212,13 @@ object KodiDiscovery {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, KodiDiscovery[F]] = {
     def jmDNS: Resource[F, List[JmDNS]] =
       Resource
@@ -356,7 +356,8 @@ object KodiDiscovery {
       onDeviceRemoved = onDeviceRemoved(config, configEventPublisher, switchEventPublisher),
       onDeviceUpdate = onDeviceUpdate(config, configEventPublisher),
       discoveryEventProducer = discoveryEventPublisher,
-      traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.room.value)
+      traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.room.value),
+      k = k
     ).flatMap { disc =>
       Resource
         .make(

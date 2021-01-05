@@ -5,12 +5,13 @@ import cats.syntax.apply._
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.model.{State, SwitchMetadata}
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import io.janstenpickle.controller.switch.Switch
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -21,8 +22,9 @@ object PollingSwitch {
     underlying: Switch[F],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
-    onUpdate: (State, State) => F[Unit]
-  )(implicit errors: PollingSwitchErrors[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Switch[F]] =
+    onUpdate: (State, State) => F[Unit],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit errors: PollingSwitchErrors[F], provide: Provide[G, F, Span[G]]): Resource[F, Switch[F]] =
     Resource.liftF(Slf4jLogger.fromName[F](s"switchPoller-${underlying.name.value}")).flatMap { implicit logger =>
       DataPoller.traced[F, G, State, Switch[F]](
         "switch",
@@ -33,7 +35,8 @@ object PollingSwitch {
         pollInterval,
         errorThreshold,
         (data: Data[State], th: Throwable) => errors.pollError[State](underlying.name, data.value, data.updated, th),
-        onUpdate
+        onUpdate,
+        k
       ) { (get, update) =>
         new Switch[F] {
           override def name: NonEmptyString = underlying.name

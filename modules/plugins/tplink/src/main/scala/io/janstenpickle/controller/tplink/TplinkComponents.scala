@@ -7,7 +7,6 @@ import cats.syntax.semigroup._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.components.Components
 import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
 import io.janstenpickle.controller.events.EventPublisher
@@ -16,7 +15,9 @@ import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteCon
 import io.janstenpickle.controller.tplink.config.{TplinkActivityConfigSource, TplinkRemoteConfigSource}
 import io.janstenpickle.controller.tplink.device.TplinkDeviceErrors
 import io.janstenpickle.controller.tplink.schedule.TplinkScheduler
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 
@@ -40,8 +41,9 @@ object TplinkComponents {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] = {
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Resource[F, Components[F]] = {
     val emptyComponents = Monoid[Components[F]].empty
 
     if (config.enabled)
@@ -53,7 +55,8 @@ object TplinkComponents {
           remoteEventPublisher,
           switchEventPublisher,
           configEventPublisher,
-          discoveryEventPublisher
+          discoveryEventPublisher,
+          k
         )
         .flatMap { discovery =>
           Resource.liftF(TplinkRemoteControl(config.remoteName, discovery, remoteEventPublisher)).map { remote =>

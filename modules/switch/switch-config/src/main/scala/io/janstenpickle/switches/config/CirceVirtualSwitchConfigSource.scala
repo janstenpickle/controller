@@ -2,7 +2,6 @@ package io.janstenpickle.switches.config
 
 import cats.effect.{Concurrent, Resource, Sync, Timer}
 import cats.syntax.flatMap._
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
 import io.janstenpickle.controller.configsource.circe.{eventSource, CirceConfigSource, Events}
@@ -12,7 +11,9 @@ import io.janstenpickle.controller.model.event.ConfigEvent.{VirtualSwitchAddedEv
 import io.janstenpickle.controller.model.event.SwitchEvent.{SwitchAddedEvent, SwitchRemovedEvent}
 import io.janstenpickle.controller.model.event.{ConfigEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{RemoteSwitchKey, SwitchMetadata, SwitchType, VirtualSwitch}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceVirtualSwitchConfigSource {
 
@@ -20,10 +21,9 @@ object CirceVirtualSwitchConfigSource {
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    switchEventPublisher: EventPublisher[F, SwitchEvent]
-  )(
-    implicit liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, WritableConfigSource[F, RemoteSwitchKey, VirtualSwitch]] =
+    switchEventPublisher: EventPublisher[F, SwitchEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Resource[F, WritableConfigSource[F, RemoteSwitchKey, VirtualSwitch]] =
     CirceConfigSource
       .polling[F, G, RemoteSwitchKey, VirtualSwitch](
         "virtualSwitches",
@@ -42,6 +42,7 @@ object CirceVirtualSwitchConfigSource {
             configEventPublisher,
             (k: RemoteSwitchKey, virtual: VirtualSwitch) => VirtualSwitchAddedEvent(k, virtual, eventSource),
             (k: RemoteSwitchKey, _: VirtualSwitch) => VirtualSwitchRemovedEvent(k, eventSource)
-          )(diff)
+          )(diff),
+        k
       )
 }

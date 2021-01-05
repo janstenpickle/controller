@@ -12,14 +12,15 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.syntax._
 import io.circe.{Decoder, Encoder, KeyDecoder, KeyEncoder}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, WritableConfigSource}
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.SetEditable
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 
@@ -72,10 +73,11 @@ object CirceConfigSource {
     config: PollingConfig,
     configFileSource: ConfigFileSource[F],
     onUpdate: Diff[K, V] => F[Unit],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Sync[F],
     eq: Eq[ConfigResult[K, V]],
-    liftLower: ContextualLiftLower[G, F, String],
+    provide: Provide[G, F, Span[G]],
     monoid: Monoid[ConfigResult[K, V]],
     setEditable: SetEditable[V]
   ): Resource[F, WritableConfigSource[F, K, V]] =
@@ -97,7 +99,8 @@ object CirceConfigSource {
               o.values.filter { case (k, v) => n.values.contains(k) && Eq[V].neqv(v, n.values(k)) }.toList
 
             onUpdate(Diff(oldList.diff(newList), newList.diff(oldList), updatedList))
-          }
+          },
+          k
         ) { (getData, update) =>
           TracedConfigSource.writable(
             new WritableConfigSource[F, K, V] {

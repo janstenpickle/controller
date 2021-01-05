@@ -6,7 +6,6 @@ import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.config.CirceMacroConfigSource
 import io.janstenpickle.controller.activity.config.{CirceActivityConfigSource, CirceCurrentActivityConfigSource}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe._
 import io.janstenpickle.controller.coordinator.config.Configuration.ConfigData
@@ -32,7 +31,9 @@ import io.janstenpickle.switches.config.{
   CirceSwitchStateConfigSource,
   CirceVirtualSwitchConfigSource
 }
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object ConfigSources {
 
@@ -41,8 +42,9 @@ object ConfigSources {
     configEventPublisher: EventPublisher[F, ConfigEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     activityEventPublisher: EventPublisher[F, ActivityUpdateEvent],
-    blocker: Blocker
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[
+    blocker: Blocker,
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Resource[
     F,
     (
       WritableConfigSource[F, String, Activity],
@@ -58,23 +60,25 @@ object ConfigSources {
   ] = {
     def fileSource(name: String) =
       ConfigFileSource
-        .polling[F, G](config.dir.resolve(name), config.polling.pollInterval, blocker, config.writeTimeout)
+        .polling[F, G](config.dir.resolve(name), config.polling.pollInterval, blocker, config.writeTimeout, k)
 
     Parallel
       .parMap9(
-        fileSource("activity").flatMap(CirceActivityConfigSource[F, G](_, config.polling, configEventPublisher)),
-        fileSource("button").flatMap(CirceButtonConfigSource[F, G](_, config.polling, configEventPublisher)),
-        fileSource("remote").flatMap(CirceRemoteConfigSource[F, G](_, config.polling, configEventPublisher)),
+        fileSource("activity").flatMap(CirceActivityConfigSource[F, G](_, config.polling, configEventPublisher, k)),
+        fileSource("button").flatMap(CirceButtonConfigSource[F, G](_, config.polling, configEventPublisher, k)),
+        fileSource("remote").flatMap(CirceRemoteConfigSource[F, G](_, config.polling, configEventPublisher, k)),
         fileSource("virtual-switch")
-          .flatMap(CirceVirtualSwitchConfigSource[F, G](_, config.polling, configEventPublisher, switchEventPublisher)),
+          .flatMap(
+            CirceVirtualSwitchConfigSource[F, G](_, config.polling, configEventPublisher, switchEventPublisher, k)
+          ),
         fileSource("multi-switch")
-          .flatMap(CirceMultiSwitchConfigSource[F, G](_, config.polling, configEventPublisher)),
+          .flatMap(CirceMultiSwitchConfigSource[F, G](_, config.polling, configEventPublisher, k)),
         fileSource("current-activity")
-          .flatMap(CirceCurrentActivityConfigSource[F, G](_, config.polling, activityEventPublisher)),
-        fileSource("schedule").flatMap(CirceScheduleConfigSource[F, G](_, config.polling)),
-        fileSource("macro").flatMap(CirceMacroConfigSource[F, G](_, config.polling, configEventPublisher)),
+          .flatMap(CirceCurrentActivityConfigSource[F, G](_, config.polling, activityEventPublisher, k)),
+        fileSource("schedule").flatMap(CirceScheduleConfigSource[F, G](_, config.polling, k)),
+        fileSource("macro").flatMap(CirceMacroConfigSource[F, G](_, config.polling, configEventPublisher, k)),
         fileSource("switch-state")
-          .flatMap(CirceSwitchStateConfigSource[F, G](_, config.polling, switchEventPublisher.narrow))
+          .flatMap(CirceSwitchStateConfigSource[F, G](_, config.polling, switchEventPublisher.narrow, k))
       )(Tuple9.apply)
 
   }

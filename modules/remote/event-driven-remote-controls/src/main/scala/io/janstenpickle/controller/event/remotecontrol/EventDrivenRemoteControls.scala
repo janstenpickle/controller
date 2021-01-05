@@ -2,21 +2,22 @@ package io.janstenpickle.controller.event.remotecontrol
 
 import cats.Applicative
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.{Cache, CacheResource}
 import io.janstenpickle.controller.events.syntax.all._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.event.{CommandEvent, RemoteEvent}
 import io.janstenpickle.controller.model.{Command, RemoteCommand, RemoteCommandSource}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue
 import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
@@ -25,17 +26,18 @@ import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 object EventDrivenRemoteControls {
-  def apply[F[_]: Concurrent: Timer, G[_]](
+  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
     eventListener: EventSubscriber[F, RemoteEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
     commandTimeout: FiniteDuration,
     learnTimeout: FiniteDuration,
+    k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],
     cacheTimeout: FiniteDuration = 20.minutes
   )(
     implicit errors: RemoteControlErrors[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, RemoteControls[F]] = {
 
     def span[A](name: String, remoteName: NonEmptyString, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
@@ -44,7 +46,7 @@ object EventDrivenRemoteControls {
       }
 
     def listen(commands: Cache[F, NonEmptyString, Set[RemoteCommand]], remotes: Cache[F, NonEmptyString, Boolean]) =
-      eventListener.filterEvent(_.source != source).subscribeEvent.evalMapTrace("receive.remote.event") {
+      eventListener.filterEvent(_.source != source).subscribeEvent.evalMapTrace("receive.remote.event", k) {
         case RemoteEvent.RemoteLearntCommand(remoteName, remoteDevice, commandSource, command) =>
           span(
             "remotes.learnt.command",

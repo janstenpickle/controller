@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.event.switch
 
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.eq._
@@ -10,7 +10,6 @@ import cats.syntax.functor._
 import cats.{Applicative, FlatMap}
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.{Cache, CacheResource}
 import io.janstenpickle.controller.events.syntax.all._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
@@ -23,7 +22,9 @@ import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{Command, State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.switch.trace.TracedSwitch
 import io.janstenpickle.controller.switch.{Switch, SwitchErrors, SwitchProvider}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.TimeoutException
@@ -32,16 +33,17 @@ import scala.util.control.NoStackTrace
 
 object EventDrivenSwitchProvider {
 
-  def apply[F[_]: Concurrent: Timer, G[_]](
+  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
     eventSubscriber: EventSubscriber[F, SwitchEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
     commandTimeout: FiniteDuration,
+    k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],
     cacheTimeout: FiniteDuration = 20.minutes
   )(
     implicit errors: SwitchErrors[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, SwitchProvider[F]] = {
 
     def makeSwitch(key: SwitchKey, meta: SwitchMetadata, states: Cache[F, SwitchKey, State]): Switch[F] =
@@ -69,7 +71,7 @@ object EventDrivenSwitchProvider {
       }
 
     def listen(switches: Cache[F, SwitchKey, Switch[F]], states: Cache[F, SwitchKey, State]) =
-      eventSubscriber.filterEvent(_.source != source).subscribeEvent.evalMapTrace("switch.receive") {
+      eventSubscriber.filterEvent(_.source != source).subscribeEvent.evalMapTrace("switch.receive", k) {
         case SwitchAddedEvent(key, metadata) =>
           span("switch.added", key)(switches.set(key, makeSwitch(key, metadata, states)))
         case SwitchRemovedEvent(key) =>

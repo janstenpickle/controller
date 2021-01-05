@@ -2,7 +2,6 @@ package io.janstenpickle.controller.tplink
 
 import java.io.ByteArrayInputStream
 import java.net.{DatagramPacket, DatagramSocket, InetAddress, SocketTimeoutException}
-
 import cats.derived.auto.eq._
 import cats.effect.{Blocker, Clock, Concurrent, ContextShift, Resource, Timer}
 import cats.effect.syntax.concurrent._
@@ -20,7 +19,6 @@ import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
 import io.circe.parser._
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.device.{TplinkDevice, TplinkDeviceErrors}
@@ -37,7 +35,9 @@ import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEven
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room, SwitchKey}
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
 import io.janstenpickle.controller.tplink.config.TplinkRemoteConfigSource
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
@@ -72,13 +72,14 @@ object TplinkDiscovery {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     errors: TplinkDeviceErrors[F] with ErrorHandler[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, TplinkDiscovery[F]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
     def refineF[A](refined: Either[String, A]): F[A] =
       F.fromEither(refined.leftMap(new RuntimeException(_) with NoStackTrace))
@@ -277,7 +278,8 @@ object TplinkDiscovery {
       onDeviceRemoved = onDeviceRemoved,
       onDeviceUpdate = onDeviceUpdate,
       discoveryEventProducer = discoveryEventPublisher,
-      traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.roomName.value)
+      traceParams = device => List("device.name" -> device.name.value, "device.room" -> device.roomName.value),
+      k = k
     ).flatMap { disc =>
       Resource
         .make(

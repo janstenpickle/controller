@@ -3,7 +3,6 @@ package io.janstenpickle.controller.remotecontrol.git
 import java.nio.file.{Path, Paths}
 import java.time.Instant
 import java.util.Base64
-
 import cats.data.{NonEmptyList, OptionT}
 import cats.derived.auto.eq._
 import cats.effect._
@@ -14,22 +13,22 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.traverse._
-import cats.{Functor, Parallel}
+import cats.{~>, Functor, Parallel}
 import eu.timepit.refined.cats._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import eu.timepit.refined.{refineMV, refineV}
-import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.Decoder
 import io.circe.generic.auto._
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.model.{CommandPayload, RemoteCommandKey}
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.remotecontrol.git.GithubRemoteCommandConfigSource._
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
@@ -101,11 +100,12 @@ object GithubRemoteCommandConfigSource {
   def apply[F[_]: Parallel, G[_]: Concurrent: Timer](
     client: Client[F],
     config: Config,
-    onUpdate: (Any, Any) => F[Unit]
+    onUpdate: (Any, Any) => F[Unit],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Sync[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, GithubRemoteCommandConfigSource[F]] = Resource.liftF(Slf4jLogger.fromClass[F](this.getClass)).flatMap {
     logger =>
       val dsl = new Http4sDsl[F] with Http4sClientDsl[F] {}
@@ -257,12 +257,14 @@ object GithubRemoteCommandConfigSource {
 
       def updatePoller(cache: LocalCache[F]) =
         if (config.autoUpdate) {
-          val log = logger.mapK(liftLower.lower)
+          val log = logger.mapK(new (F ~> G) {
+            override def apply[A](fa: F[A]): G[A] = Span.noop[G].use(provide.provide(fa))
+          })
 
           def stream =
             fs2.Stream
               .fixedRate[G](config.gitPollInterval)
-              .evalMap(_ => liftLower.lower("github.check.updates")(checkUpdates(cache)))
+              .evalMap(_ => k.run("github.check.updates").use(provide.provide(checkUpdates(cache))))
 
           Concurrent[G]
             .background(
@@ -276,7 +278,7 @@ object GithubRemoteCommandConfigSource {
                 .compile
                 .drain
             )
-            .mapK(liftLower.lift)
+            .mapK(provide.liftK)
             .map(_ => ())
         } else {
           Resource.pure[F, Unit](())
@@ -288,7 +290,8 @@ object GithubRemoteCommandConfigSource {
             _ => listRemote,
             config.gitPollInterval,
             config.pollErrorThreshold,
-            onUpdate
+            onUpdate,
+            k
           )((getData, _) => getData)
         }
 
@@ -296,7 +299,8 @@ object GithubRemoteCommandConfigSource {
           config.localCacheDir,
           config.cachePollInterval,
           config.pollErrorThreshold,
-          onUpdate
+          onUpdate,
+          k
         )
 
         _ <- updatePoller(localCache)

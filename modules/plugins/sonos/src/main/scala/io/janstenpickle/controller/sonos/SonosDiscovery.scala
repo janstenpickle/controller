@@ -20,7 +20,6 @@ import com.vmichalak.sonoscontroller.{CommandBuilder, SonosDevice => JSonosDevic
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.{Pipe, Stream}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
@@ -33,7 +32,9 @@ import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 
 import scala.xml._
@@ -62,12 +63,13 @@ object SonosDiscovery {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, SonosDiscovery[F]] =
     Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
       Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
@@ -204,7 +206,8 @@ object SonosDiscovery {
           onDeviceRemoved = onDeviceRemoved,
           onDeviceUpdate = onDeviceUpdate,
           discoveryEventProducer = discoveryEventPublisher,
-          traceParams = device => List("device.name" -> device.name.value, "device.id" -> device.id)
+          traceParams = device => List("device.name" -> device.name.value, "device.id" -> device.id),
+          k = k
         ).flatMap { disc =>
           Resource
             .make(

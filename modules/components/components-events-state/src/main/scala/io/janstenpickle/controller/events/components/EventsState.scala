@@ -31,7 +31,7 @@ case class EventsState[F[_]](
       for {
         millis <- clock.realTime(TimeUnit.MILLISECONDS)
         headers <- trace.headers
-      } yield as.map(Event[A](_, Instant.ofEpochMilli(millis), eventSource, headers))
+      } yield as.map(Event[A](_, Instant.ofEpochMilli(millis), eventSource, headers.values))
 
     config.complete(
       (

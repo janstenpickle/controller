@@ -1,8 +1,5 @@
 package io.janstenpickle.controller.kodi
 
-import java.net.http.HttpClient
-import java.util.concurrent.{Executor, Executors, ThreadFactory}
-
 import cats.data.{EitherT, Kleisli, OptionT}
 import cats.effect.{Blocker, Clock, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
 import cats.mtl.ApplicativeHandle
@@ -17,7 +14,6 @@ import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.`macro`.store.{MacroStore, TracedMacroStore}
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.advertiser.{Advertiser, Discoverer, JmDNSResource, ServiceType}
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.config.CirceDiscoveryMappingConfigSource
 import io.janstenpickle.controller.events.TopicEvents
@@ -26,23 +22,27 @@ import io.janstenpickle.controller.events.websocket.ClientWs
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.http4s.client.EitherTClient
 import io.janstenpickle.controller.http4s.error.{ControlError, Handler}
-import io.janstenpickle.controller.http4s.trace.implicits._
 import io.janstenpickle.controller.plugin.api.PluginApi
 import io.janstenpickle.controller.server.Server
 import io.janstenpickle.controller.switch.Switches
-
 import io.janstenpickle.controller.trace.prometheus.PrometheusSpanCompleter
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.avro.AvroSpanCompleter
-import io.janstenpickle.trace4cats.inject.{EntryPoint, Trace}
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.http4s.client.syntax._
+import io.janstenpickle.trace4cats.http4s.server.syntax._
+import io.janstenpickle.trace4cats.inject.{EntryPoint, ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.kernel.SpanSampler
-import io.janstenpickle.trace4cats.model.{SpanKind, TraceProcess}
+import io.janstenpickle.trace4cats.model.{SpanKind, TraceHeaders, TraceProcess}
 import io.prometheus.client.CollectorRegistry
 import org.http4s.client.Client
 import org.http4s.client.jdkhttpclient.JdkHttpClient
 import org.http4s.client.middleware.{GZip, Metrics}
 import org.http4s.metrics.prometheus.Prometheus
 import org.http4s.{HttpRoutes, Request, Response}
+
+import java.net.http.HttpClient
+import java.util.concurrent.{Executor, Executors, ThreadFactory}
 
 object Module {
   private final val serviceName = "kodi"
@@ -99,36 +99,18 @@ object Module {
   ): Resource[F, HttpRoutes[F]] = {
     type G[A] = Kleisli[F, Span[F], A]
 
-    val lift = λ[F ~> G](fa => Kleisli(_ => fa))
+    val lower = λ[G ~> F](ga => Span.noop[F].use(ga.run))
 
-    implicit val liftLower: ContextualLiftLower[F, G, String] = ContextualLiftLower[F, G, String](lift, _ => lift)(
-      λ[G ~> F](ga => Span.noop[F].use(ga.run)),
-      name => λ[G ~> F](ga => ep.root(name).use(ga.run))
-    )
-
-    implicit val liftLowerContext: ContextualLiftLower[F, G, (String, Map[String, String])] =
-      ContextualLiftLower[F, G, (String, Map[String, String])](lift, _ => lift)(
-        λ[G ~> F](ga => Span.noop[F].use(ga.run)), {
-          case (name, headers) => λ[G ~> F](ga => ep.continueOrElseRoot(name, SpanKind.Consumer, headers).use(ga.run))
-        }
-      )
-
-    eitherTComponents[G, F](config, ep.lowerT(client))
-      .mapK(liftLower.lower)
-      .map { routes =>
-        ep.liftT(routes)
-      }
+    eitherTComponents[G, F](config, client.liftTrace(), ep)
+      .mapK(lower)
+      .map(_.inject(ep))
   }
 
   private def eitherTComponents[F[_]: ContextShift: Timer: Parallel, M[_]: ConcurrentEffect: ContextShift: Timer](
     config: Configuration.Config,
     client: Client[F],
-  )(
-    implicit F: Concurrent[F],
-    trace: Trace[F],
-    liftLower: ContextualLiftLower[M, F, String],
-    liftLowerContext: ContextualLiftLower[M, F, (String, Map[String, String])]
-  ): Resource[F, HttpRoutes[F]] = {
+    ep: EntryPoint[M]
+  )(implicit F: Concurrent[F], trace: Trace[F], pv: Provide[M, F, Span[M]]): Resource[F, HttpRoutes[F]] = {
     type G[A] = EitherT[F, ControlError, A]
 
     val lift = λ[F ~> G](EitherT.liftF(_))
@@ -136,13 +118,12 @@ object Module {
     val lower =
       λ[G ~> F](ga => ga.value.flatMap(_.fold(ApplicativeError[F, Throwable].raiseError, Applicative[F].pure)))
 
-    implicit val ll: ContextualLiftLower[M, G, String] = liftLower.imapK[G](lift)(lower)
-    implicit val llc: ContextualLiftLower[M, G, (String, Map[String, String])] = liftLowerContext.imapK[G](lift)(lower)
+    implicit val provide: Provide[M, G, Span[M]] = pv.imapK(lift, lower)
 
     Resource
       .liftF(Slf4jLogger.fromName[G]("Kodi Error"))
       .flatMap { implicit logger =>
-        tracedComponents[G, M](config, EitherTClient[F, ControlError](client)).map { routes =>
+        tracedComponents[G, M](config, EitherTClient[F, ControlError](client), ep).map { routes =>
           val r = Kleisli[OptionT[F, *], Request[F], Response[F]] { req =>
             OptionT(Handler.handleControlError[G](routes.run(req.mapK(lift)).value)).mapK(lower).map(_.mapK(lower))
           }
@@ -155,12 +136,9 @@ object Module {
 
   private def tracedComponents[F[_]: Concurrent: ContextShift: Timer: Trace: Parallel: ErrorInterpreter, G[_]: ConcurrentEffect: ContextShift: Timer](
     config: Configuration.Config,
-    client: Client[F]
-  )(
-    implicit ah: ApplicativeHandle[F, ControlError],
-    liftLower: ContextualLiftLower[G, F, String],
-    liftLowerContext: ContextualLiftLower[G, F, (String, Map[String, String])]
-  ): Resource[F, HttpRoutes[F]] = {
+    client: Client[F],
+    ep: EntryPoint[G]
+  )(implicit ah: ApplicativeHandle[F, ControlError], provide: Provide[G, F, Span[G]]): Resource[F, HttpRoutes[F]] = {
     def makeBlocker(name: String) =
       Blocker.fromExecutorService(Sync[F].delay(Executors.newCachedThreadPool(new ThreadFactory {
         def newThread(r: Runnable) = {
@@ -169,6 +147,9 @@ object Module {
           t
         }
       })))
+
+    val k: ResourceKleisli[G, SpanName, Span[G]] =
+      ep.toKleisli.local(name => (name, SpanKind.Internal, TraceHeaders.empty))
 
     for {
       events <- Resource.liftF(TopicEvents[F])
@@ -180,10 +161,16 @@ object Module {
           config.dir.resolve("discovery-mapping"),
           config.polling.pollInterval,
           workBlocker,
-          config.writeTimeout
+          config.writeTimeout,
+          k
         )
 
-      discoverySource <- CirceDiscoveryMappingConfigSource[F, G](fileSource, config.polling, events.discovery.publisher)
+      discoverySource <- CirceDiscoveryMappingConfigSource[F, G](
+        fileSource,
+        config.polling,
+        events.discovery.publisher,
+        k
+      )
 
       host <- Resource.liftF(Server.hostname[F](config.host))
 
@@ -194,7 +181,13 @@ object Module {
           .map(services => Configuration.Coordinator(services.head.addresses.head, services.head.port))
       )(Resource.pure[F, Configuration.Coordinator])
 
-      eventsState <- ClientWs.send[F, G](coordinator.host, coordinator.port, workBlocker, events)
+      eventsState <- ClientWs.send[F, G, Span[G]](
+        coordinator.host,
+        coordinator.port,
+        workBlocker,
+        events,
+        ep.toKleisli.local(name => (name, SpanKind.Producer, TraceHeaders.empty))
+      )
 
       components <- KodiComponents[F, G](
         client,
@@ -205,6 +198,7 @@ object Module {
         events.switch.publisher,
         events.config.publisher,
         events.discovery.publisher,
+        k
       )
 
       _ <- Resource.liftF(eventsState.completeWithComponents(components, "kodi", events.source))
@@ -231,10 +225,19 @@ object Module {
         Activity.noop[F],
         components.remotes,
         components.rename,
+        ep.toKleisli.local { case (name, headers) => (name, SpanKind.Consumer, TraceHeaders(headers)) }
       )
 
       _ <- Advertiser[F](jmdns, config.server.port, ServiceType.Plugin, NonEmptyString("Kodi"))
-      api <- Resource.liftF(PluginApi[F, G](events, components, switches, mac))
+      api <- Resource.liftF(
+        PluginApi[F, G](
+          events,
+          components,
+          switches,
+          mac,
+          ep.toKleisli.local(name => (name, SpanKind.Server, TraceHeaders.empty))
+        )
+      )
     } yield api
   }
 }

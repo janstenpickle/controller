@@ -2,7 +2,6 @@ package io.janstenpickle.controller.homekit
 
 import java.math.BigInteger
 import java.util.Base64
-
 import cats.derived.auto.eq._
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.instances.string._
@@ -21,16 +20,16 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.generic.extras.Configuration
 import io.circe.{Codec, Decoder, Encoder}
 import io.circe.generic.extras.semiauto._
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
 import io.circe.syntax._
 import io.github.hapjava.server.HomekitAuthInfo
 import io.github.hapjava.server.impl.HomekitServer
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue
-import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 
 import scala.concurrent.duration._
 import scala.util.Try
@@ -63,11 +62,12 @@ object ControllerHomekitAuthInfo {
 
   case class Config(pollInterval: FiniteDuration = 30.seconds, errorThreshold: PosInt = PosInt(3))
 
-  def apply[F[_], G[_]: Concurrent: Timer](configFile: ConfigFileSource[F], pollConfig: Config, fk: F ~> Id)(
-    implicit F: Concurrent[F],
-    trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
-  ): Resource[F, HomekitAuthInfo] = {
+  def apply[F[_], G[_]: Concurrent: Timer](
+    configFile: ConfigFileSource[F],
+    pollConfig: Config,
+    fk: F ~> Id,
+    k: ResourceKleisli[G, String, Span[G]]
+  )(implicit F: Concurrent[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, HomekitAuthInfo] = {
     def load(current: Data[AuthInfo]): F[AuthInfo] =
       for {
         config <- configFile.configs.map(_.json)
@@ -84,7 +84,8 @@ object ControllerHomekitAuthInfo {
         load(_),
         pollConfig.pollInterval,
         pollConfig.errorThreshold,
-        (_: AuthInfo, _: AuthInfo) => F.unit
+        (_: AuthInfo, _: AuthInfo) => F.unit,
+        k
       ) { (get, update) =>
         new HomekitAuthInfo {
 

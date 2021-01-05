@@ -13,10 +13,11 @@ import eu.timepit.refined.types.numeric.PosInt
 import fs2.{Pipe, Stream}
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
 import scala.concurrent.duration.FiniteDuration
@@ -28,8 +29,9 @@ object DeviceState {
     errorCount: PosInt,
     discovery: Discovery[F, K, V],
     onUpdate: Pipe[F, V, Unit],
+    k: ResourceKleisli[G, SpanName, Span[G]],
     traceParams: V => List[(String, AttributeValue)] = (_: V) => List.empty
-  )(implicit trace: Trace[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, Unit] = {
+  )(implicit trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, Unit] = {
     implicit val eq: Eq[Map[String, V]] = Eq.by(_.keySet)
 
     def span[A](name: String)(fa: F[A]): F[A] = trace.span(name)(trace.put("device.type", deviceType) *> fa)
@@ -77,7 +79,8 @@ object DeviceState {
         (current: Data[Map[String, V]]) => deviceState(current.value),
         pollInterval,
         errorCount,
-        (_: Map[String, V], _: Map[String, V]) => Applicative[F].unit
+        (_: Map[String, V], _: Map[String, V]) => Applicative[F].unit,
+        k,
       ) { (_, _) =>
         ()
       }

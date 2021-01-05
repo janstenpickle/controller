@@ -18,7 +18,7 @@ object TracedSwitch {
       override val device: NonEmptyString = switch.device
 
       private val fields: Seq[(String, AttributeValue)] = extraFields ++ metadata.values.view
-        .mapValues(StringValue) ++ Seq[(String, AttributeValue)](
+        .mapValues(StringValue(_)) ++ Seq[(String, AttributeValue)](
         "switch.name" -> name.value,
         "switch.device" -> device.value
       )

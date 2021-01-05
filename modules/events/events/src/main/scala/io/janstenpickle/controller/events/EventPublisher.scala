@@ -24,7 +24,7 @@ trait EventPublisher[F[_], A] { outer =>
 
     override def updateSource(source: String): EventPublisher[F, B] = outer.updateSource(source).contramap(f)
   }
-  def mapK[G[_]](fk: F ~> G, gk: G ~> F): EventPublisher[G, A] = EventPublisher.mapK(fk, gk)(this)
+  def imapK[G[_]](fk: F ~> G, gk: G ~> F): EventPublisher[G, A] = EventPublisher.imapK(fk, gk)(this)
   def updateSource(source: String): EventPublisher[F, A]
 }
 
@@ -36,7 +36,7 @@ object EventPublisher {
     def pub(src: String): EventPublisher[F, A] = new EventPublisher[F, A] {
       override def publish1(a: A): F[Unit] = Trace[F].span("publish1", SpanKind.Producer) {
         trace.headers.flatMap { headers =>
-          Event(a, src, headers).flatMap(evt => topic.publish1(Some(evt)))
+          Event(a, src, headers.values).flatMap(evt => topic.publish1(Some(evt)))
         }
       }
 
@@ -46,7 +46,7 @@ object EventPublisher {
             Stream.evals(
               trace.headers
                 .flatMap { headers =>
-                  as.traverse(Event(_, src, headers).map(Some(_)))
+                  as.traverse(Event(_, src, headers.values).map(Some(_)))
                 }
             )
           }
@@ -54,7 +54,7 @@ object EventPublisher {
 
       override def publish1Event(a: Event[A]): F[Unit] = Trace[F].span("publish1Event", SpanKind.Producer) {
         trace.headers.flatMap { headers =>
-          topic.publish1(Some(a.copy(headers = headers ++ a.headers)))
+          topic.publish1(Some(a.copy(headers = headers.values ++ a.headers)))
         }
       }
 
@@ -66,7 +66,7 @@ object EventPublisher {
     pub(source)
   }
 
-  private def mapK[F[_], G[_], A](fk: F ~> G, gk: G ~> F)(publisher: EventPublisher[F, A]): EventPublisher[G, A] =
+  private def imapK[F[_], G[_], A](fk: F ~> G, gk: G ~> F)(publisher: EventPublisher[F, A]): EventPublisher[G, A] =
     new EventPublisher[G, A] {
       override def publish1(a: A): G[Unit] = fk(publisher.publish1(a))
 
@@ -77,6 +77,6 @@ object EventPublisher {
       override def eventPipe: Pipe[G, Event[A], Unit] = st => publisher.eventPipe(st.translate(gk)).translate(fk)
 
       override def updateSource(source: String): EventPublisher[G, A] =
-        EventPublisher.mapK(fk, gk)(publisher.updateSource(source))
+        EventPublisher.imapK(fk, gk)(publisher.updateSource(source))
     }
 }

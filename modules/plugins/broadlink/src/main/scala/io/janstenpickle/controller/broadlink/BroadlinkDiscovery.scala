@@ -1,9 +1,7 @@
 package io.janstenpickle.controller.broadlink
 
-import java.net.{Inet4Address, InetAddress, NetworkInterface}
-
+import cats.Parallel
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
-import cats.instances.either._
 import cats.instances.list._
 import cats.instances.option._
 import cats.instances.string._
@@ -14,28 +12,28 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.traverse._
-import cats.{Applicative, Parallel}
 import com.github.mob41.blapi.{BLDevice, RM2Device, SP1Device, SP2Device}
 import eu.timepit.refined.cats._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.{Pipe, Stream}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
-import io.janstenpickle.controller.broadlink.remote.{RmRemote, RmRemoteConfig}
-import io.janstenpickle.controller.broadlink.switch.{SpSwitch, SpSwitchConfig}
+import io.janstenpickle.controller.broadlink.remote.RmRemote
+import io.janstenpickle.controller.broadlink.switch.SpSwitch
 import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.discovery.MetadataConstants._
-import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery}
 import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
 import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, DiscoveredDeviceValue, SwitchKey}
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.switches.store.SwitchStateStore
-import io.janstenpickle.trace4cats.inject.Trace
-import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
+import java.net.{Inet4Address, InetAddress, NetworkInterface}
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 
@@ -62,13 +60,14 @@ object BroadlinkDiscovery {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Concurrent[F],
     errorHandler: ErrorHandler[F],
     timer: Timer[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, BroadlinkDiscovery[F]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
     type Dev = BroadlinkDevice[F]
 
@@ -232,7 +231,8 @@ object BroadlinkDiscovery {
             "device.host" -> device.host,
             "device.mac" -> device.mac
           )
-      }
+      },
+      k = k
     )
   }
 }

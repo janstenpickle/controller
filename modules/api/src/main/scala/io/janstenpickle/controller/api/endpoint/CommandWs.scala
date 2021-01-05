@@ -7,10 +7,11 @@ import cats.syntax.functor._
 import fs2.Pipe
 import fs2.concurrent.Queue
 import io.circe.parser._
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.{Event, EventPublisher}
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.event.CommandEvent
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.{Lift, Provide}
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
@@ -20,7 +21,7 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
   implicit F: Concurrent[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
-  liftLower: ContextualLiftLower[G, F, String]
+  lift: Lift[G, F]
 ) extends Common[F] {
   def pipe(q: Queue[G, String]): Pipe[G, WebSocketFrame, Unit] =
     _.map {
@@ -35,12 +36,12 @@ class CommandWs[F[_], G[_]: Concurrent: Clock](publisher: EventPublisher[G, Comm
     }
 
   val ws: F[Response[F]] =
-    liftLower
+    lift
       .lift(for {
         q <- Queue.circularBuffer[G, String](10)
         ws <- WebSocketBuilder[G].build(q.dequeue.map(Text(_)), pipe(q))
       } yield ws)
-      .map(_.mapK(liftLower.lift))
+      .map(_.mapK(lift.liftK))
 
   val routes: HttpRoutes[F] = HttpRoutes.of {
     case GET -> Root / "ws" => ws

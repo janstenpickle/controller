@@ -4,7 +4,6 @@ import cats.Parallel
 import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.kernel.Monoid
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.broadlink.remote.{RmRemoteConfig, RmRemoteControls}
 import io.janstenpickle.controller.broadlink.switch.{SpSwitchConfig, SpSwitchProvider}
 import io.janstenpickle.controller.cache.CacheResource
@@ -16,7 +15,9 @@ import io.janstenpickle.controller.model.{CommandPayload, DiscoveredDeviceKey, D
 import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
 import io.janstenpickle.controller.switches.store.SwitchStateStore
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 
@@ -39,8 +40,9 @@ object BroadlinkComponents {
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
-    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent]
-  )(implicit liftLower: ContextualLiftLower[G, F, String]): Resource[F, Components[F]] =
+    discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit provide: Provide[G, F, Span[G]]): Resource[F, Components[F]] =
     if (config.enabled)
       for {
         remotesCache <- CacheResource[F, RemoteControls[F]](config.remotesCacheTimeout, classOf)
@@ -56,7 +58,8 @@ object BroadlinkComponents {
             remoteEventPublisher,
             switchEventPublisher,
             configEventPublisher,
-            discoveryEventPublisher
+            discoveryEventPublisher,
+            k
           )
       } yield {
         Monoid[Components[F]].empty

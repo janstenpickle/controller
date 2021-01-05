@@ -1,34 +1,33 @@
 package io.janstenpickle.controller.event.config
 
-import cats.effect.concurrent.Ref
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, Resource, Timer}
-import cats.syntax.flatMap._
+import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
 import cats.syntax.functor._
 import cats.{Applicative, Functor}
 import fs2.Stream
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.{Cache, CacheResource}
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
 import io.janstenpickle.controller.events.EventSubscriber
 import io.janstenpickle.controller.events.syntax.stream._
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 import scala.concurrent.duration._
 
 object EventDrivenConfigSource {
-  def apply[F[_]: Concurrent: Timer, G[_], A, K, V](
+  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow, A, K, V](
     subscriber: EventSubscriber[F, A],
     name: String,
     source: String,
-    cacheTimeout: FiniteDuration
-  )(pf: PartialFunction[A, Cache[F, K, V] => F[Unit]])(
-    implicit trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
-  ): Resource[F, ConfigSource[F, K, V]] = {
+    cacheTimeout: FiniteDuration,
+    k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],
+  )(
+    pf: PartialFunction[A, Cache[F, K, V] => F[Unit]]
+  )(implicit trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, ConfigSource[F, K, V]] = {
     def listen(state: Cache[F, K, V]) =
-      subscriber.filterEvent(_.source != source).subscribeEvent.evalMapTrace("config.receive") { a =>
+      subscriber.filterEvent(_.source != source).subscribeEvent.evalMapTrace("config.receive", k) { a =>
         pf.lift(a).fold(Applicative[F].unit)(_.apply(state))
       }
 

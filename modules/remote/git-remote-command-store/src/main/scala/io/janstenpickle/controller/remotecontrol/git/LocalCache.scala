@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.remotecontrol.git
 
 import java.nio.file.{Files, Path, Paths}
-
 import cats.derived.auto.eq._
 import cats.Parallel
 import cats.effect.{Concurrent, Resource, Sync, Timer}
@@ -17,9 +16,10 @@ import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.numeric.PosInt
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.poller.DataPoller
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 
 import scala.concurrent.duration.FiniteDuration
@@ -40,8 +40,9 @@ object LocalCache {
     path: Path,
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
-    onUpdate: (Map[Key, CommandPayload], Map[Key, CommandPayload]) => F[Unit]
-  )(implicit F: Sync[F], liftLower: ContextualLiftLower[G, F, String]): Resource[F, LocalCache[F]] = {
+    onUpdate: (Map[Key, CommandPayload], Map[Key, CommandPayload]) => F[Unit],
+    k: ResourceKleisli[G, SpanName, Span[G]]
+  )(implicit F: Sync[F], provide: Provide[G, F, Span[G]]): Resource[F, LocalCache[F]] = {
     implicit val valueOrder: Ordering[Long] = Ordering.Long.reverse
 
     val underlying: LocalCache[F] = new LocalCache[F] {
@@ -134,7 +135,8 @@ object LocalCache {
         _ => underlying.list,
         pollInterval,
         errorThreshold,
-        onUpdate
+        onUpdate,
+        k
       )(
         (getData, update) =>
           new LocalCache[F] {

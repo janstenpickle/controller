@@ -1,11 +1,8 @@
 package io.janstenpickle.controller.schedule.cron
 
-import java.nio.file.Path
-import java.time.DayOfWeek
-
 import cats.data.NonEmptyList
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
 import cats.effect.syntax.concurrent._
+import cats.effect.{Blocker, BracketThrow, Concurrent, ContextShift, Resource, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.show._
@@ -15,16 +12,19 @@ import fs2.Stream
 import fs2.concurrent.SignallingRef
 import io.chrisdavenport.fuuid.FUUID
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.extruder.ConfigFileSource
 import io.janstenpickle.controller.model.event.CommandEvent
-import io.janstenpickle.controller.schedule.{NamedScheduler, Scheduler}
 import io.janstenpickle.controller.schedule.model.Schedule
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.controller.schedule.{NamedScheduler, Scheduler}
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
+import java.nio.file.Path
+import java.time.DayOfWeek
 import scala.collection.immutable.SortedSet
 import scala.concurrent.duration._
 
@@ -34,28 +34,36 @@ object CronScheduler {
   def apply[F[_]: ContextShift, G[_]: Concurrent: Timer: ContextShift](
     config: Config,
     commandPublisher: EventPublisher[F, CommandEvent],
-    blocker: Blocker
+    blocker: Blocker,
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, Scheduler[F]] =
     for {
       source <- ConfigFileSource
-        .polling[F, G](config.configDir.resolve("schedule"), config.polling.pollInterval, blocker, config.writeTimeout)
-      schedules <- CirceScheduleConfigSource[F, G](source, config.polling)
-      scheduler <- apply[F, G](commandPublisher, schedules)
+        .polling[F, G](
+          config.configDir.resolve("schedule"),
+          config.polling.pollInterval,
+          blocker,
+          config.writeTimeout,
+          k
+        )
+      schedules <- CirceScheduleConfigSource[F, G](source, config.polling, k)
+      scheduler <- apply[F, G](commandPublisher, schedules, k)
     } yield scheduler
 
-  def apply[F[_], G[_]](
+  def apply[F[_], G[_]: BracketThrow](
     commandPublisher: EventPublisher[F, CommandEvent],
-    store: WritableConfigSource[F, String, Schedule]
+    store: WritableConfigSource[F, String, Schedule],
+    k: ResourceKleisli[G, SpanName, Span[G]]
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, Scheduler[F]] =
     Resource
       .liftF(for {
@@ -87,11 +95,16 @@ object CronScheduler {
                         .info(s"Setting up '$id' schedule '${cron.show}' with action ${schedule.commands}")
                         .as(
                           awakeEveryCron(cron) >> Stream.eval(logger.info(s"Running schedule '$id'")) >> Stream
-                            .eval(liftLower.lift(liftLower.lower("run.schedule") {
-                              trace.put("id", id) >> schedule.commands.traverse { cmd =>
-                                commandPublisher.publish1(CommandEvent.MacroCommand(cmd))
-                              }
-                            }))
+                            .eval(
+                              provide.lift(
+                                k.run("run.schedule")
+                                  .use(provide.provide {
+                                    trace.put("id", id) >> schedule.commands.traverse { cmd =>
+                                      commandPublisher.publish1(CommandEvent.MacroCommand(cmd))
+                                    }
+                                  })
+                              )
+                            )
                         )
                     }
 

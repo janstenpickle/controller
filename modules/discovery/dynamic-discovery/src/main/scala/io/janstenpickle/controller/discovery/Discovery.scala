@@ -1,7 +1,5 @@
 package io.janstenpickle.controller.discovery
 
-import java.util.concurrent.TimeUnit
-
 import cats.effect._
 import cats.instances.long._
 import cats.instances.map._
@@ -13,17 +11,18 @@ import cats.syntax.functor._
 import cats.syntax.semigroup._
 import cats.{Eq, FlatMap, Parallel}
 import eu.timepit.refined.types.numeric.PosInt
+import fs2.{Pipe, Stream}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
-import io.janstenpickle.controller.poller.{DataPoller, Empty}
-import fs2.{Pipe, Stream}
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.controller.poller.{DataPoller, Empty}
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue
-import io.janstenpickle.trace4cats.model.AttributeValue.{LongValue, StringValue}
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.duration._
 
 trait Discovery[F[_], K, V] {
@@ -61,12 +60,13 @@ object Discovery {
     onDeviceRemoved: Pipe[F, V, Unit],
     onDeviceUpdate: Pipe[F, V, Unit],
     discoveryEventProducer: EventPublisher[F, DeviceDiscoveryEvent],
+    k: ResourceKleisli[G, SpanName, Span[G]],
     traceParams: V => List[(String, AttributeValue)] = (_: V) => List.empty
   )(
     implicit F: Concurrent[F],
     timer: Timer[F],
     trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, String]
+    provide: Provide[G, F, Span[G]]
   ): Resource[F, Discovery[F, K, V]] = {
     lazy val timeout: Long = (config.discoveryInterval * 3).toMillis
 
@@ -135,7 +135,7 @@ object Discovery {
           .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](
             "discovery",
             "device.type" -> deviceType
-          )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onDevicesUpdate)(
+          )(current => updateDevices(current.value), config.discoveryInterval, config.errorCount, onDevicesUpdate, k)(
             (getData, setData) =>
               new Discovery[F, K, V] {
                 override def devices: F[Discovered[K, V]] = getData().map {
@@ -155,6 +155,7 @@ object Discovery {
               config.errorCount,
               disc,
               onDeviceUpdate,
+              k,
               traceParams
             ).map(_ => disc)
           }

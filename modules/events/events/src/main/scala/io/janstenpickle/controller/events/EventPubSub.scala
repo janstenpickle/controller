@@ -44,7 +44,7 @@ object EventPubSub {
     pubSub: EventPubSub[F, A]
   ): EventPubSub[G, A] =
     new EventPubSub[G, A] {
-      override def publisher: EventPublisher[G, A] = pubSub.publisher.mapK(fk, gk)
+      override def publisher: EventPublisher[G, A] = pubSub.publisher.imapK(fk, gk)
       override def subscriberResource: Resource[G, EventSubscriber[G, A]] =
         pubSub.subscriberResource.mapK(fk).map(_.mapK(fk))
       override def subscriberStream: EventSubscriber[G, A] = pubSub.subscriberStream.mapK(fk)

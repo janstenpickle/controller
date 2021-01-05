@@ -2,34 +2,33 @@ package io.janstenpickle.controller.events.discovery
 
 import cats.Applicative
 import cats.effect.syntax.concurrent._
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import fs2.Stream
-import io.janstenpickle.controller.arrow.ContextualLiftLower
 import io.janstenpickle.controller.cache.{Cache, CacheResource}
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.events.syntax.all._
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.event.{CommandEvent, DeviceDiscoveryEvent}
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
-import io.janstenpickle.trace4cats.inject.Trace
+import io.janstenpickle.trace4cats.Span
+import io.janstenpickle.trace4cats.base.context.Provide
+import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue
 
 import scala.concurrent.duration._
 
 object EventDrivenDeviceRename {
-  def apply[F[_]: Concurrent: Timer, G[_]](
+  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
     discoveryEvents: EventSubscriber[F, DeviceDiscoveryEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
     commandTimeout: FiniteDuration,
+    k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],
     cacheTimeout: FiniteDuration = 20.minutes
-  )(
-    implicit trace: Trace[F],
-    liftLower: ContextualLiftLower[G, F, (String, Map[String, String])]
-  ): Resource[F, DeviceRename[F]] = {
+  )(implicit trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, DeviceRename[F]] = {
 
     def span[A](name: String, key: DiscoveredDeviceKey, extraFields: (String, AttributeValue)*)(f: F[A]): F[A] =
       trace.span(name) {
@@ -40,7 +39,7 @@ object EventDrivenDeviceRename {
       unmapped: Cache[F, DiscoveredDeviceKey, Map[String, String]],
       mapped: Cache[F, DiscoveredDeviceKey, DiscoveredDeviceValue]
     ) =
-      discoveryEvents.filterEvent(_.source != source).subscribeEvent.evalMapTrace("discovery.receive") {
+      discoveryEvents.filterEvent(_.source != source).subscribeEvent.evalMapTrace("discovery.receive", k) {
         case DeviceDiscoveryEvent.UnmappedDiscovered(key, metadata) =>
           span("discovery.discovered.unmapped", key)(unmapped.set(key, metadata) >> mapped.remove(key))
         case DeviceDiscoveryEvent.DeviceDiscovered(key, value) =>
