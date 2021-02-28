@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.switch.virtual
 
-import cats.effect.{Clock, Concurrent, ExitCase, Resource, Sync, Timer}
-import cats.instances.list._
+import cats.effect.{Clock, Concurrent, Resource, Sync, Timer}
 import cats.instances.map._
 import cats.instances.tuple._
 import cats.syntax.applicative._
@@ -42,14 +41,24 @@ object SwitchesForRemote {
   ): F[Map[SwitchKey, Switch[F]]] =
     virtualSwitches.getConfig.map(_.values.map {
       case (_, virtual) =>
-        SwitchKey(NonEmptyString.unsafeFrom(s"${virtual.remote}-${virtual.device}"), virtual.command) ->
+        SwitchKey(NonEmptyString.unsafeFrom(s"${virtual.remote}-${virtual.device}"), virtual.name) ->
           new Switch[F] {
-            override val name: NonEmptyString = virtual.command
+            override val name: NonEmptyString = virtual.name
             override val device: NonEmptyString = virtual.device
             override val metadata: SwitchMetadata =
               SwitchMetadata(room = virtual.room.map(_.value), `type` = SwitchType.Virtual)
 
             val key: SwitchKey = SwitchKey(device, name)
+
+            val onCommand: String = virtual match {
+              case v: VirtualSwitch.Toggle => v.command.value
+              case v: VirtualSwitch.OnOff => v.on.value
+            }
+
+            val offCommand: String = virtual match {
+              case v: VirtualSwitch.Toggle => v.command.value
+              case v: VirtualSwitch.OnOff => v.off.value
+            }
 
             override def getState: F[State] = store.getState(virtual.remote, device, name)
 
@@ -59,7 +68,7 @@ object SwitchesForRemote {
                 .flatMap {
                   case State.On => ().pure[F]
                   case State.Off =>
-                    remotes.send(virtual.remote, virtual.commandSource, device, name) *> store
+                    remotes.send(virtual.remote, virtual.commandSource, device, NonEmptyString.unsafeFrom(onCommand)) *> store
                       .setOn(virtual.remote, device, name) *> eventPublisher.publish1(
                       SwitchStateUpdateEvent(key, State.On)
                     )
@@ -75,7 +84,8 @@ object SwitchesForRemote {
                 .getState(virtual.remote, device, name)
                 .flatMap {
                   case State.On =>
-                    remotes.send(virtual.remote, virtual.commandSource, device, name) *> store
+                    remotes
+                      .send(virtual.remote, virtual.commandSource, device, NonEmptyString.unsafeFrom(offCommand)) *> store
                       .setOff(virtual.remote, device, name) *> eventPublisher.publish1(
                       SwitchStateUpdateEvent(key, State.Off)
                     )
