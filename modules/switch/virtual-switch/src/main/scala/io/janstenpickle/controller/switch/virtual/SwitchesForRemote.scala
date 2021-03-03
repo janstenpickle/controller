@@ -77,7 +77,7 @@ object SwitchesForRemote {
                   case State.On =>
                     virtual match {
                       case _: VirtualSwitch.Toggle => ().pure[F]
-                      case _: VirtualSwitch.OnOff => turnOff
+                      case _: VirtualSwitch.OnOff => turnOn
                     }
                   case State.Off => turnOn
 
@@ -95,7 +95,7 @@ object SwitchesForRemote {
                   case State.Off =>
                     virtual match {
                       case _: VirtualSwitch.Toggle => ().pure[F]
-                      case _: VirtualSwitch.OnOff => turnOn
+                      case _: VirtualSwitch.OnOff => turnOff
                     }
                 }
                 .handleErrorWith { th =>
