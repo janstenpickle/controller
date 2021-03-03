@@ -48,17 +48,25 @@ object SwitchesForRemote {
             override val metadata: SwitchMetadata =
               SwitchMetadata(room = virtual.room.map(_.value), `type` = SwitchType.Virtual)
 
-            val key: SwitchKey = SwitchKey(device, name)
+            private val key: SwitchKey = SwitchKey(device, name)
 
-            val onCommand: String = virtual match {
+            private val onCommand: String = virtual match {
               case v: VirtualSwitch.Toggle => v.command.value
               case v: VirtualSwitch.OnOff => v.on.value
             }
 
-            val offCommand: String = virtual match {
+            private val offCommand: String = virtual match {
               case v: VirtualSwitch.Toggle => v.command.value
               case v: VirtualSwitch.OnOff => v.off.value
             }
+
+            private val turnOff = remotes
+              .send(virtual.remote, virtual.commandSource, device, NonEmptyString.unsafeFrom(offCommand)) *> store
+              .setOff(virtual.remote, device, name) *> eventPublisher.publish1(SwitchStateUpdateEvent(key, State.Off))
+
+            private val turnOn = remotes
+              .send(virtual.remote, virtual.commandSource, device, NonEmptyString.unsafeFrom(onCommand)) *> store
+              .setOn(virtual.remote, device, name) *> eventPublisher.publish1(SwitchStateUpdateEvent(key, State.On))
 
             override def getState: F[State] = store.getState(virtual.remote, device, name)
 
@@ -66,12 +74,12 @@ object SwitchesForRemote {
               store
                 .getState(virtual.remote, device, name)
                 .flatMap {
-                  case State.On => ().pure[F]
-                  case State.Off =>
-                    remotes.send(virtual.remote, virtual.commandSource, device, NonEmptyString.unsafeFrom(onCommand)) *> store
-                      .setOn(virtual.remote, device, name) *> eventPublisher.publish1(
-                      SwitchStateUpdateEvent(key, State.On)
-                    )
+                  case State.On =>
+                    virtual match {
+                      case _: VirtualSwitch.Toggle => ().pure[F]
+                      case _: VirtualSwitch.OnOff => turnOff
+                    }
+                  case State.Off => turnOn
 
                 }
                 .handleErrorWith { th =>
@@ -83,13 +91,12 @@ object SwitchesForRemote {
               store
                 .getState(virtual.remote, device, name)
                 .flatMap {
-                  case State.On =>
-                    remotes
-                      .send(virtual.remote, virtual.commandSource, device, NonEmptyString.unsafeFrom(offCommand)) *> store
-                      .setOff(virtual.remote, device, name) *> eventPublisher.publish1(
-                      SwitchStateUpdateEvent(key, State.Off)
-                    )
-                  case State.Off => ().pure[F]
+                  case State.On => turnOff
+                  case State.Off =>
+                    virtual match {
+                      case _: VirtualSwitch.Toggle => ().pure[F]
+                      case _: VirtualSwitch.OnOff => turnOn
+                    }
                 }
                 .handleErrorWith { th =>
                   eventPublisher
