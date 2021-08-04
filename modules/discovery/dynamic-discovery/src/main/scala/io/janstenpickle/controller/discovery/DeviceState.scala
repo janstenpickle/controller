@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.discovery
 
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.{Async, Resource, Sync}
 import cats.instances.list._
 import cats.instances.set._
 import cats.syntax.applicativeError._
@@ -11,19 +11,19 @@ import cats.syntax.parallel._
 import cats.{Applicative, Eq, Parallel}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.{Pipe, Stream}
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration.FiniteDuration
 
 object DeviceState {
-  def apply[F[_]: Sync: Parallel, G[_]: Concurrent: Timer, K, V <: DiscoveredDevice[F]](
+  def apply[F[_]: Sync: Parallel, G[_]: Async, K, V <: DiscoveredDevice[F]](
     deviceType: String,
     pollInterval: FiniteDuration,
     errorCount: PosInt,
@@ -66,7 +66,7 @@ object DeviceState {
             val devMap = devs.toMap
 
             Stream
-              .fromIterator[F](current.view.filterKeys(!devMap.keySet.contains(_)).values.iterator)
+              .fromIterator[F](current.view.filterKeys(!devMap.keySet.contains(_)).values.iterator, current.size)
               .through(onUpdate)
               .compile
               .drain
@@ -74,7 +74,7 @@ object DeviceState {
           }
       }
 
-    Resource.liftF(Slf4jLogger.fromName[F](s"deviceState-$deviceType")).flatMap { implicit logger =>
+    Resource.eval(Slf4jLogger.fromName[F](s"deviceState-$deviceType")).flatMap { implicit logger =>
       DataPoller.traced[F, G, Map[String, V], Unit]("device.state", "device.type" -> deviceType)(
         (current: Data[Map[String, V]]) => deviceState(current.value),
         pollInterval,

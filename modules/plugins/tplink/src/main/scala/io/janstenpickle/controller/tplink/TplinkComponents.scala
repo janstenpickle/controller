@@ -1,14 +1,14 @@
 package io.janstenpickle.controller.tplink
 
 import cats.Parallel
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Concurrent, Resource}
 import cats.kernel.Monoid
-import cats.syntax.semigroup._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.components.Components
-import io.janstenpickle.controller.discovery.{DeviceRename, Discovery}
+import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
 import io.janstenpickle.controller.remotecontrol.{RemoteControlErrors, RemoteControls}
@@ -32,12 +32,8 @@ object TplinkComponents {
     enabled: Boolean = false
   )
 
-  def apply[F[_]: Concurrent: Timer: ContextShift: Parallel: RemoteControlErrors: TplinkDeviceErrors: PollingSwitchErrors: Trace, G[
-    _
-  ]: Concurrent: Timer](
+  def apply[F[_]: Async: Parallel: RemoteControlErrors: TplinkDeviceErrors: PollingSwitchErrors: Trace, G[_]: Async](
     config: Config,
-    workBlocker: Blocker,
-    discoveryBlocker: Blocker,
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
@@ -50,8 +46,6 @@ object TplinkComponents {
       TplinkDiscovery
         .dynamic[F, G](
           config,
-          workBlocker,
-          discoveryBlocker,
           remoteEventPublisher,
           switchEventPublisher,
           configEventPublisher,
@@ -59,7 +53,7 @@ object TplinkComponents {
           k
         )
         .flatMap { discovery =>
-          Resource.liftF(TplinkRemoteControl(config.remoteName, discovery, remoteEventPublisher)).map { remote =>
+          Resource.eval(TplinkRemoteControl(config.remoteName, discovery, remoteEventPublisher)).map { remote =>
             emptyComponents.copy(
               switches = TplinkSwitchProvider[F](discovery, switchEventPublisher.narrow),
               remotes = RemoteControls(remote),

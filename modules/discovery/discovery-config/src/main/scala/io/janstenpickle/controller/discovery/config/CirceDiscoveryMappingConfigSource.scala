@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.discovery.config
 
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Resource, Sync}
 import io.circe.{KeyDecoder, KeyEncoder}
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
@@ -25,7 +26,7 @@ object CirceDiscoveryMappingConfigSource {
     s"${dk.deviceId}$KeySeparator${dk.deviceType}"
   }
 
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],

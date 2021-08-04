@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.plugin.api
 
 import cats.Parallel
-import cats.effect.{Concurrent, Timer}
+import cats.effect.MonadCancelThrow
+import cats.effect.kernel.Async
 import cats.mtl.ApplicativeHandle
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -21,10 +22,10 @@ import org.http4s.HttpRoutes
 import org.http4s.server.Router
 
 object PluginApi {
-  def apply[F[_]: Concurrent: Parallel: Timer: Trace: ConfigServiceErrors: SwitchErrors: MacroErrors: ApplicativeHandle[
+  def apply[F[_]: Async: Parallel: Trace: ConfigServiceErrors: SwitchErrors: MacroErrors: ApplicativeHandle[
     *[_],
     ControlError
-  ], G[_]: Concurrent: Timer](
+  ], G[_]: MonadCancelThrow](
     events: Events[F],
     components: Components[F],
     switches: Switches[F],

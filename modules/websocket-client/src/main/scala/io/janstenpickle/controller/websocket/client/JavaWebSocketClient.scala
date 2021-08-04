@@ -1,8 +1,10 @@
 package io.janstenpickle.controller.websocket.client
 
 import cats.data.Kleisli
-import cats.effect.syntax.concurrent._
-import cats.effect.{Async, Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.effect.kernel.{Outcome, Temporal}
+import cats.effect.std.Dispatcher
+import cats.effect.syntax.spawn._
+import cats.effect.{Async, MonadCancelThrow, Resource, Sync}
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -18,14 +20,14 @@ import java.net.URI
 import java.nio.ByteBuffer
 import scala.concurrent.duration._
 
-class JavaWebSocketClient[F[_]: ContextShift, G[_], Ctx](
+class JavaWebSocketClient[F[_], G[_]: MonadCancelThrow, Ctx](
   serverUri: URI,
   stringReceiver: Option[String => F[Unit]],
   bytesReceiver: Option[ByteBuffer => F[Unit]],
   signal: Option[SignallingRef[F, Boolean]],
-  blocker: Blocker,
+  dispatcher: Dispatcher[G],
   k: Kleisli[Resource[G, *], String, Ctx],
-)(implicit F: MonadError[F, Throwable], G: ConcurrentEffect[G], provide: Provide[G, F, Ctx])
+)(implicit F: MonadError[F, Throwable], provide: Provide[G, F, Ctx])
     extends WebSocketClient(serverUri) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -36,25 +38,25 @@ class JavaWebSocketClient[F[_]: ContextShift, G[_], Ctx](
     logger.info(s"Starting websocket connection to $uri")
 
     signal.foreach { sig =>
-      G.toIO(lowerName(sig.set(false))).unsafeRunAsyncAndForget()
+      dispatcher.unsafeRunAndForget(lowerName(sig.set(false)))
     }
   }
 
   override def onClose(code: Int, reason: String, remote: Boolean): Unit = {
     logger.info(s"Websocket connection to $uri closed")
     signal.foreach { sig =>
-      G.toIO(lowerName(sig.set(true))).unsafeRunAsyncAndForget()
+      dispatcher.unsafeRunAndForget(lowerName(sig.set(true)))
     }
   }
 
   override def onMessage(message: String): Unit =
     stringReceiver.foreach { rec =>
-      G.toIO(lowerName(blocker.blockOn(rec(message)))).unsafeRunAsyncAndForget()
+      dispatcher.unsafeRunAndForget(lowerName(rec(message)))
     }
 
   override def onMessage(bytes: ByteBuffer): Unit =
     bytesReceiver.foreach { rec =>
-      G.toIO(lowerName(blocker.blockOn(rec(bytes)))).unsafeRunAsyncAndForget()
+      dispatcher.unsafeRunAndForget(lowerName(rec(bytes)))
     }
 
   override def onError(ex: Exception): Unit =
@@ -62,114 +64,107 @@ class JavaWebSocketClient[F[_]: ContextShift, G[_], Ctx](
 }
 
 object JavaWebSocketClient {
-  private def retry[F[_]: Concurrent: Timer, A](fa: F[A]): F[A] =
+  private def retry[F[_]: Temporal, A](fa: F[A]): F[A] =
     fa.tailRecM(
-      _.map[Either[F[A], A]](_ => Left(Timer[F].sleep(5.seconds) >> fa))
-        .handleError(_ => Left(Timer[F].sleep(5.seconds) >> fa))
+      _.map[Either[F[A], A]](_ => Left(Temporal[F].sleep(5.seconds) >> fa))
+        .handleError(_ => Left(Temporal[F].sleep(5.seconds) >> fa))
     )
 
-  private def retryResource[F[_]: Concurrent: Timer, A](fa: F[A]) = retry(fa).background
+  private def retryResource[F[_]: Async, A](fa: F[A]) = retry(fa).background
 
-  private def monitorWebsocket[F[_]: Concurrent: ContextShift: Timer, G[_], Ctx](
-    ws: JavaWebSocketClient[F, G, Ctx],
-    blocker: Blocker
-  ) =
+  private def monitorWebsocket[F[_]: Async, G[_], Ctx](ws: JavaWebSocketClient[F, G, Ctx]) =
     retryResource(
       Stream
         .awakeEvery[F](10.seconds)
         .evalMap[F, Unit](
           _ =>
-            blocker
-              .delay[F, Boolean](ws.isOpen)
-              .ifM(Applicative[F].unit, blocker.delay[F, Unit](ws.reconnect()))
+            Sync[F]
+              .blocking(ws.isOpen)
+              .ifM(Applicative[F].unit, Sync[F].blocking(ws.reconnect()))
         )
         .compile
         .drain
     )
 
-  private def receive[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, Ctx](
+  private def receive[F[_]: Async, G[_]: Async, Ctx](
     uri: URI,
-    blocker: Blocker,
     k: Kleisli[Resource[G, *], String, Ctx],
     receiver: Either[String => F[Unit], ByteBuffer => F[Unit]],
   )(implicit provide: Provide[G, F, Ctx]) = {
-    def makeWs =
+    def makeWs(dispatcher: Dispatcher[G]) =
       receiver.fold(
-        stringRec => new JavaWebSocketClient(uri, Some(stringRec), None, None, blocker, k),
-        bytesRec => new JavaWebSocketClient(uri, None, Some(bytesRec), None, blocker, k)
+        stringRec => new JavaWebSocketClient(uri, Some(stringRec), None, None, dispatcher, k),
+        bytesRec => new JavaWebSocketClient(uri, None, Some(bytesRec), None, dispatcher, k)
       )
 
     (for {
+      dispatcher <- Dispatcher[G].mapK(provide.liftK)
       ws <- Resource
-        .make(Sync[F].delay(makeWs))(ws => Sync[F].delay(ws.close()))
-      _ <- Resource.liftF(Sync[F].delay(ws.connect()))
-      _ <- monitorWebsocket[F, G, Ctx](ws, blocker)
+        .make(Sync[F].delay(makeWs(dispatcher)))(ws => Sync[F].delay(ws.close()))
+      _ <- Resource.eval(Sync[F].delay(ws.connect()))
+      _ <- monitorWebsocket[F, G, Ctx](ws)
     } yield ()).use(_ => Async[F].never[Unit]).background
   }
 
-  def receiveString[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, Ctx](
+  def receiveString[F[_]: Async, G[_]: Async, Ctx](
     uri: URI,
-    blocker: Blocker,
     k: Kleisli[Resource[G, *], String, Ctx],
     stringReceiver: String => F[Unit],
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] =
-    receive[F, G, Ctx](uri, blocker, k, Left(stringReceiver))
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] =
+    receive[F, G, Ctx](uri, k, Left(stringReceiver))
 
-  def receiveBytes[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, Ctx](
+  def receiveBytes[F[_]: Async, G[_]: Async, Ctx](
     uri: URI,
-    blocker: Blocker,
     k: Kleisli[Resource[G, *], String, Ctx],
     bytesReceiver: ByteBuffer => F[Unit],
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] =
-    receive[F, G, Ctx](uri, blocker, k, Right(bytesReceiver))
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] =
+    receive[F, G, Ctx](uri, k, Right(bytesReceiver))
 
-  private def send[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, A, Ctx](
+  private def send[F[_]: Async, G[_]: Async, A, Ctx](
     uri: URI,
     stream: Stream[F, A],
     doSend: (JavaWebSocketClient[F, G, Ctx], A) => Unit,
-    blocker: Blocker,
     k: Kleisli[Resource[G, *], String, Ctx],
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] = {
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] = {
 
     def sender(a: A, ws: JavaWebSocketClient[F, G, Ctx]): F[Unit] = {
-      def isOpen = blocker.delay[F, Boolean](ws.isOpen)
+      def isOpen = Sync[F].blocking(ws.isOpen)
 
       isOpen.tailRecM(
         _.flatMap[Either[F[Boolean], Unit]](
           if (_)
-            blocker
-              .delay[F, Unit](doSend(ws, a))
+            Sync[F]
+              .blocking(doSend(ws, a))
               .map(Right(_))
-          else Applicative[F].pure(Left(Timer[F].sleep(2.seconds) >> isOpen))
+          else Applicative[F].pure(Left(Temporal[F].sleep(2.seconds) >> isOpen))
         )
       )
     }
 
     (for {
-      signal <- Resource.liftF(SignallingRef[F, Boolean](false))
+      signal <- Resource.eval(SignallingRef[F, Boolean](false))
+      dispatcher <- Dispatcher[G].mapK(provide.liftK)
       ws <- Resource
-        .make(Sync[F].delay(new JavaWebSocketClient(uri, None, None, Some(signal), blocker, k)))(
+        .make(Sync[F].delay(new JavaWebSocketClient[F, G, Ctx](uri, None, None, Some(signal), dispatcher, k)))(
           ws => Sync[F].delay(ws.close())
         )
-      _ <- Resource.liftF(Sync[F].delay(ws.connect()))
+      _ <- Resource.eval(Sync[F].delay(ws.connect()))
       _ <- retryResource(stream.evalMap(sender(_, ws)).interruptWhen(signal).compile.drain)
-      _ <- monitorWebsocket[F, G, Ctx](ws, blocker)
+      _ <- monitorWebsocket[F, G, Ctx](ws)
     } yield ws).use(_ => Async[F].never[Unit]).background
   }
 
-  def sendString[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, Ctx](
+  def sendString[F[_]: Async, G[_]: Async, Ctx](
     uri: URI,
-    blocker: Blocker,
     stringStream: Stream[F, String],
     k: Kleisli[Resource[G, *], String, Ctx],
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] =
-    send[F, G, String, Ctx](uri, stringStream, (ws, a) => ws.send(a), blocker, k)
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] =
+    send[F, G, String, Ctx](uri, stringStream, (ws, a) => ws.send(a), k)
 
-  def sendBytes[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, Ctx](
+  def sendBytes[F[_]: Async, G[_]: Async, Ctx](
     uri: URI,
-    blocker: Blocker,
     byteStream: Stream[F, ByteBuffer],
     k: Kleisli[Resource[G, *], String, Ctx],
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] =
-    send[F, G, ByteBuffer, Ctx](uri, byteStream, (ws, a) => ws.send(a), blocker, k)
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] =
+    send[F, G, ByteBuffer, Ctx](uri, byteStream, (ws, a) => ws.send(a), k)
 }

@@ -1,9 +1,9 @@
 package io.janstenpickle.controller.kodi
 
-import java.net.InetAddress
 import cats.Parallel
 import cats.data.NonEmptyList
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.Resource
+import cats.effect.kernel.Async
 import cats.kernel.Monoid
 import cats.syntax.monoid._
 import eu.timepit.refined.types.string.NonEmptyString
@@ -23,6 +23,7 @@ import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import org.http4s.client.Client
 
+import java.net.InetAddress
 import scala.concurrent.duration._
 
 object KodiComponents {
@@ -43,9 +44,8 @@ object KodiComponents {
       activity.copy(remoteName = remote)
   }
 
-  def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors: KodiErrors, G[_]: Concurrent: Timer](
+  def apply[F[_]: Async: Parallel: Trace: RemoteControlErrors: KodiErrors, G[_]: Async](
     client: Client[F],
-    discoveryBlocker: Blocker,
     config: Config,
     discoveryNameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
@@ -71,7 +71,6 @@ object KodiComponents {
           KodiDiscovery
             .dynamic[F, G](
               client,
-              discoveryBlocker,
               config,
               discoveryNameMapping,
               remoteEventPublisher,
@@ -82,7 +81,7 @@ object KodiComponents {
             )
             .map(_ |+| staticDiscovery)
         else Resource.pure[F, KodiDiscovery[F]](staticDiscovery)
-        remote <- Resource.liftF(KodiRemoteControl(discovery, remoteEventPublisher))
+        remote <- Resource.eval(KodiRemoteControl(discovery, remoteEventPublisher))
       } yield
         Components[F](
           remote,

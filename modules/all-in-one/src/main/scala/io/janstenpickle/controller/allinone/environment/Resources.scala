@@ -51,7 +51,7 @@ object Resources {
 
     for {
       metrics <- Prometheus.metricsOps(registry, "org_http4s_client")
-      client <- Resource.liftF {
+      client <- Resource.eval {
         Sync[F].delay(JdkHttpClient[F](HttpClient.newBuilder().executor(blockerExecutor(blocker)).build()))
       }
     } yield GZip()(Metrics(metrics)(client))

@@ -1,12 +1,12 @@
 package io.janstenpickle.controller.api.endpoint
 
-import cats.effect.Sync
+import cats.effect.kernel.Async
 import cats.syntax.flatMap._
 import io.janstenpickle.controller.schedule.Scheduler
 import io.janstenpickle.controller.schedule.model.Schedule
 import org.http4s.HttpRoutes
 
-class ScheduleApi[F[_]: Sync](scheduler: Scheduler[F]) extends Common[F] {
+class ScheduleApi[F[_]: Async](scheduler: Scheduler[F]) extends Common[F] {
   val routes: HttpRoutes[F] = HttpRoutes.of {
     case GET -> Root => Ok(scheduler.list)
     case GET -> Root / id =>

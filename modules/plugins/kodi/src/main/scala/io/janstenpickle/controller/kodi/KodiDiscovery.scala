@@ -1,46 +1,45 @@
 package io.janstenpickle.controller.kodi
 
-import java.net.{Inet4Address, InetAddress, NetworkInterface}
-import cats.{MonadError, Parallel}
-import cats.effect.{Blocker, Clock, Concurrent, ContextShift, Resource, Timer}
-import eu.timepit.refined.types.string.NonEmptyString
-
-import javax.jmdns.{JmDNS, ServiceInfo}
-import cats.syntax.apply._
-import cats.syntax.flatMap._
-import cats.syntax.parallel._
+import cats.effect.kernel.Async
+import cats.effect.{Clock, Resource, Sync}
 import cats.instances.list._
 import cats.instances.option._
-import cats.syntax.traverse._
-import cats.syntax.applicativeError._
-import eu.timepit.refined.types.net.PortNumber
-import org.http4s.client.Client
-import cats.syntax.functor._
-import cats.derived.auto.eq._
-import eu.timepit.refined.cats._
 import cats.instances.string._
-import io.janstenpickle.controller.configsource.{ConfigSource, WritableConfigSource}
-import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery, MetadataConstants}
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room}
-import org.http4s.circe.CirceEntityDecoder._
-import MetadataConstants._
+import cats.syntax.applicativeError._
+import cats.syntax.apply._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import cats.syntax.parallel._
+import cats.syntax.traverse._
+import cats.{MonadError, Parallel}
+import eu.timepit.refined.cats._
+import eu.timepit.refined.types.net.PortNumber
+import eu.timepit.refined.types.string.NonEmptyString
 import fs2.{Pipe, Stream}
 import io.circe.Json
+import io.janstenpickle.controller.configsource.ConfigSource
+import io.janstenpickle.controller.discovery.MetadataConstants._
+import io.janstenpickle.controller.discovery.{DeviceState, Discovered, Discovery, MetadataConstants}
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.config.{KodiActivityConfigSource, KodiRemoteConfigSource}
-import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
 import io.janstenpickle.controller.model.event.ConfigEvent.{RemoteAddedEvent, RemoteRemovedEvent}
 import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchAddedEvent,
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue.LongValue
 import org.http4s.Uri
+import org.http4s.circe.CirceEntityDecoder._
+import org.http4s.client.Client
 
+import java.net.{Inet4Address, InetAddress, NetworkInterface}
+import javax.jmdns.{JmDNS, ServiceInfo}
 import scala.collection.JavaConverters._
 
 object KodiDiscovery {
@@ -58,7 +57,7 @@ object KodiDiscovery {
       KodiRemoteConfigSource.deviceToRemotes(config.remote, config.activityConfig.name, device)
     }.flatMap(Stream.emits).map(RemoteAddedEvent(_, eventSource))
 
-  private def onDeviceAdded[F[_]: Concurrent: Clock: Trace](
+  private def onDeviceAdded[F[_]: Async: Trace](
     config: KodiComponents.Config,
     configEventPublisher: EventPublisher[F, ConfigEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
@@ -66,9 +65,9 @@ object KodiDiscovery {
   ): Pipe[F, KodiDevice[F], Unit] = stream => {
 
     val addedSwitches: Pipe[F, KodiDevice[F], Unit] = _.flatMap { dev =>
-      Stream.fromIterator[F](
-        KodiSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).iterator
-      )
+      val added = KodiSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow)
+
+      Stream.fromIterator[F](added.iterator, added.size)
     }.evalMap {
         case (key, switch) =>
           switch.getState.map { state =>
@@ -99,16 +98,15 @@ object KodiDiscovery {
     stream.broadcastThrough(addedSwitches, addedRemotes, learntCommands, addedActivities)
   }
 
-  private def onDeviceRemoved[F[_]: Concurrent: Clock: Trace](
+  private def onDeviceRemoved[F[_]: Async: Trace](
     config: KodiComponents.Config,
     configEventPublisher: EventPublisher[F, ConfigEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent]
   ): Pipe[F, KodiDevice[F], Unit] = stream => {
 
     val removedSwitches: Pipe[F, KodiDevice[F], Unit] = _.flatMap { dev =>
-      Stream.fromIterator[F](
-        KodiSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).keys.iterator
-      )
+      val removed = KodiSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).keys
+      Stream.fromIterator[F](removed.iterator, removed.size)
     }.map(SwitchRemovedEvent).through(switchEventPublisher.pipe)
 
     val removedRemotes: Pipe[F, KodiDevice[F], Unit] = _.evalMap(
@@ -122,7 +120,7 @@ object KodiDiscovery {
     stream.broadcastThrough(removedSwitches, removedRemotes, removedActivities)
   }
 
-  def static[F[_]: Parallel: Trace: KodiErrors: Clock, G[_]: Timer: Concurrent](
+  def static[F[_]: Parallel: Trace: KodiErrors: Clock, G[_]: Async](
     client: Client[F],
     config: KodiComponents.Config,
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
@@ -130,9 +128,9 @@ object KodiDiscovery {
     configEventPublisher: EventPublisher[F, ConfigEvent],
     discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
     k: ResourceKleisli[G, SpanName, Span[G]]
-  )(implicit F: Concurrent[F], provide: Provide[G, F, Span[G]]): Resource[F, KodiDiscovery[F]] = {
+  )(implicit F: Async[F], provide: Provide[G, F, Span[G]]): Resource[F, KodiDiscovery[F]] = {
     val discovery = Resource
-      .liftF(
+      .eval(
         config.instances
           .traverse { instance =>
             for {
@@ -180,7 +178,7 @@ object KodiDiscovery {
       else Resource.pure[F, Unit](())
       _ <- Resource.make(disc.devices.flatMap { discovered =>
         Stream
-          .fromIterator[F](discovered.devices.values.iterator)
+          .fromIterator[F](discovered.devices.values.iterator, discovered.devices.size)
           .broadcastThrough(
             onDeviceAdded(config, configEventPublisher, switchEventPublisher, remoteEventPublisher),
             deviceDiscovered
@@ -193,7 +191,7 @@ object KodiDiscovery {
         _ =>
           disc.devices.flatMap { discovered =>
             Stream
-              .fromIterator[F](discovered.devices.values.iterator)
+              .fromIterator[F](discovered.devices.values.iterator, discovered.devices.size)
               .broadcastThrough(onDeviceRemoved(config, configEventPublisher, switchEventPublisher), deviceRemoved)
               .compile
               .drain *> remoteEventPublisher.publish1(
@@ -204,9 +202,8 @@ object KodiDiscovery {
     } yield disc
   }
 
-  def dynamic[F[_]: Parallel: ContextShift: KodiErrors, G[_]: Timer: Concurrent](
+  def dynamic[F[_]: Parallel: KodiErrors, G[_]: Async](
     client: Client[F],
-    blocker: Blocker,
     config: KodiComponents.Config,
     nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
@@ -214,17 +211,12 @@ object KodiDiscovery {
     configEventPublisher: EventPublisher[F, ConfigEvent],
     discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
     k: ResourceKleisli[G, SpanName, Span[G]]
-  )(
-    implicit F: Concurrent[F],
-    timer: Timer[F],
-    trace: Trace[F],
-    provide: Provide[G, F, Span[G]]
-  ): Resource[F, KodiDiscovery[F]] = {
+  )(implicit F: Async[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, KodiDiscovery[F]] = {
     def jmDNS: Resource[F, List[JmDNS]] =
       Resource
-        .liftF(
+        .eval(
           config.discoveryBindAddress.fold(
-            blocker.delay[F, List[InetAddress]](
+            Sync[F].blocking[List[InetAddress]](
               NetworkInterface.getNetworkInterfaces.asScala
                 .flatMap(_.getInetAddresses.asScala)
                 .toList
@@ -234,10 +226,10 @@ object KodiDiscovery {
         )
         .flatMap {
           case Nil =>
-            Resource.make(blocker.delay[F, JmDNS](JmDNS.create()))(j => blocker.delay[F, Unit](j.close())).map(List(_))
+            Resource.make(Sync[F].blocking(JmDNS.create()))(j => Sync[F].blocking(j.close())).map(List(_))
           case addrs =>
             addrs.traverse[Resource[F, *], JmDNS] { addr =>
-              Resource.make(blocker.delay[F, JmDNS](JmDNS.create(addr)))(j => blocker.delay[F, Unit](j.close()))
+              Resource.make(Sync[F].blocking(JmDNS.create(addr)))(j => Sync[F].blocking(j.close()))
             }
         }
 
@@ -320,14 +312,14 @@ object KodiDiscovery {
 
     def discover: F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[NonEmptyString, KodiDevice[F]])] =
       trace.span("kodi.discover") {
-        blocker
-          .blockOn[F, List[ServiceInfo]](jmDNS.use { js =>
+        jmDNS
+          .use { js =>
             trace.span("bonjour.list.devices") {
-              F.delay(js.map(_.getInetAddress.toString).mkString(",")).flatMap { addrs =>
+              Sync[F].blocking(js.map(_.getInetAddress.toString).mkString(",")).flatMap { addrs =>
                 trace.put("bind.addresses", addrs)
-              } *> js.parFlatTraverse(j => F.delay(j.list("_http._tcp.local.").toList))
+              } *> js.parFlatTraverse(j => Sync[F].blocking(j.list("_http._tcp.local.").toList))
             }
-          })
+          }
           .flatMap { services =>
             services
               .parTraverse(serviceInstanceDevice)

@@ -43,8 +43,8 @@ object ConfigPoller {
         .flatMap(decodeF[ConfigResult, A](_).value)
 
     for {
-      initial <- Resource.liftF(load)
-      implicit0(logger: Logger[F]) <- Resource.liftF(Slf4jLogger.fromName("serverConfigPoller"))
+      initial <- Resource.eval(load)
+      implicit0(logger: Logger[F]) <- Resource.eval(Slf4jLogger.fromName("serverConfigPoller"))
       getConfig <- {
         implicit val empty: Empty[Either[ValidationErrors, A]] = Empty(initial)
 

@@ -40,15 +40,6 @@ object Server {
       )
     )
 
-  def blocker[F[_]: Sync](name: String): Resource[F, Blocker] =
-    Blocker.fromExecutorService(Sync[F].delay(Executors.newCachedThreadPool(new ThreadFactory {
-      def newThread(r: Runnable) = {
-        val t = new Thread(r, s"$name-blocker")
-        t.setDaemon(true)
-        t
-      }
-    })))
-
   def hostname[F[_]: Sync](config: Option[NonEmptyString]): F[String] =
     config
       .map(_.value)
@@ -63,7 +54,6 @@ object Server {
       config: Config,
       registry: CollectorRegistry,
       routes: HttpRoutes[F],
-      blocker: Blocker,
       signal: ExitSignal[F]
     ): Stream[F, ExitCode] =
       for {

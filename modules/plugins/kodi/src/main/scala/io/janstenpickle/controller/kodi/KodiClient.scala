@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.kodi
 
 import cats.Eq
-import cats.effect.Sync
+import cats.effect.kernel.Concurrent
 import cats.instances.string._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -38,7 +38,7 @@ object KodiClient {
     )
 
   def apply[F[_]](client: Client[F], kodi: NonEmptyString, host: NonEmptyString, port: PortNumber)(
-    implicit F: Sync[F],
+    implicit F: Concurrent[F],
     errors: KodiErrors[F]
   ): F[KodiClient[F]] =
     F.fromEither(Uri.fromString(s"http://${host.value}:${port.value}/jsonrpc")).map { uri =>

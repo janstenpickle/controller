@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.events.websocket
 
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.kernel.Temporal
+import cats.effect.{MonadCancelThrow, Resource}
 import cats.syntax.semigroupk._
 import io.janstenpickle.controller.events.components.EventsState
 import io.janstenpickle.controller.events.{Event, Events}
@@ -19,7 +20,7 @@ import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName}
 import org.http4s.HttpRoutes
 
 object ServerWs {
-  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
+  def apply[F[_]: Temporal, G[_]: MonadCancelThrow](
     events: Events[F],
     commandFilter: Event[CommandEvent] => Boolean,
     k: ResourceKleisli[G, SpanName, Span[G]]
@@ -29,7 +30,7 @@ object ServerWs {
         (state, receive[F, G](events, commandFilter, k) <+> routes)
     }
 
-  def receive[F[_]: Concurrent: Timer, G[_]: BracketThrow](
+  def receive[F[_]: Temporal, G[_]: MonadCancelThrow](
     events: Events[F],
     commandFilter: Event[CommandEvent] => Boolean,
     k: ResourceKleisli[G, SpanName, Span[G]]
@@ -49,9 +50,9 @@ object ServerWs {
     config <+> remote <+> switch <+> `macro` <+> activity <+> discovery <+> commands
   }
 
-  def send[F[_]: Concurrent: Timer, G[_]: BracketThrow](events: Events[F], k: ResourceKleisli[G, SpanName, Span[G]])(
+  def send[F[_]: Temporal, G[_]: MonadCancelThrow](events: Events[F], k: ResourceKleisli[G, SpanName, Span[G]])(
     implicit provide: Provide[G, F, Span[G]]
-  ): Resource[F, (EventsState[F], HttpRoutes[F])] = Resource.liftF(EventsState[F]).map { state =>
+  ): Resource[F, (EventsState[F], HttpRoutes[F])] = Resource.eval(EventsState[F]).map { state =>
     val config =
       WebsocketEventsServer.send[F, G, ConfigEvent]("config", events.config.subscriberStream, k, Some(state.config))
     val remote =

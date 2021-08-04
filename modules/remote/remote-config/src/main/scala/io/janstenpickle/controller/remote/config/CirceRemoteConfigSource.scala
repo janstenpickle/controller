@@ -2,8 +2,8 @@ package io.janstenpickle.controller.remote.config
 
 import cats.effect._
 import cats.instances.string._
-import eu.timepit.refined.types.string.NonEmptyString
 import eu.timepit.refined.cats._
+import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.refined._
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
@@ -18,7 +18,7 @@ import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceRemoteConfigSource {
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     configEventPublisher: EventPublisher[F, ConfigEvent],

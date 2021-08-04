@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.broadlink
 
 import cats.Parallel
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.Async
+import cats.effect.kernel.{Resource, Sync}
 import cats.instances.list._
 import cats.instances.option._
 import cats.instances.string._
@@ -17,7 +18,7 @@ import eu.timepit.refined.cats._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.{Pipe, Stream}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.broadlink.remote.RmRemote
 import io.janstenpickle.controller.broadlink.switch.SpSwitch
 import io.janstenpickle.controller.configsource.ConfigSource
@@ -50,10 +51,8 @@ object BroadlinkDiscovery {
     polling: Discovery.Polling,
   )
 
-  def dynamic[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent](
+  def dynamic[F[_]: Parallel, G[_]: Async](
     config: Config,
-    workBlocker: Blocker,
-    discoveryBlocker: Blocker,
     switchStateStore: SwitchStateStore[F],
     store: RemoteCommandStore[F, CommandPayload],
     nameMapping: ConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
@@ -63,12 +62,11 @@ object BroadlinkDiscovery {
     discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
     k: ResourceKleisli[G, SpanName, Span[G]]
   )(
-    implicit F: Concurrent[F],
+    implicit F: Async[F],
     errorHandler: ErrorHandler[F],
-    timer: Timer[F],
     trace: Trace[F],
     provide: Provide[G, F, Span[G]]
-  ): Resource[F, BroadlinkDiscovery[F]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+  ): Resource[F, BroadlinkDiscovery[F]] = Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
     type Dev = BroadlinkDevice[F]
 
     def devSwitch(device: BLDevice) = {
@@ -90,19 +88,19 @@ object BroadlinkDiscovery {
           F.pure(
             Some(
               (name, "remote") -> BroadlinkDevice
-                .Remote(RmRemote.fromDevice[F](name, config.remoteCommandTimeout, dev, workBlocker))
+                .Remote(RmRemote.fromDevice[F](name, config.remoteCommandTimeout, dev))
             )
           )
         case dev: SP1Device =>
           F.pure(
             Some(
               (name, "switch") -> BroadlinkDevice
-                .Switch(SpSwitch.makeSp1[F](name, config.switchCommandTimeout, dev, switchStateStore, workBlocker))
+                .Switch(SpSwitch.makeSp1[F](name, config.switchCommandTimeout, dev, switchStateStore))
             )
           )
         case dev: SP2Device =>
           SpSwitch
-            .makeSp23[F](name, config.switchCommandTimeout, dev, workBlocker, switchEventPublisher.narrow)
+            .makeSp23[F](name, config.switchCommandTimeout, dev, switchEventPublisher.narrow)
             .map(sp => Some((name, "switch") -> BroadlinkDevice.Switch(sp)))
         case _ => F.pure(None)
       }
@@ -128,7 +126,7 @@ object BroadlinkDiscovery {
     def runDiscovery: F[List[BLDevice]] =
       config.bindAddress
         .fold(
-          discoveryBlocker.delay[F, List[InetAddress]](
+          Sync[F].blocking[List[InetAddress]](
             NetworkInterface.getNetworkInterfaces.asScala
               .flatMap(_.getInetAddresses.asScala)
               .toList
@@ -136,8 +134,8 @@ object BroadlinkDiscovery {
           )
         )(addr => F.pure(List(addr)))
         .flatMap(_.parFlatTraverse { addr =>
-          discoveryBlocker
-            .delay[F, List[BLDevice]](
+          Sync[F]
+            .blocking[List[BLDevice]](
               BLDevice
                 .discoverDevices(addr, config.discoveryPort.value, config.discoverTimeout.toMillis.toInt)
                 .toList

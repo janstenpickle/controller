@@ -2,8 +2,8 @@ package io.janstenpickle.controller.events.websocket
 
 import cats.ApplicativeError
 import cats.data.Kleisli
-import cats.effect.concurrent.Deferred
-import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
+import cats.effect.kernel.{Async, Outcome}
+import cats.effect.{Deferred, Resource}
 import cats.instances.list._
 import cats.syntax.flatMap._
 import eu.timepit.refined.types.net.PortNumber
@@ -21,34 +21,31 @@ import scala.concurrent.duration._
 
 object JavaWebsocket {
 
-  def receive[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, A: Decoder, Ctx](
+  def receive[F[_]: Async, G[_]: Async, A: Decoder, Ctx](
     host: NonEmptyString,
     port: PortNumber,
     path: String,
-    blocker: Blocker,
     publisher: EventPublisher[F, A],
     k: Kleisli[Resource[G, *], String, Ctx],
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] = {
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] = {
     val uri = new URI(s"ws://$host:$port/events/$path/subscribe")
 
     JavaWebSocketClient.receiveString[F, G, Ctx](
       uri,
-      blocker,
       k,
       str =>
         ApplicativeError[F, Throwable].fromEither(parse(str).flatMap(_.as[Event[A]])).flatMap(publisher.publish1Event)
     )
   }
 
-  def send[F[_]: Concurrent: Timer: ContextShift, G[_]: ConcurrentEffect, A: Encoder, Ctx](
+  def send[F[_]: Async, G[_]: Async, A: Encoder, Ctx](
     host: NonEmptyString,
     port: PortNumber,
     path: String,
-    blocker: Blocker,
     subscriber: EventSubscriber[F, A],
     k: Kleisli[Resource[G, *], String, Ctx],
     state: Option[Deferred[F, F[List[Event[A]]]]] = None
-  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Unit]] = {
+  )(implicit provide: Provide[G, F, Ctx]): Resource[F, F[Outcome[F, Throwable, Unit]]] = {
     val uri = new URI(s"ws://$host:$port/events/$path/publish")
 
     val stream =
@@ -59,6 +56,6 @@ object JavaWebsocket {
       state => Stream.awakeEvery[F](10.minutes).flatMap(_ => Stream.evals(state.get.flatten))
     )
 
-    JavaWebSocketClient.sendString[F, G, Ctx](uri, blocker, stream.merge(periodic).map(_.asJson.noSpacesSortKeys), k)
+    JavaWebSocketClient.sendString[F, G, Ctx](uri, stream.merge(periodic).map(_.asJson.noSpacesSortKeys), k)
   }
 }

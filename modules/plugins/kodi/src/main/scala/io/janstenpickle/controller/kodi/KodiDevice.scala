@@ -1,23 +1,22 @@
 package io.janstenpickle.controller.kodi
 
-import cats.{Eq, Parallel}
-import cats.effect.{Clock, ExitCase, Sync}
-import cats.effect.concurrent.Ref
+import cats.effect.{Clock, Ref, Sync}
 import cats.instances.list._
 import cats.instances.string._
 import cats.instances.tuple._
-import cats.syntax.apply._
 import cats.syntax.applicativeError._
+import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
+import cats.{Eq, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.Json
 import io.janstenpickle.controller.discovery.DiscoveredDevice
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.KodiDevice.DeviceState
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey, SwitchMetadata}
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey}
 import io.janstenpickle.trace4cats.inject.Trace
 
 trait KodiDevice[F[_]] extends DiscoveredDevice[F] {
@@ -109,7 +108,7 @@ object KodiDevice {
 
     for {
       initialState <- refreshState
-      state <- Ref.of(initialState)
+      state <- Ref.of[F, DeviceState](initialState)
     } yield
       new KodiDevice[F] {
         private val mutedSwitchKey = SwitchKey(switchDevice, NonEmptyString.unsafeFrom(s"${deviceName.value}_mute"))

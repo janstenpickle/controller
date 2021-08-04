@@ -77,14 +77,14 @@ object Module {
       })))
 
     for {
-      source <- Resource.liftF(Sync[F].delay(UUID.randomUUID().toString))
-      commandEvents <- Resource.liftF(EventPubSub.topicNonBlocking[F, CommandEvent](50, source))
+      source <- Resource.eval(Sync[F].delay(UUID.randomUUID().toString))
+      commandEvents <- Resource.eval(EventPubSub.topicNonBlocking[F, CommandEvent](50, source))
 
       _ <- commandEvents.subscriberStream.subscribe.evalMap(e => F.delay(println(e))).compile.drain.background
 
       workBlocker <- makeBlocker("work")
 
-      host <- Resource.liftF(Server.hostname[F](config.host))
+      host <- Resource.eval(Server.hostname[F](config.host))
 
       jmdns <- JmDNSResource[F](host)
       coordinator <- config.coordinator.fold(

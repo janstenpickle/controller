@@ -1,7 +1,6 @@
 package io.janstenpickle.controller.broadlink.switch
 
 import cats.effect._
-import cats.effect.concurrent.Ref
 import cats.instances.string._
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
@@ -14,10 +13,10 @@ import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.switch.SpSwitchConfig.{SP1, SP2, SP3}
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model
-import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
-import io.janstenpickle.controller.switches.store.SwitchStateStore
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
+import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
 import io.janstenpickle.controller.switch.Switch
+import io.janstenpickle.controller.switches.store.SwitchStateStore
 import io.janstenpickle.trace4cats.inject.Trace
 
 import scala.concurrent.TimeoutException
@@ -41,30 +40,23 @@ object SpSwitch {
     s"${dev.host}_${dev.mac}"
   }
 
-  private def timeoutOp[F[_]: Concurrent: Timer, A](
-    fa: F[A],
-    duration: FiniteDuration,
-    deviceName: NonEmptyString
-  ): F[A] =
-    Concurrent
+  private def timeoutOp[F[_]: Async, A](fa: F[A], duration: FiniteDuration, deviceName: NonEmptyString): F[A] =
+    Concurrent[F]
       .timeout(fa, duration)
       .recoverWith {
         case ex: TimeoutException => CommandTimeout(deviceName, ex.getMessage).raiseError
       }
 
-  def makeSp1[F[_]: Concurrent: Timer: ContextShift](config: SP1, store: SwitchStateStore[F], blocker: Blocker)(
-    implicit trace: Trace[F]
-  ): F[SpSwitch[F]] =
+  def makeSp1[F[_]: Async](config: SP1, store: SwitchStateStore[F])(implicit trace: Trace[F]): F[SpSwitch[F]] =
     Sync[F].delay(new SP1Device(config.host, config.mac)).map { sp1 =>
-      makeSp1[F](config.name, config.timeout, sp1, store, blocker)
+      makeSp1[F](config.name, config.timeout, sp1, store)
     }
 
-  def makeSp1[F[_]: Concurrent: Timer: ContextShift](
+  def makeSp1[F[_]: Async](
     deviceName: NonEmptyString,
     timeout: FiniteDuration,
     sp1: SP1Device,
     store: SwitchStateStore[F],
-    blocker: Blocker
   )(implicit trace: Trace[F]): SpSwitch[F] = new SpSwitch[F] {
     override val name: NonEmptyString = deviceName
     override val device: NonEmptyString = NonEmptyString("SP")
@@ -75,15 +67,15 @@ object SpSwitch {
 
     override def switchOn: F[Unit] =
       timeoutOp(for {
-        _ <- trace.span("auth") { blocker.delay(sp1.auth()) }
-        _ <- trace.span("setPower") { blocker.delay(sp1.setPower(true)) }
+        _ <- trace.span("auth") { Sync[F].blocking(sp1.auth()) }
+        _ <- trace.span("setPower") { Sync[F].blocking(sp1.setPower(true)) }
         _ <- store.setOn(device, device, name)
       } yield (), timeout, deviceName)
 
     override def switchOff: F[Unit] =
       timeoutOp(for {
-        _ <- trace.span("auth") { blocker.delay(sp1.auth()) }
-        _ <- trace.span("setPower") { blocker.delay(sp1.setPower(true)) }
+        _ <- trace.span("auth") { Sync[F].blocking(sp1.auth()) }
+        _ <- trace.span("setPower") { Sync[F].blocking(sp1.setPower(true)) }
         _ <- store.setOff(device, device, name)
       } yield (), timeout, deviceName)
 
@@ -99,21 +91,20 @@ object SpSwitch {
       )
   }
 
-  def makeSp23[F[_]: Concurrent: Timer: ContextShift](
+  def makeSp23[F[_]: Async](
     deviceName: NonEmptyString,
     timeout: FiniteDuration,
     sp: SP2Device,
-    blocker: Blocker,
     eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   )(implicit trace: Trace[F]): F[SpSwitch[F]] = {
 
     def _getState: F[State] =
       timeoutOp(for {
         _ <- trace.span("auth") {
-          blocker.delay(sp.auth())
+          Sync[F].blocking(sp.auth())
         }
         state <- trace.span("getState") {
-          blocker.delay(State.fromBoolean(sp.getState))
+          Sync[F].blocking(State.fromBoolean(sp.getState))
         }
       } yield state, timeout, deviceName)
 
@@ -135,10 +126,10 @@ object SpSwitch {
         override def switchOn: F[Unit] =
           timeoutOp(for {
             _ <- trace.span("auth") {
-              blocker.delay(sp.auth())
+              Sync[F].blocking(sp.auth())
             }
             _ <- trace.span("setState") {
-              blocker.delay(sp.setState(true))
+              Sync[F].blocking(sp.setState(true))
             }
             _ <- state.set(State.On)
           } yield (), timeout, deviceName)
@@ -146,10 +137,10 @@ object SpSwitch {
         override def switchOff: F[Unit] =
           timeoutOp(for {
             _ <- trace.span("auth") {
-              blocker.delay(sp.auth())
+              Sync[F].blocking(sp.auth())
             }
             _ <- trace.span("setState") {
-              blocker.delay(sp.setState(false))
+              Sync[F].blocking(sp.setState(false))
             }
             _ <- state.set(State.Off)
           } yield (), timeout, deviceName)
@@ -176,35 +167,32 @@ object SpSwitch {
       }
   }
 
-  private def makeSp2[F[_]: Concurrent: Timer: ContextShift: Trace](
+  private def makeSp2[F[_]: Async: Trace](
     config: SP2,
-    blocker: Blocker,
     eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): F[SpSwitch[F]] =
     Sync[F].delay(new SP2Device(config.host, config.mac)).flatMap { sp2 =>
-      makeSp23(config.name, config.timeout, sp2, blocker, eventPublisher)
+      makeSp23(config.name, config.timeout, sp2, eventPublisher)
     }
 
-  private def makeSp3[F[_]: Concurrent: Timer: ContextShift: Trace](
+  private def makeSp3[F[_]: Async: Trace](
     config: SP3,
-    blocker: Blocker,
     eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): F[SpSwitch[F]] =
     Sync[F]
       .delay(BLDevice.createInstance(BLDevice.DEV_SP3, config.host, config.mac).asInstanceOf[SP2Device])
       .flatMap { sp2 =>
-        makeSp23(config.name, config.timeout, sp2, blocker, eventPublisher)
+        makeSp23(config.name, config.timeout, sp2, eventPublisher)
       }
 
-  def apply[F[_]: Concurrent: Timer: ContextShift: Trace](
+  def apply[F[_]: Async: Trace](
     config: SpSwitchConfig,
     store: SwitchStateStore[F],
-    blocker: Blocker,
     eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
   ): F[SpSwitch[F]] =
     config match {
-      case conf: SP1 => makeSp1[F](conf, store, blocker)
-      case conf: SP2 => makeSp2[F](conf, blocker, eventPublisher)
-      case conf: SP3 => makeSp3[F](conf, blocker, eventPublisher)
+      case conf: SP1 => makeSp1[F](conf, store)
+      case conf: SP2 => makeSp2[F](conf, eventPublisher)
+      case conf: SP3 => makeSp3[F](conf, eventPublisher)
     }
 }

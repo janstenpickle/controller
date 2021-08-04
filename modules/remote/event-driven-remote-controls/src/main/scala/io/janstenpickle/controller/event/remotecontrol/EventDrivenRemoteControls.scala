@@ -1,8 +1,9 @@
 package io.janstenpickle.controller.event.remotecontrol
 
 import cats.Applicative
-import cats.effect.syntax.concurrent._
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.kernel.{Async, Outcome}
+import cats.effect.syntax.spawn._
+import cats.effect.{MonadCancelThrow, Resource}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
@@ -26,7 +27,7 @@ import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 object EventDrivenRemoteControls {
-  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
+  def apply[F[_]: Async, G[_]: MonadCancelThrow](
     eventListener: EventSubscriber[F, RemoteEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
@@ -74,7 +75,7 @@ object EventDrivenRemoteControls {
     def listener(
       commands: Cache[F, NonEmptyString, Set[RemoteCommand]],
       remotes: Cache[F, NonEmptyString, Boolean]
-    ): Resource[F, F[Unit]] =
+    ): Resource[F, F[Outcome[F, Throwable, Unit]]] =
       Stream
         .retry(listen(commands, remotes).compile.drain, 5.seconds, _ + 1.second, Int.MaxValue)
         .compile

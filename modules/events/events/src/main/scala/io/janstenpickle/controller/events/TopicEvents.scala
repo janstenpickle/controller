@@ -1,16 +1,16 @@
 package io.janstenpickle.controller.events
 
-import java.util.UUID
-
-import cats.effect.{Clock, Concurrent, Sync}
+import cats.effect.{Async, Sync}
 import cats.syntax.flatMap._
 import cats.syntax.parallel._
 import cats.{Applicative, Parallel}
 import io.janstenpickle.controller.model.event._
 import io.janstenpickle.trace4cats.inject.Trace
 
+import java.util.UUID
+
 object TopicEvents {
-  def apply[F[_]: Concurrent: Clock: Parallel: Trace]: F[Events[F]] =
+  def apply[F[_]: Async: Parallel: Trace]: F[Events[F]] =
     Sync[F].delay(UUID.randomUUID().toString).flatMap { source =>
       (
         Applicative[F].pure(source),

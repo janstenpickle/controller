@@ -3,7 +3,8 @@ package io.janstenpickle.controller.homekit
 import java.math.BigInteger
 import java.util.Base64
 import cats.derived.auto.eq._
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Concurrent, Resource}
 import cats.instances.string._
 import cats.instances.option._
 import cats.instances.map._
@@ -14,9 +15,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{~>, ApplicativeError, Id}
 import eu.timepit.refined.types.numeric.PosInt
-import extruder.core.{Parser, Show}
-import extruder.typesafe._
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.circe.generic.extras.Configuration
 import io.circe.{Codec, Decoder, Encoder}
 import io.circe.generic.extras.semiauto._
@@ -62,12 +61,12 @@ object ControllerHomekitAuthInfo {
 
   case class Config(pollInterval: FiniteDuration = 30.seconds, errorThreshold: PosInt = PosInt(3))
 
-  def apply[F[_], G[_]: Concurrent: Timer](
+  def apply[F[_], G[_]: Async](
     configFile: ConfigFileSource[F],
     pollConfig: Config,
     fk: F ~> Id,
     k: ResourceKleisli[G, String, Span[G]]
-  )(implicit F: Concurrent[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, HomekitAuthInfo] = {
+  )(implicit F: Async[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, HomekitAuthInfo] = {
     def load(current: Data[AuthInfo]): F[AuthInfo] =
       for {
         config <- configFile.configs.map(_.json)
@@ -79,7 +78,7 @@ object ControllerHomekitAuthInfo {
 
     def formatUsername(username: String): String = username.replace(":", "").replace("-", "").toLowerCase()
 
-    Resource.liftF(Slf4jLogger.create[F]).flatMap { implicit logger =>
+    Resource.eval(Slf4jLogger.create[F]).flatMap { implicit logger =>
       DataPoller.traced[F, G, AuthInfo, HomekitAuthInfo]("homekit.authinfo")(
         load(_),
         pollConfig.pollInterval,

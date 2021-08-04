@@ -1,6 +1,6 @@
 package io.janstenpickle.controller.api.endpoint
 
-import cats.effect.Sync
+import cats.effect.kernel.Async
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -8,10 +8,9 @@ import io.circe.generic.auto._
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
 import io.janstenpickle.trace4cats.inject.Trace
-import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 import org.http4s.HttpRoutes
 
-class RenameApi[F[_]: Sync](rename: DeviceRename[F])(implicit trace: Trace[F]) extends Common[F] {
+class RenameApi[F[_]: Async](rename: DeviceRename[F])(implicit trace: Trace[F]) extends Common[F] {
   import RenameApi._
 
   val routes: HttpRoutes[F] = HttpRoutes.of {

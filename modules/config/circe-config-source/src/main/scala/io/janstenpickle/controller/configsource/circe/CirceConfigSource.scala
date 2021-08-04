@@ -1,15 +1,15 @@
 package io.janstenpickle.controller.configsource.circe
 
 import cats.data.Validated.{Invalid, Valid}
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.{Async, Concurrent, Resource, Sync}
 import cats.kernel.Monoid
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{Applicative, Eq, Functor}
 import eu.timepit.refined.types.numeric.PosInt
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.circe.syntax._
 import io.circe.{Decoder, Encoder, KeyDecoder, KeyEncoder}
 import io.janstenpickle.controller.config.trace.TracedConfigSource
@@ -68,7 +68,7 @@ object CirceConfigSource {
           trace.span("writeConfig") { configFile.write(ts) }
       }
 
-  def polling[F[_]: Trace, G[_]: Concurrent: Timer, K: KeyDecoder: KeyEncoder, V: Decoder: Encoder: Eq](
+  def polling[F[_]: Trace, G[_]: Async, K: KeyDecoder: KeyEncoder, V: Decoder: Encoder: Eq](
     name: String,
     config: PollingConfig,
     configFileSource: ConfigFileSource[F],
@@ -82,7 +82,7 @@ object CirceConfigSource {
     setEditable: SetEditable[V]
   ): Resource[F, WritableConfigSource[F, K, V]] =
     Resource
-      .liftF(Slf4jLogger.fromName[F](s"${name}ConfigSource"))
+      .eval(Slf4jLogger.fromName[F](s"${name}ConfigSource"))
       .flatMap { implicit logger =>
         val source = decode[F, K, V](configFileSource, logger)
         val sink = encode[F, K, V](configFileSource)

@@ -14,7 +14,7 @@ import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceSwitchStateConfigSource {
 
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     switchUpdatedPublisher: EventPublisher[F, SwitchStateUpdateEvent],

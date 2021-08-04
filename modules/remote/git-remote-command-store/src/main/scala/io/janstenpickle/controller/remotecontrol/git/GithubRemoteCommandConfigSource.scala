@@ -1,8 +1,5 @@
 package io.janstenpickle.controller.remotecontrol.git
 
-import java.nio.file.{Path, Paths}
-import java.time.Instant
-import java.util.Base64
 import cats.data.{NonEmptyList, OptionT}
 import cats.derived.auto.eq._
 import cats.effect._
@@ -19,7 +16,6 @@ import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
 import eu.timepit.refined.{refineMV, refineV}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.circe.Decoder
 import io.circe.generic.auto._
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
@@ -33,10 +29,14 @@ import org.http4s.circe._
 import org.http4s.client.Client
 import org.http4s.client.dsl.Http4sClientDsl
 import org.http4s.dsl.Http4sDsl
-import org.http4s.{Credentials, EntityDecoder, Uri}
 import org.http4s.headers.Authorization
-import org.http4s.util.CaseInsensitiveString
+import org.http4s.{Credentials, EntityDecoder, Header, Uri}
+import org.typelevel.ci.CIString
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
+import java.nio.file.{Path, Paths}
+import java.time.Instant
+import java.util.Base64
 import scala.concurrent.duration._
 
 class GithubRemoteCommandConfigSource[F[_]: Parallel](
@@ -97,16 +97,16 @@ object GithubRemoteCommandConfigSource {
   case class CommitInfo(committer: Committer)
   case class Committer(date: Instant)
 
-  def apply[F[_]: Parallel, G[_]: Concurrent: Timer](
+  def apply[F[_]: Parallel, G[_]: Async](
     client: Client[F],
     config: Config,
     onUpdate: (Any, Any) => F[Unit],
     k: ResourceKleisli[G, SpanName, Span[G]]
   )(
-    implicit F: Sync[F],
+    implicit F: Async[F],
     trace: Trace[F],
     provide: Provide[G, F, Span[G]]
-  ): Resource[F, GithubRemoteCommandConfigSource[F]] = Resource.liftF(Slf4jLogger.fromClass[F](this.getClass)).flatMap {
+  ): Resource[F, GithubRemoteCommandConfigSource[F]] = Resource.eval(Slf4jLogger.fromClass[F](this.getClass)).flatMap {
     logger =>
       val dsl = new Http4sDsl[F] with Http4sClientDsl[F] {}
       import dsl._
@@ -122,14 +122,10 @@ object GithubRemoteCommandConfigSource {
 
       def makeRequest(path: String) =
         F.fromEither(Uri.fromString(s"$reposUri/$path"))
-          .flatMap(
-            GET(
-              _,
-              config.accessToken
-                .map(t => Authorization(Credentials.Token(CaseInsensitiveString("Bearer"), t.value)))
-                .toSeq: _*
-            )
-          )
+          .map(GET(_, config.accessToken.map { t =>
+            val h: Header.ToRaw = Authorization(Credentials.Token(CIString("Bearer"), t.value))
+            h
+          }.toSeq: _*))
 
       def keyPath(key: RemoteCommandKey) = s"${key.device.value}/${key.name.value}$hexSuffix"
 
@@ -285,7 +281,7 @@ object GithubRemoteCommandConfigSource {
         }
 
       for {
-        repoListingPoller <- Resource.liftF(Slf4jLogger.fromName[F](s"githubRepoListingPoller")).flatMap { implicit l =>
+        repoListingPoller <- Resource.eval(Slf4jLogger.fromName[F](s"githubRepoListingPoller")).flatMap { implicit l =>
           DataPoller.traced[F, G, RepoListing, () => F[RepoListing]]("github.repo.listing")(
             _ => listRemote,
             config.gitPollInterval,

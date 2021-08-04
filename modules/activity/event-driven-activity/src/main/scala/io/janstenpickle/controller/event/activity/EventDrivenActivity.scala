@@ -1,8 +1,9 @@
 package io.janstenpickle.controller.event.activity
 
 import cats.Applicative
-import cats.effect.syntax.concurrent._
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.kernel.{Async, Outcome}
+import cats.effect.syntax.spawn._
+import cats.effect.{MonadCancelThrow, Resource}
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.Stream
@@ -21,7 +22,7 @@ import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 import scala.concurrent.duration._
 
 object EventDrivenActivity {
-  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
+  def apply[F[_]: Async, G[_]: MonadCancelThrow](
     activityUpdates: EventSubscriber[F, ActivityUpdateEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
@@ -39,7 +40,7 @@ object EventDrivenActivity {
         case _ => Applicative[F].unit
       }
 
-    def listener(current: Cache[F, Room, NonEmptyString]): Resource[F, F[Unit]] =
+    def listener(current: Cache[F, Room, NonEmptyString]): Resource[F, F[Outcome[F, Throwable, Unit]]] =
       Stream
         .retry(listen(current).compile.drain, 5.seconds, _ + 1.second, Int.MaxValue)
         .compile

@@ -12,7 +12,7 @@ import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceRemoteCommandConfigSource {
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     k: ResourceKleisli[G, SpanName, Span[G]]

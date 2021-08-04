@@ -2,9 +2,9 @@ package io.janstenpickle.controller.mqtt
 
 import java.util.UUID
 
-import cats.effect.{Async, ConcurrentEffect, ContextShift, Resource, Timer}
+import cats.effect.{Async, Resource}
 import cats.syntax.flatMap._
-import cats.effect.syntax.concurrent._
+import cats.effect.syntax.spawn._
 import cats.syntax.functor._
 import cats.~>
 import com.hivemq.client.mqtt.MqttClient
@@ -35,7 +35,7 @@ object Fs2MqttClient {
   case class Config(host: String, port: Int)
   case class MqttMessage(payload: Array[Byte], topic: String, properties: Map[String, String])
 
-  def apply[F[_]: ContextShift: Timer](config: Config)(implicit F: ConcurrentEffect[F]): Resource[F, Fs2MqttClient[F]] =
+  def apply[F[_]](config: Config)(implicit F: Async[F]): Resource[F, Fs2MqttClient[F]] =
     for {
       client <- Resource
         .make(for {
@@ -48,11 +48,11 @@ object Fs2MqttClient {
               .useMqttVersion5()
               .buildAsync()
           )
-          _ <- Async.fromFuture(F.delay(client.connect().toScala))
-        } yield client)(client => Async.fromFuture(F.delay(client.disconnect().toScala)).void)
+          _ <- Async[F].fromFuture(F.delay(client.connect().toScala))
+        } yield client)(client => Async[F].fromFuture(F.delay(client.disconnect().toScala)).void)
       _ <- Stream
         .awakeEvery[F](10.seconds)
-        .evalMap(_ => Async.fromFuture(F.delay(client.connect().toScala)))
+        .evalMap(_ => Async[F].fromFuture(F.delay(client.connect().toScala)))
         .compile
         .drain
         .background
@@ -82,8 +82,8 @@ object Fs2MqttClient {
 
         override def publish: Pipe[F, MqttMessage, Unit] =
           stream =>
-            rxClient
-              .publish(Flowable.fromPublisher[Mqtt5Publish](stream.map { msg =>
+            Stream
+              .resource(stream.map { msg =>
                 Mqtt5Publish
                   .builder()
                   .topic(msg.topic)
@@ -92,12 +92,16 @@ object Fs2MqttClient {
                     case (k, v) => Mqtt5UserProperty.of(k, v)
                   }.toSeq: _*))
                   .build()
-              }.toUnicastPublisher))
-              .toStream[F]
-              .evalMap { result =>
-                val error = result.getError
-                if (error.isEmpty) F.unit
-                else F.raiseError[Unit](error.get())
+              }.toUnicastPublisher)
+              .flatMap { pub =>
+                rxClient
+                  .publish(Flowable.fromPublisher[Mqtt5Publish](pub))
+                  .toStream[F]
+                  .evalMap { result =>
+                    val error = result.getError
+                    if (error.isEmpty) F.unit
+                    else F.raiseError[Unit](error.get())
+                  }
             }
       }
     }

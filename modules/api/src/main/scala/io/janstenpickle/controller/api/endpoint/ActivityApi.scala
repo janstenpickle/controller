@@ -1,17 +1,16 @@
 package io.janstenpickle.controller.api.endpoint
 
-import cats.effect.Sync
+import cats.effect.kernel.Async
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import io.circe.refined._
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.configsource.ConfigSource
 import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.{Activity => ActivityModel}
 import org.http4s.{EntityDecoder, HttpRoutes}
 
-class ActivityApi[F[_]: Sync](activities: Activity[F], activitySource: ConfigSource[F, String, ActivityModel])(
+class ActivityApi[F[_]: Async](activities: Activity[F], activitySource: ConfigSource[F, String, ActivityModel])(
   implicit fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {

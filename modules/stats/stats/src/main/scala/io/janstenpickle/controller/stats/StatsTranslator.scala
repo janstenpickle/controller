@@ -19,7 +19,7 @@ object StatsTranslator {
     remotePubsub: EventPubSub[F, RemoteEvent],
     macroPubsub: EventPubSub[F, MacroEvent],
     sink: Pipe[F, Stats, Unit]
-  )(implicit timer: Timer[F]): Resource[F, Unit] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+  )(implicit timer: Timer[F]): Resource[F, Unit] = Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
     def repeatStream(stream: Stream[F, Unit]): F[Unit] =
       stream.compile.drain.handleErrorWith { th =>
         logger.error(th)("Stats stream failed, restarting") *> timer.sleep(15.seconds) *> repeatStream(stream)

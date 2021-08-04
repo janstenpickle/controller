@@ -1,6 +1,7 @@
 package io.janstenpickle.switches.config
 
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Resource, Sync}
 import cats.syntax.flatMap._
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
@@ -17,7 +18,7 @@ import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceVirtualSwitchConfigSource {
 
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     configEventPublisher: EventPublisher[F, ConfigEvent],

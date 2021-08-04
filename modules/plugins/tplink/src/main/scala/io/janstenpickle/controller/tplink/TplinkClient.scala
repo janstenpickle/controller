@@ -1,9 +1,7 @@
 package io.janstenpickle.controller.tplink
 
-import java.io.{InputStream, OutputStream}
-import java.net.Socket
-
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Concurrent, Resource, Sync}
 import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -14,6 +12,8 @@ import io.janstenpickle.controller.model.Room
 import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.Encryption.{decrypt, encryptWithHeader}
 
+import java.io.{InputStream, OutputStream}
+import java.net.Socket
 import scala.concurrent.duration.FiniteDuration
 
 trait TplinkClient[F[_]] {
@@ -26,17 +26,16 @@ trait TplinkClient[F[_]] {
 }
 
 object TplinkClient {
-  def apply[F[_]: ContextShift: Timer](
+  def apply[F[_]: Async](
     name: NonEmptyString,
     room: Option[Room],
     host: NonEmptyString,
     port: PortNumber,
     commandTimeout: FiniteDuration,
-    blocker: Blocker
   )(implicit F: Concurrent[F], errors: TplinkErrors[F]): TplinkClient[F] = new TplinkClient[F] {
     override def sendCommand(command: String): F[Json] = {
       val resource: Resource[F, (Socket, InputStream, OutputStream)] = Resource.make {
-        F.delay {
+        Sync[F].delay {
           val socket = new Socket(host.value, port.value)
           val inputStream = socket.getInputStream
           val outputStream = socket.getOutputStream
@@ -44,26 +43,26 @@ object TplinkClient {
         }
       } {
         case (s, is, os) =>
-          F.delay {
+          Sync[F].delay {
             os.close()
             is.close()
             s.close()
           }
       }
 
-      blocker.blockOn(resource.use {
+      resource.use {
         case (_, inputStream, outputStream) =>
           for {
-            _ <- Concurrent.timeoutTo(
-              F.delay(outputStream.write(encryptWithHeader(command))),
+            _ <- Concurrent[F].timeoutTo(
+              Sync[F].blocking(outputStream.write(encryptWithHeader(command))),
               commandTimeout,
               errors.tpLinkCommandTimedOut[Unit](name)
             )
-            response <- Concurrent
+            response <- Concurrent[F]
               .timeoutTo(decrypt(inputStream), commandTimeout, errors.tpLinkCommandTimedOut[String](name))
             result <- parser.parse(response).fold[F[Json]](errors.decodingFailure(name, _), _.pure[F])
           } yield result
-      })
+      }
     }
 
     def parseSetResponse(key: String, subKey: String)(json: Json): F[Unit] = {

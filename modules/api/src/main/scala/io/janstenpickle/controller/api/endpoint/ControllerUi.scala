@@ -3,7 +3,7 @@ package io.janstenpickle.controller.api.endpoint
 import java.io.{FileInputStream, InputStream}
 import java.nio.file.{Path => JPath}
 
-import cats.effect.{Blocker, ContextShift, Sync}
+import cats.effect.Sync
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
@@ -11,15 +11,15 @@ import cats.syntax.functor._
 import org.http4s.dsl.Http4sDsl
 import org.http4s.{HttpRoutes, Response}
 
-class ControllerUi[F[_]: Sync: ContextShift](blocker: Blocker, basePath: Option[JPath] = None) extends Http4sDsl[F] {
+class ControllerUi[F[_]: Sync](basePath: Option[JPath] = None) extends Http4sDsl[F] {
 
   private def resourceExists(path: String): F[Boolean] =
-    blocker.delay(getClass.getClassLoader.getResource(path)).map(_ != null).recover {
+    Sync[F].blocking(getClass.getClassLoader.getResource(path)).map(_ != null).recover {
       case _: NullPointerException => false
     }
 
   private def fileExists(base: JPath, path: String): F[Boolean] =
-    blocker.delay(base.resolve(path).toFile.exists())
+    Sync[F].blocking(base.resolve(path).toFile.exists())
 
   private def fetchFile(base: JPath, path: String): F[Response[F]] =
     for {
@@ -39,7 +39,7 @@ class ControllerUi[F[_]: Sync: ContextShift](blocker: Blocker, basePath: Option[
   private def readInput(is: F[InputStream]): F[Response[F]] =
     Response(
       body = fs2.io
-        .readInputStream(is, 200, blocker)
+        .readInputStream(is, 200)
     ).pure[F]
 
   private def fetch(name: String): F[Response[F]] =
@@ -47,6 +47,6 @@ class ControllerUi[F[_]: Sync: ContextShift](blocker: Blocker, basePath: Option[
 
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case GET -> Root => fetch("index.html")
-    case GET -> path => fetch(path.toList.mkString("/"))
+    case GET -> path => fetch(path.segments.mkString("/"))
   }
 }

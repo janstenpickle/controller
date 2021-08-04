@@ -1,11 +1,12 @@
 package io.janstenpickle.controller.tplink
 
-import java.io.ByteArrayInputStream
-import java.net.{DatagramPacket, DatagramSocket, InetAddress, SocketTimeoutException}
+import cats.Parallel
 import cats.derived.auto.eq._
-import cats.effect.{Blocker, Clock, Concurrent, ContextShift, Resource, Timer}
-import cats.effect.syntax.concurrent._
+import cats.effect.{Resource, Temporal}
+import cats.effect.kernel.Async
+import cats.effect.syntax.temporal._
 import cats.instances.list._
+import cats.instances.string._
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
@@ -14,31 +15,28 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.syntax.traverse._
-import cats.{Applicative, Functor, Parallel}
+import eu.timepit.refined.cats._
 import eu.timepit.refined.types.net.PortNumber
 import eu.timepit.refined.types.string.NonEmptyString
+import fs2.{Pipe, Stream}
 import io.circe.Json
 import io.circe.parser._
-import io.janstenpickle.controller.discovery.{DeviceRename, DeviceState, Discovered, Discovery}
-import io.janstenpickle.controller.tplink.Constants._
-import io.janstenpickle.controller.tplink.device.{TplinkDevice, TplinkDeviceErrors}
-import cats.derived.auto.eq._
-import eu.timepit.refined.cats._
-import cats.instances.string._
-import cats.instances.int._
-import cats.instances.option._
-import fs2.{Pipe, Stream}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, Room, SwitchKey}
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, Room, SwitchKey}
+import io.janstenpickle.controller.tplink.Constants._
 import io.janstenpickle.controller.tplink.config.TplinkRemoteConfigSource
+import io.janstenpickle.controller.tplink.device.{TplinkDevice, TplinkDeviceErrors}
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
+import java.io.ByteArrayInputStream
+import java.net.{DatagramPacket, DatagramSocket, InetAddress, SocketTimeoutException}
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
@@ -65,22 +63,19 @@ object TplinkDiscovery {
     `type`: DeviceType
   )
 
-  def dynamic[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent](
+  def dynamic[F[_]: Parallel, G[_]: Async](
     config: TplinkComponents.Config,
-    workBlocker: Blocker,
-    discoveryBlocker: Blocker,
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
     discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
     k: ResourceKleisli[G, SpanName, Span[G]]
   )(
-    implicit F: Concurrent[F],
-    timer: Timer[F],
+    implicit F: Async[F],
     errors: TplinkDeviceErrors[F] with ErrorHandler[F],
     trace: Trace[F],
     provide: Provide[G, F, Span[G]]
-  ): Resource[F, TplinkDiscovery[F]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+  ): Resource[F, TplinkDiscovery[F]] = Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
     def refineF[A](refined: Either[String, A]): F[A] =
       F.fromEither(refined.leftMap(new RuntimeException(_) with NoStackTrace))
 
@@ -158,7 +153,7 @@ object TplinkDiscovery {
             val inPacket = new DatagramPacket(inBuffer, inBuffer.length)
 
             val ret: F[Either[Map[(NonEmptyString, PortNumber), Json], Map[(NonEmptyString, PortNumber), Json]]] = for {
-              _ <- F.delay(socket.receive(inPacket))
+              _ <- F.blocking(socket.receive(inPacket))
               in <- Encryption.decrypt[F](new ByteArrayInputStream(inBuffer))
               host <- refineF(NonEmptyString.from(inPacket.getAddress.getHostAddress))
               port <- refineF(PortNumber.from(inPacket.getPort))
@@ -172,8 +167,8 @@ object TplinkDiscovery {
 
         trace.span("tplink.discover") {
           for {
-            _ <- discoveryBlocker.blockOn(List.fill(3)(F.delay(socket.send(packet)) *> timer.sleep(50.millis)).sequence)
-            discovered <- discoveryBlocker.blockOn(receiveData)
+            _ <- List.fill(3)(F.blocking(socket.send(packet)) *> Temporal[F].sleep(50.millis)).sequence
+            discovered <- receiveData
             filtered = discovered.flatMap {
               case ((host, port), v) =>
                 for {
@@ -188,7 +183,7 @@ object TplinkDiscovery {
                 errors.handleWith(
                   TplinkDevice
                     .plug(
-                      TplinkClient(name, room, host, port, config.commandTimeout, workBlocker),
+                      TplinkClient[F](name, room, host, port, config.commandTimeout),
                       model,
                       id,
                       json,
@@ -205,8 +200,8 @@ object TplinkDiscovery {
               case (TplinkInstance(name, room, host, port, id, t @ DeviceType.SmartBulb(model)), json) =>
                 errors.handleWith(
                   TplinkDevice
-                    .bulb(
-                      TplinkClient(name, room, host, port, config.commandTimeout, workBlocker),
+                    .bulb[F](
+                      TplinkClient(name, room, host, port, config.commandTimeout),
                       model,
                       id,
                       json,

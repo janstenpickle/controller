@@ -4,11 +4,11 @@ import cats.effect.Sync
 import cats.mtl.ApplicativeHandle
 import cats.syntax.apply._
 import cats.syntax.functor._
-import io.chrisdavenport.log4cats.Logger
 import io.janstenpickle.trace4cats.inject.Trace
 import io.janstenpickle.trace4cats.model.SpanStatus
 import org.http4s.Response
 import org.http4s.dsl.Http4sDsl
+import org.typelevel.log4cats.Logger
 
 object Handler {
   def handleControlError[F[_]: Sync](

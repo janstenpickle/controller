@@ -1,10 +1,10 @@
 package io.janstenpickle.control.switch.polling
 
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Resource, Sync}
 import cats.syntax.apply._
 import eu.timepit.refined.types.numeric.PosInt
 import eu.timepit.refined.types.string.NonEmptyString
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.model.{State, SwitchMetadata}
 import io.janstenpickle.controller.poller.DataPoller.Data
 import io.janstenpickle.controller.poller.{DataPoller, Empty}
@@ -12,20 +12,21 @@ import io.janstenpickle.controller.switch.Switch
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration.FiniteDuration
 
 object PollingSwitch {
   implicit val stateEmpty: Empty[State] = Empty[State](State.Off)
 
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     underlying: Switch[F],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
     onUpdate: (State, State) => F[Unit],
     k: ResourceKleisli[G, SpanName, Span[G]]
   )(implicit errors: PollingSwitchErrors[F], provide: Provide[G, F, Span[G]]): Resource[F, Switch[F]] =
-    Resource.liftF(Slf4jLogger.fromName[F](s"switchPoller-${underlying.name.value}")).flatMap { implicit logger =>
+    Resource.eval(Slf4jLogger.fromName[F](s"switchPoller-${underlying.name.value}")).flatMap { implicit logger =>
       DataPoller.traced[F, G, State, Switch[F]](
         "switch",
         "switch.name" -> underlying.name.value,

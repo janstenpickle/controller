@@ -1,39 +1,39 @@
 package io.janstenpickle.controller.homekit
 
-import cats.data.Kleisli
+import cats.effect.kernel.Async
+import cats.effect.std.{Dispatcher, Queue}
+import cats.effect.syntax.spawn._
+import cats.effect._
+import cats.syntax.applicativeError._
+import cats.syntax.apply._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
+import cats.{~>, Id}
 
 import java.io.Closeable
 import java.lang
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
-import cats.effect.concurrent.Ref
-import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, BracketThrow, Concurrent, ContextShift, Fiber, Resource, Timer}
-import cats.syntax.apply._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.{~>, Id}
-import cats.syntax.applicativeError._
 import eu.timepit.refined.auto._
-import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import fs2.Stream
 import io.github.hapjava.accessories.{HomekitAccessory, LightbulbAccessory, OutletAccessory, SwitchAccessory}
 import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback
 import io.github.hapjava.server.impl.HomekitRoot
 import io.janstenpickle.controller.events.{EventPublisher, EventSubscriber}
 import io.janstenpickle.controller.model.Command.{SwitchOff, SwitchOn}
-import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
-import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
 import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchAddedEvent,
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
+import io.janstenpickle.controller.model.event.{CommandEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{State, SwitchKey, SwitchMetadata, SwitchType}
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, Trace}
 import io.janstenpickle.trace4cats.model.{AttributeValue, SpanKind, SpanStatus}
 import org.apache.commons.text.WordUtils
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.compat.java8.FutureConverters._
 import scala.concurrent.Future
@@ -43,18 +43,17 @@ import scala.util.hashing.MurmurHash3
 object ControllerAccessories {
   private def completedFuture[A](a: A): CompletableFuture[A] = Future.successful(a).toJava.toCompletableFuture
 
-  def apply[F[_]: Timer: ContextShift, G[_]: BracketThrow](
+  def apply[F[_], G[_]: MonadCancelThrow](
     root: HomekitRoot,
     switchEvents: EventSubscriber[F, SwitchEvent],
     commands: EventPublisher[F, CommandEvent],
-    blocker: Blocker,
     fkFuture: F ~> Future,
     fk: F ~> Id,
     k: ResourceKleisli[G, (String, SpanKind), Span[G]]
-  )(implicit F: Concurrent[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, Unit] =
+  )(implicit F: Async[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, Unit] =
     (for {
-      logger <- Resource.liftF(Slf4jLogger.create[F])
-      source <- Resource.liftF(F.delay(UUID.randomUUID().toString))
+      logger <- Resource.eval(Slf4jLogger.create[F])
+      source <- Resource.eval(F.delay(UUID.randomUUID().toString))
     } yield (logger, source)).flatMap {
       case (logger, source) =>
         val cmds = commands.updateSource(source)
@@ -93,39 +92,36 @@ object ControllerAccessories {
 
           def switchState: CompletableFuture[lang.Boolean] =
             fkFuture(span("get.state") {
-              getState
-            }).map { state =>
-                lang.Boolean.valueOf(state.isOn)
-              }(blocker.blockingContext)
-              .toJava
-              .toCompletableFuture
+              getState.map(state => lang.Boolean.valueOf(state.isOn))
+            }).toJava.toCompletableFuture
 
           def setState(state: Boolean): CompletableFuture[Void] =
             fkFuture(span("set.state") {
               if (state) cmds.publish1(CommandEvent.MacroCommand(SwitchOn(key.device, key.name)))
               else cmds.publish1(CommandEvent.MacroCommand(SwitchOff(key.device, key.name)))
-            }).map(_ => null.asInstanceOf[Void])(blocker.blockingContext).toJava.toCompletableFuture
+            }.as(null.asInstanceOf[Void])).toJava.toCompletableFuture
 
           def subscribeUpdates(callback: HomekitCharacteristicChangeCallback) =
             span("subscribe") {
-              blocker.blockOn(
-                stateUpdates.dequeue
-                  .evalMap { _ =>
-                    rootSpan(span("update.subscriber") {
-                      Concurrent.timeout(blocker.delay(callback.changed()), 3.seconds).handleError { th =>
-                        logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
-                          .setStatus(SpanStatus.Internal(th.getMessage))
-                      }
-                    })
-                  }
-                  .compile
-                  .drain
-                  .start
-              )
+
+              Stream
+                .fromQueueUnterminated(stateUpdates)
+                .evalMap { _ =>
+                  rootSpan(span("update.subscriber") {
+                    Concurrent[F].timeout(Sync[F].blocking(callback.changed()), 3.seconds).handleError { th =>
+                      logger.error(th)(s"Failed to exec state callback for switch '${key.name}'") *> trace
+                        .setStatus(SpanStatus.Internal(th.getMessage))
+                    }
+                  })
+                }
+                .compile
+                .drain
+                .start
+
             }
 
           def switch = new SwitchAccessory with Closeable {
-            private var switchChanges: Fiber[F, Unit] = _
+            private var switchChanges: Fiber[F, Throwable, Unit] = _
 
             override def getName: CompletableFuture[String] = completedFuture(label)
             override def getFirmwareRevision: CompletableFuture[String] =
@@ -149,7 +145,7 @@ object ControllerAccessories {
           }
 
           def bulb = new LightbulbAccessory with Closeable {
-            private var switchChanges: Fiber[F, Unit] = _
+            private var switchChanges: Fiber[F, Throwable, Unit] = _
 
             override def getName: CompletableFuture[String] = completedFuture(label)
             override def getFirmwareRevision: CompletableFuture[String] =
@@ -178,7 +174,7 @@ object ControllerAccessories {
           }
 
           def plug = new OutletAccessory with Closeable {
-            private var switchChanges: Fiber[F, Unit] = _
+            private var switchChanges: Fiber[F, Throwable, Unit] = _
 
             override def getName: CompletableFuture[String] = completedFuture(label)
             override def getFirmwareRevision: CompletableFuture[String] =
@@ -239,7 +235,7 @@ object ControllerAccessories {
               } yield ()
             case SwitchStateUpdateEvent(key, state, None) =>
               stateRef.update(_.updated(key, state)) *> switchRef.get.flatMap(_.get(key).fold(F.unit) {
-                case (_, queue) => queue.enqueue1(state)
+                case (_, queue) => queue.offer(state)
               })
             case _ =>
               F.unit
@@ -249,8 +245,8 @@ object ControllerAccessories {
           ref <- Resource.make(Ref.of(Map.empty[SwitchKey, (HomekitAccessory with Closeable, Queue[F, State])]))(
             ref => ref.get.flatMap(sws => F.delay(sws.values.foreach(_._1.close())))
           )
-          stateRef <- Resource.liftF(Ref.of(Map.empty[SwitchKey, State]))
-          _ <- blocker.blockOn(stream(ref, stateRef).compile.drain).background
+          stateRef <- Resource.eval(Ref.of(Map.empty[SwitchKey, State]))
+          _ <- stream(ref, stateRef).compile.drain.background
         } yield ()
     }
 }

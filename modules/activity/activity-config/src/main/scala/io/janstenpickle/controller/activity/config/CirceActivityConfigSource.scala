@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.activity.config
 
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Resource, Sync}
 import cats.instances.string._
 import io.janstenpickle.controller.configsource.WritableConfigSource
 import io.janstenpickle.controller.configsource.circe.CirceConfigSource.PollingConfig
@@ -15,7 +16,7 @@ import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 
 object CirceActivityConfigSource {
-  def apply[F[_]: Sync: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Sync: Trace, G[_]: Async](
     config: ConfigFileSource[F],
     pollingConfig: PollingConfig,
     configEventPublisher: EventPublisher[F, ConfigEvent],

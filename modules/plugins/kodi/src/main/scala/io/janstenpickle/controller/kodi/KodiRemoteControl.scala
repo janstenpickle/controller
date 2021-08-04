@@ -1,8 +1,8 @@
 package io.janstenpickle.controller.kodi
 
-import cats.{FlatMap, Monad, Parallel}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.{FlatMap, Monad}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.kodi.Commands._

@@ -8,8 +8,6 @@ import cats.syntax.functor._
 import cats.syntax.parallel._
 import cats.{MonadError, Parallel, Traverse}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.store.MacroStore
 import io.janstenpickle.controller.activity.store.ActivityStore
 import io.janstenpickle.controller.api.validation.ConfigValidation
@@ -27,6 +25,8 @@ import io.janstenpickle.controller.model.event.ConfigEvent
 import io.janstenpickle.controller.model.{SwitchKey, _}
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.trace4cats.inject.Trace
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.collection.immutable.ListMap
 

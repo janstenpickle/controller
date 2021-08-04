@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.multiswitch
 
 import cats.data.Reader
-import cats.effect.syntax.concurrent._
+import cats.effect.kernel.Spawn
+import cats.effect.syntax.spawn._
 import cats.effect.{Concurrent, Resource}
 import cats.instances.map._
 import cats.instances.set._
@@ -68,7 +69,7 @@ object MultiSwitchEventListenter {
     }
   }
 
-  def apply[F[_]: Concurrent](
+  def apply[F[_]: Concurrent: Spawn](
     switchEvents: EventPubSub[F, SwitchEvent],
     configEvents: EventPubSub[F, ConfigEvent]
   ): Resource[F, Unit] =

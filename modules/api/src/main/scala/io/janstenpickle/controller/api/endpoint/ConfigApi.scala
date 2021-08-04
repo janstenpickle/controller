@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.api.endpoint
 
 import cats.data.ValidatedNel
-import cats.effect.{Concurrent, Timer}
+import cats.effect.MonadCancelThrow
+import cats.effect.kernel.Async
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.apply._
 import cats.syntax.either._
@@ -26,21 +27,20 @@ import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.http4s.common.{AnyK, Http4sHeaders}
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
-import io.janstenpickle.trace4cats.model.SpanKind
 import org.http4s._
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
 
 import scala.concurrent.duration._
 
-class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
+class ConfigApi[F[_], G[_]: MonadCancelThrow](
   service: ConfigService[F],
   activityPubSub: EventPubSub[F, ActivityUpdateEvent],
   configEventPubSub: EventPubSub[F, ConfigEvent],
   switchEventPubSub: EventPubSub[F, SwitchEvent],
   k: ResourceKleisli[G, SpanName, Span[G]]
 )(
-  implicit F: Concurrent[F],
+  implicit F: Async[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError],
   trace: Trace[F],
@@ -55,7 +55,7 @@ class ConfigApi[F[_]: Timer, G[_]: Concurrent: Timer](
     errorMap: ControlError => A
   )(interval: FiniteDuration) = {
     val lowerName: F ~> G = new (F ~> G) {
-      override def apply[AA](fa: F[AA]): G[AA] = k.run(req.uri.path).use(provide.provide(fa))
+      override def apply[AA](fa: F[AA]): G[AA] = k.run(req.uri.path.toString()).use(provide.provide(fa))
     }
 
     val stream = Stream

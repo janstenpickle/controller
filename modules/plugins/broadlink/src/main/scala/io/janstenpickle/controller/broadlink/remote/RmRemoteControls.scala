@@ -1,29 +1,28 @@
 package io.janstenpickle.controller.broadlink.remote
 
-import cats.{Applicative, Parallel}
-import cats.effect.{Async, ContextShift, Sync, Timer}
+import cats.effect.Async
+import cats.instances.list._
+import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.traverse._
+import cats.{Applicative, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.broadlink.{BroadlinkDevice, BroadlinkDiscovery}
-import io.janstenpickle.controller.model.{CommandPayload, RemoteCommand, RemoteCommandSource}
-import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors, RemoteControls}
-import io.janstenpickle.controller.remote.store.RemoteCommandStore
-import cats.syntax.flatMap._
-import cats.instances.list._
-import cats.syntax.traverse._
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.event.RemoteEvent
+import io.janstenpickle.controller.model.{CommandPayload, RemoteCommand, RemoteCommandSource}
+import io.janstenpickle.controller.remote.store.RemoteCommandStore
 import io.janstenpickle.controller.remote.trace.TracedRemote
+import io.janstenpickle.controller.remotecontrol.{RemoteControl, RemoteControlErrors, RemoteControls}
 import io.janstenpickle.trace4cats.inject.Trace
 import scalacache.Cache
-import scalacache.CatsEffect.modes._
 import scalacache.memoization.memoizeF
 
 object RmRemoteControls {
-  def apply[F[_]: Async: ContextShift: Timer: Parallel: RemoteControlErrors: Trace](
+  def apply[F[_]: Async: Parallel: RemoteControlErrors: Trace](
     discovery: BroadlinkDiscovery[F],
     store: RemoteCommandStore[F, CommandPayload],
-    cache: Cache[RemoteControls[F]],
+    cache: Cache[F, RemoteControls[F]],
     eventPublisher: EventPublisher[F, RemoteEvent]
   ): RemoteControls[F] =
     new RemoteControls[F] {

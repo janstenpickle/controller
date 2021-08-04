@@ -6,7 +6,7 @@ import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
-import cats.{Functor, Monad, MonadError, Parallel}
+import cats.{Functor, MonadError, Parallel}
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.config.trace.TracedConfigSource
 import io.janstenpickle.controller.configsource.{ConfigResult, ConfigSource}
@@ -15,7 +15,6 @@ import io.janstenpickle.controller.model.{Button, Remote}
 import io.janstenpickle.controller.sonos.{CommandSource, Commands, SonosDevice, SonosDiscovery}
 import io.janstenpickle.trace4cats.inject.Trace
 import scalacache.Cache
-import scalacache.CatsEffect.modes._
 
 object SonosRemoteConfigSource {
   def deviceToRemote[F[_]](
@@ -151,7 +150,7 @@ object SonosRemoteConfigSource {
     activityName: NonEmptyString,
     allRooms: Boolean,
     discovery: SonosDiscovery[F],
-    cache: Cache[ConfigResult[NonEmptyString, Remote]]
+    cache: Cache[F, ConfigResult[NonEmptyString, Remote]]
   )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] =
     TracedConfigSource(
       new ConfigSource[F, NonEmptyString, Remote] {

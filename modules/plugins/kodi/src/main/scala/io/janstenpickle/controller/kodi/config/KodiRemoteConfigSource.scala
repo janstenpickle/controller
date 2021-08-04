@@ -15,7 +15,6 @@ import io.janstenpickle.controller.model.Button.{RemoteIcon, RemoteLabel, Switch
 import io.janstenpickle.controller.model.{Button, Remote}
 import io.janstenpickle.trace4cats.inject.Trace
 import scalacache.Cache
-import scalacache.CatsEffect.modes._
 
 object KodiRemoteConfigSource {
   def deviceToRemotes[F[_]](remoteName: NonEmptyString, activityName: NonEmptyString, device: KodiDevice[F])(
@@ -111,7 +110,7 @@ object KodiRemoteConfigSource {
     remoteName: NonEmptyString,
     activityName: NonEmptyString,
     discovery: KodiDiscovery[F],
-    cache: Cache[ConfigResult[NonEmptyString, Remote]]
+    cache: Cache[F, ConfigResult[NonEmptyString, Remote]]
   )(implicit F: Async[F]): ConfigSource[F, NonEmptyString, Remote] =
     TracedConfigSource(
       new ConfigSource[F, NonEmptyString, Remote] {

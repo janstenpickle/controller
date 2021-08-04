@@ -1,30 +1,29 @@
 package io.janstenpickle.controller.sonos
 
-import cats.{Applicative, Parallel}
-import cats.effect.concurrent.Ref
-import cats.effect.syntax.concurrent._
-import cats.effect.{Blocker, Concurrent, ContextShift, ExitCase, Timer}
+import cats.effect.syntax.spawn._
+import cats.effect.syntax.temporal._
+import cats.effect.{Async, Ref, Sync}
 import cats.instances.list._
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.parallel._
+import cats.{Applicative, Parallel}
 import com.vmichalak.sonoscontroller
 import com.vmichalak.sonoscontroller.model.{PlayState, TrackMetadata}
 import eu.timepit.refined.types.string.NonEmptyString
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.discovery.DiscoveredDevice
 import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey, SwitchMetadata}
-import io.janstenpickle.controller.sonos.SonosDevice.DeviceState
 import io.janstenpickle.controller.model.event.SwitchEvent.SwitchStateUpdateEvent
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue, State, SwitchKey}
+import io.janstenpickle.controller.sonos.SonosDevice.DeviceState
 import io.janstenpickle.trace4cats.inject.Trace
-import io.janstenpickle.trace4cats.model.AttributeValue.{BooleanValue, StringValue}
 import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-import scala.collection.JavaConverters._
 import scala.concurrent.duration.FiniteDuration
+import scala.jdk.CollectionConverters._
 
 trait SonosDevice[F[_]] extends SimpleSonosDevice[F] with DiscoveredDevice[F] {
   def id: String
@@ -53,7 +52,7 @@ object SonosDevice {
     devicesInGroup: Set[String]
   )
 
-  implicit def apply[F[_]: ContextShift: Timer: Parallel](
+  implicit def apply[F[_]: Parallel](
     deviceId: String,
     formattedName: NonEmptyString,
     nonEmptyName: NonEmptyString,
@@ -63,10 +62,9 @@ object SonosDevice {
     underlying: sonoscontroller.SonosDevice,
     allDevices: Ref[F, Map[String, SonosDevice[F]]],
     commandTimeout: FiniteDuration,
-    blocker: Blocker,
     onUpdate: SonosDevice[F] => F[Unit],
     switchEventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
-  )(implicit F: Concurrent[F], trace: Trace[F]): F[SonosDevice[F]] = {
+  )(implicit F: Async[F], trace: Trace[F]): F[SonosDevice[F]] = {
     def span[A](name: String, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] = trace.span(s"sonos.$name") {
       trace.putAll(
         (Seq[(String, AttributeValue)]("device.id" -> deviceId, "device.name" -> formattedName.value) ++ extraFields): _*
@@ -74,8 +72,8 @@ object SonosDevice {
     }
 
     def _isPlaying: F[Boolean] = span("read.is.playing") {
-      blocker
-        .delay(underlying.getPlayState)
+      Sync[F]
+        .blocking(underlying.getPlayState)
         .map {
           case PlayState.PLAYING => true
           case PlayState.TRANSITIONING => true
@@ -87,11 +85,11 @@ object SonosDevice {
     }
 
     def _isMuted: F[Boolean] = span("read.is.muted") {
-      blocker.delay(underlying.isMuted)
+      Sync[F].blocking(underlying.isMuted)
     }
 
     def _nowPlaying: F[Option[NowPlaying]] = span("read.now.playing") {
-      blocker.delay(underlying.getCurrentTrackInfo).map { trackInfo =>
+      Sync[F].blocking(underlying.getCurrentTrackInfo).map { trackInfo =>
         def element(f: TrackMetadata => String): Option[String] = Option(f(trackInfo.getMetadata)).filterNot(_.isEmpty)
 
         for {
@@ -103,7 +101,7 @@ object SonosDevice {
 
     def _isCoordinator: F[Boolean] =
       span("is.coordinator") {
-        blocker.delay {
+        Sync[F].blocking {
           val devs = underlying.getZoneGroupState.getZonePlayerUIDInGroup
           underlying.isCoordinator || (devs.size() == 1 && devs.contains(deviceId))
         }
@@ -111,13 +109,13 @@ object SonosDevice {
 
     def refreshState: F[DeviceState] = span("refresh.state") {
       Parallel.parMap7(
-        span("get.volume")(blocker.delay(underlying.getVolume)),
-        span("is.joined")(blocker.delay(underlying.isJoined)),
+        span("get.volume")(Sync[F].blocking(underlying.getVolume)),
+        span("is.joined")(Sync[F].blocking(underlying.isJoined)),
         _isPlaying,
         _isMuted,
         _nowPlaying,
         _isCoordinator,
-        span("devices.in.group")(blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
+        span("devices.in.group")(Sync[F].blocking(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet))
       )(DeviceState.apply)
     }
 
@@ -165,7 +163,7 @@ object SonosDevice {
             _ <- trace.putAll("grouped" -> grouped, "controller" -> controller)
             _ <- if (grouped && !controller)
               doIfController(_.play)
-            else trace.span("playCmd")(blocker.delay(underlying.play()))
+            else trace.span("playCmd")(Sync[F].blocking(underlying.play()))
             _ <- state.update(_.copy(isPlaying = true))
             _ <- switchEventPublisher.publish1(SwitchStateUpdateEvent(playPauseSwitchKey, State.On))
             _ <- onUpdate(this)
@@ -192,7 +190,7 @@ object SonosDevice {
             _ <- trace.putAll("grouped" -> grouped, "controller" -> controller)
             _ <- if (grouped && !controller)
               doIfController(_.pause)
-            else trace.span("pauseCmd")(blocker.delay(underlying.pause()))
+            else trace.span("pauseCmd")(Sync[F].blocking(underlying.pause()))
             _ <- state.update(_.copy(isPlaying = false))
             _ <- switchEventPublisher.publish1(SwitchStateUpdateEvent(playPauseSwitchKey, State.Off))
             _ <- onUpdate(this)
@@ -232,7 +230,7 @@ object SonosDevice {
             _ <- trace.put("current.volume", vol)
             _ <- if (vol < 100) {
               val newVol = vol + 1
-              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace
+              Sync[F].blocking(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace
                 .put("new.volume", newVol)
             } else {
               F.unit
@@ -246,7 +244,7 @@ object SonosDevice {
             _ <- trace.put("current.volume", vol)
             _ <- if (vol > 0) {
               val newVol = vol - 1
-              blocker.delay(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace
+              Sync[F].blocking(underlying.setVolume(newVol)) *> state.update(_.copy(volume = newVol)) *> trace
                 .put("new.volume", newVol)
             } else {
               F.unit
@@ -255,20 +253,20 @@ object SonosDevice {
         }
 
         override def mute: F[Unit] = span("mute") {
-          blocker.delay(underlying.setMute(true)) *> state.update(_.copy(isMuted = true)) *> onUpdate(this)
+          Sync[F].blocking(underlying.setMute(true)) *> state.update(_.copy(isMuted = true)) *> onUpdate(this)
         }
 
         override def unMute: F[Unit] = span("unmute") {
-          blocker.delay(underlying.setMute(false)) *> state.update(_.copy(isMuted = false)) *> onUpdate(this)
+          Sync[F].blocking(underlying.setMute(false)) *> state.update(_.copy(isMuted = false)) *> onUpdate(this)
         }
 
         override def isMuted: F[Boolean] = span("is.muted") { state.get.map(_.isMuted) }
 
         override def next: F[Unit] = span("next") {
-          blocker.delay(underlying.next()) *> refreshNowPlaying *> onUpdate(this)
+          Sync[F].blocking(underlying.next()) *> refreshNowPlaying *> onUpdate(this)
         }
         override def previous: F[Unit] = span("previous") {
-          blocker.delay(underlying.previous()) *> refreshNowPlaying *> onUpdate(this)
+          Sync[F].blocking(underlying.previous()) *> refreshNowPlaying *> onUpdate(this)
         }
         private def refreshController: F[Unit] = span("refresh.controller") {
           _isCoordinator.flatMap { con =>
@@ -298,7 +296,7 @@ object SonosDevice {
               if (grouped) trace.put("new.grouped", grouped)
               else
                 masterToJoin.flatMap(_.fold(F.unit) { m =>
-                  blocker.delay(underlying.join(m.id)) *> state
+                  Sync[F].blocking(underlying.join(m.id)) *> state
                     .update(_.copy(isGrouped = true)) *> refreshGroup *> refreshIsPlaying *> refreshController *> trace
                     .putAll("master.id" -> m.id, "master.name" -> m.name.value)
                 }) *> onUpdate(this)
@@ -311,7 +309,7 @@ object SonosDevice {
             isC <- isController
             _ <- if (isC) F.unit
             else
-              blocker.delay(underlying.unjoin()) *> state
+              Sync[F].blocking(underlying.unjoin()) *> state
                 .update(_.copy(isGrouped = false, isController = true)) *> refreshGroup *> refreshIsPlaying *> onUpdate(
                 this
               ) *> trace
@@ -324,7 +322,7 @@ object SonosDevice {
         override def id: String = deviceId
 
         private def refreshGroup: F[Unit] = span("refresh.group") {
-          blocker.delay(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet).flatMap { devs =>
+          Sync[F].blocking(underlying.getZoneGroupState.getZonePlayerUIDInGroup.asScala.toSet).flatMap { devs =>
             trace.put("group.devices", devs.mkString(",")) *> state.update(_.copy(devicesInGroup = devs))
           }
         }

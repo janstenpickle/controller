@@ -1,11 +1,13 @@
 package io.janstenpickle.controller.events
 
-import cats.effect.{Concurrent, Resource}
-import fs2.Stream
-import fs2.concurrent.{Queue, Topic}
-import cats.effect.syntax.concurrent._
+import cats.effect.kernel.Async
+import cats.effect.std.Queue
+import cats.effect.syntax.spawn._
+import cats.effect.{Concurrent, Resource, Sync}
 import cats.~>
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import fs2.Stream
+import fs2.concurrent.Topic
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait EventSubscriber[F[_], A] { outer =>
   def subscribe: Stream[F, A] = subscribeEvent.map(_.value)
@@ -30,73 +32,73 @@ trait EventSubscriber[F[_], A] { outer =>
 }
 
 object EventSubscriber {
-  private def nonBlockingQueueResource[F[_]: Concurrent, A](
+  private def nonBlockingQueueResource[F[_]: Async, A](
     topic: Topic[F, Option[Event[A]]],
     maxQueued: Int
   ): Resource[F, Queue[F, Event[A]]] =
-    Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+    Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
       def loop(queue: Queue[F, Event[A]]): Stream[F, Unit] =
-        topic.subscribe(maxQueued).unNone.through(queue.enqueue).handleErrorWith { th =>
+        topic.subscribe(maxQueued).unNone.evalMap(queue.offer).handleErrorWith { th =>
           Stream.eval(logger.warn(th)("Queue subscription failed, restarting")) >> loop(queue)
         }
 
       for {
-        queue <- Resource.liftF(Queue.circularBuffer[F, Event[A]](maxQueued))
+        queue <- Resource.eval(Queue.circularBuffer[F, Event[A]](maxQueued))
         _ <- loop(queue).compile.drain.background
       } yield queue
     }
-  private def blockingQueueResource[F[_]: Concurrent, A](
+  private def blockingQueueResource[F[_]: Sync: Concurrent, A](
     topic: Topic[F, Option[Event[A]]],
     maxQueued: Int
   ): Resource[F, Queue[F, Event[A]]] =
-    Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+    Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
       def loop(queue: Queue[F, Event[A]]): Stream[F, Unit] =
-        topic.subscribe(maxQueued).unNone.through(queue.enqueue).handleErrorWith { th =>
+        topic.subscribe(maxQueued).unNone.evalMap(queue.offer).handleErrorWith { th =>
           Stream.eval(logger.warn(th)("Queue subscription failed, restarting")) >> loop(queue)
         }
 
       for {
-        queue <- Resource.liftF(Queue.bounded[F, Event[A]](maxQueued))
+        queue <- Resource.eval(Queue.bounded[F, Event[A]](maxQueued))
         _ <- loop(queue).compile.drain.background
       } yield queue
     }
 
-  def resourceFromTopicNonBlocking[F[_]: Concurrent, A](
+  def resourceFromTopicNonBlocking[F[_]: Async, A](
     topic: Topic[F, Option[Event[A]]],
     maxQueued: Int
   ): Resource[F, EventSubscriber[F, A]] =
     nonBlockingQueueResource(topic, maxQueued).map { queue =>
       new EventSubscriber[F, A] {
-        override def subscribeEvent: Stream[F, Event[A]] = queue.dequeue
+        override def subscribeEvent: Stream[F, Event[A]] = Stream.fromQueueUnterminated(queue)
       }
     }
 
-  def resourceFromTopicBlocking[F[_]: Concurrent, A](
+  def resourceFromTopicBlocking[F[_]: Async, A](
     topic: Topic[F, Option[Event[A]]],
     maxQueued: Int
   ): Resource[F, EventSubscriber[F, A]] =
     blockingQueueResource(topic, maxQueued).map { queue =>
       new EventSubscriber[F, A] {
-        override def subscribeEvent: Stream[F, Event[A]] = queue.dequeue
+        override def subscribeEvent: Stream[F, Event[A]] = Stream.fromQueueUnterminated(queue)
       }
     }
 
-  def streamFromTopicNonBlocking[F[_]: Concurrent, A](
+  def streamFromTopicNonBlocking[F[_]: Async, A](
     topic: Topic[F, Option[Event[A]]],
     maxQueued: Int
   ): EventSubscriber[F, A] =
     new EventSubscriber[F, A] {
       override def subscribeEvent: Stream[F, Event[A]] =
-        Stream.resource(nonBlockingQueueResource(topic, maxQueued)).flatMap(_.dequeue)
+        Stream.resource(nonBlockingQueueResource(topic, maxQueued)).flatMap(Stream.fromQueueUnterminated(_))
     }
 
-  def streamFromTopicBlocking[F[_]: Concurrent, A](
+  def streamFromTopicBlocking[F[_]: Async, A](
     topic: Topic[F, Option[Event[A]]],
     maxQueued: Int
   ): EventSubscriber[F, A] =
     new EventSubscriber[F, A] {
       override def subscribeEvent: Stream[F, Event[A]] =
-        Stream.resource(blockingQueueResource(topic, maxQueued)).flatMap(_.dequeue)
+        Stream.resource(blockingQueueResource(topic, maxQueued)).flatMap(Stream.fromQueueUnterminated(_))
     }
 
   private def mapK[F[_], G[_], A](fk: F ~> G)(subscriber: EventSubscriber[F, A]): EventSubscriber[G, A] =

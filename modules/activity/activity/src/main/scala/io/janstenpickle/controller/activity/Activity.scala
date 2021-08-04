@@ -1,10 +1,10 @@
 package io.janstenpickle.controller.activity
 
-import cats.effect.{Clock, ExitCase}
+import cats.effect.Clock
+import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.{Applicative, Apply, MonadError, Parallel}
-import cats.syntax.applicativeError._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.store.ActivityStore

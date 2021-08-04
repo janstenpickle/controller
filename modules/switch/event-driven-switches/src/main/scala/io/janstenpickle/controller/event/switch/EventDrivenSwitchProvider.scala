@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.event.switch
 
-import cats.effect.syntax.concurrent._
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.kernel.{Async, Outcome}
+import cats.effect.syntax.spawn._
+import cats.effect.{MonadCancelThrow, Resource}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.eq._
@@ -33,7 +34,7 @@ import scala.util.control.NoStackTrace
 
 object EventDrivenSwitchProvider {
 
-  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
+  def apply[F[_]: Async, G[_]: MonadCancelThrow](
     eventSubscriber: EventSubscriber[F, SwitchEvent],
     commandPublisher: EventPublisher[F, CommandEvent],
     source: String,
@@ -81,7 +82,10 @@ object EventDrivenSwitchProvider {
         case _ => Applicative[F].unit
       }
 
-    def listener(switches: Cache[F, SwitchKey, Switch[F]], states: Cache[F, SwitchKey, State]): Resource[F, F[Unit]] =
+    def listener(
+      switches: Cache[F, SwitchKey, Switch[F]],
+      states: Cache[F, SwitchKey, State]
+    ): Resource[F, F[Outcome[F, Throwable, Unit]]] =
       Stream
         .retry(listen(switches, states).compile.drain, 5.seconds, _ + 1.second, Int.MaxValue)
         .compile

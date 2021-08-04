@@ -3,7 +3,8 @@ package io.janstenpickle.controller.remotecontrol.git
 import java.nio.file.{Files, Path, Paths}
 import cats.derived.auto.eq._
 import cats.Parallel
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.kernel.Async
+import cats.effect.{Concurrent, Resource, Sync}
 import cats.instances.all._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
@@ -15,7 +16,7 @@ import eu.timepit.refined.cats._
 import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
 import eu.timepit.refined.types.numeric.PosInt
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.poller.DataPoller
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
@@ -36,7 +37,7 @@ object LocalCache {
 
   private val master = "master"
 
-  def apply[F[_]: Parallel: Trace, G[_]: Concurrent: Timer](
+  def apply[F[_]: Parallel: Trace, G[_]: Async](
     path: Path,
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
@@ -130,7 +131,7 @@ object LocalCache {
 
     }
 
-    Resource.liftF(Slf4jLogger.fromName[F](s"localGitCachePoller")).flatMap { implicit logger =>
+    Resource.eval(Slf4jLogger.fromName[F](s"localGitCachePoller")).flatMap { implicit logger =>
       DataPoller.traced[F, G, Map[Key, CommandPayload], LocalCache[F]]("local.git.cache")(
         _ => underlying.list,
         pollInterval,

@@ -118,11 +118,11 @@ object Module {
       })))
 
     for {
-      events <- Resource.liftF(TopicEvents[F])
+      events <- Resource.eval(TopicEvents[F])
       discoveryBlocker <- makeBlocker("discovery")
       workBlocker <- makeBlocker("work")
 
-      host <- Resource.liftF(Server.hostname[F](config.host))
+      host <- Resource.eval(Server.hostname[F](config.host))
 
       jmdns <- JmDNSResource[F](host)
       coordinator <- config.coordinator.fold(
@@ -150,7 +150,7 @@ object Module {
         ep.toKleisli.local(name => (name, SpanKind.Internal, TraceHeaders.empty))
       )
 
-      _ <- Resource.liftF(eventsState.completeWithComponents(components, "sonos", events.source))
+      _ <- Resource.eval(eventsState.completeWithComponents(components, "sonos", events.source))
 
       _ <- RefreshListener[F](
         events.config.publisher,
@@ -178,7 +178,7 @@ object Module {
       )
 
       _ <- Advertiser[F](jmdns, config.server.port, ServiceType.Plugin, NonEmptyString("Sonos"))
-      api <- Resource.liftF(
+      api <- Resource.eval(
         PluginApi[F, G](
           events,
           components,

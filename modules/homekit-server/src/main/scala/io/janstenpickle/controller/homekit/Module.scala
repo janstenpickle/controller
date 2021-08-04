@@ -85,9 +85,9 @@ object Module {
     val lower = λ[F ~> G](ga => ep.root("homekit").use(provide.provide(ga)))
 
     for {
-      source <- Resource.liftF(Sync[F].delay(UUID.randomUUID().toString))
-      switchEvents <- Resource.liftF(EventPubSub.topicNonBlocking[F, SwitchEvent](1000, source))
-      commandEvents <- Resource.liftF(EventPubSub.topicNonBlocking[F, CommandEvent](50, source))
+      source <- Resource.eval(Sync[F].delay(UUID.randomUUID().toString))
+      switchEvents <- Resource.eval(EventPubSub.topicNonBlocking[F, SwitchEvent](1000, source))
+      commandEvents <- Resource.eval(EventPubSub.topicNonBlocking[F, CommandEvent](50, source))
 
       workBlocker <- makeBlocker("work")
 
@@ -97,7 +97,7 @@ object Module {
         .drain
         .background
 
-      host <- Resource.liftF(Server.hostname[F](config.host))
+      host <- Resource.eval(Server.hostname[F](config.host))
 
       jmdns <- JmDNSResource[F](host)
       coordinator <- config.coordinator.fold(

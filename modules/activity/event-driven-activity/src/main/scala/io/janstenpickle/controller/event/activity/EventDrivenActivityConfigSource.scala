@@ -1,6 +1,7 @@
 package io.janstenpickle.controller.event.activity
 
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.Resource
+import cats.effect.kernel.{Async, Spawn}
 import cats.syntax.apply._
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.cache.Cache
@@ -17,7 +18,7 @@ import io.janstenpickle.trace4cats.model.AttributeValue
 import scala.concurrent.duration._
 
 object EventDrivenActivityConfigSource {
-  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow](
+  def apply[F[_]: Async, G[_]: Spawn](
     subscriber: EventSubscriber[F, ConfigEvent],
     source: String,
     k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],

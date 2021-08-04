@@ -2,13 +2,8 @@ package io.janstenpickle.controller.sonos
 
 import cats.data.OptionT
 import cats.effect._
-import cats.effect.concurrent.Ref
 import cats.instances.list._
-import cats.instances.long._
-import cats.instances.map._
 import cats.instances.string._
-import cats.instances.tuple._
-import cats.syntax.apply._
 import cats.syntax.applicativeError._
 import cats.syntax.either._
 import cats.syntax.flatMap._
@@ -19,26 +14,25 @@ import com.vmichalak.sonoscontroller
 import com.vmichalak.sonoscontroller.{CommandBuilder, SonosDevice => JSonosDevice}
 import eu.timepit.refined.types.string.NonEmptyString
 import fs2.{Pipe, Stream}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.discovery.Discovery
 import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
 import io.janstenpickle.controller.model.event.ConfigEvent._
-import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
-import io.janstenpickle.controller.poller.Empty
-import io.janstenpickle.controller.sonos.config.SonosRemoteConfigSource
 import io.janstenpickle.controller.model.event.SwitchEvent.{
   SwitchAddedEvent,
   SwitchRemovedEvent,
   SwitchStateUpdateEvent
 }
+import io.janstenpickle.controller.model.event.{ConfigEvent, DeviceDiscoveryEvent, RemoteEvent, SwitchEvent}
+import io.janstenpickle.controller.model.{DiscoveredDeviceKey, DiscoveredDeviceValue}
+import io.janstenpickle.controller.poller.Empty
+import io.janstenpickle.controller.sonos.config.SonosRemoteConfigSource
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
-import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-import scala.xml._
 import scala.collection.JavaConverters._
+import scala.xml._
 
 object SonosDiscovery {
   val eventSource: String = "sonos"
@@ -56,55 +50,47 @@ object SonosDiscovery {
   implicit def empty[F[_]]: Empty[(Map[NonEmptyString, SonosDevice[F]], Map[NonEmptyString, Long])] =
     Empty((Map.empty[NonEmptyString, SonosDevice[F]], Map.empty[NonEmptyString, Long]))
 
-  def polling[F[_]: ContextShift: Parallel, G[_]: Concurrent: Timer](
+  def polling[F[_]: Parallel, G[_]: Async](
     config: SonosComponents.Config,
-    workBlocker: Blocker,
-    discoveryBlocker: Blocker,
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
     discoveryEventPublisher: EventPublisher[F, DeviceDiscoveryEvent],
     k: ResourceKleisli[G, SpanName, Span[G]]
-  )(
-    implicit F: Concurrent[F],
-    timer: Timer[F],
-    trace: Trace[F],
-    provide: Provide[G, F, Span[G]]
-  ): Resource[F, SonosDiscovery[F]] =
-    Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
-      Resource.liftF(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
+  )(implicit F: Async[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, SonosDiscovery[F]] =
+    Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
+      Resource.eval(Ref.of[F, Map[String, SonosDevice[F]]](Map.empty)).flatMap { devicesRef =>
         val deviceUpdate: SonosDevice[F] => F[ConfigEvent] = dev =>
           SonosRemoteConfigSource
             .deviceToRemote(config.remote, config.activity.name, config.allRooms, dev)
             .map(RemoteAddedEvent(_, eventSource))
 
         def deviceName(device: JSonosDevice) =
-          OptionT(
-            discoveryBlocker.delay[F, Option[String]](Option(device.getSpeakerInfo.getIpAddress).filter(_.nonEmpty))
-          ).semiflatMap { ip =>
-            discoveryBlocker
-              .delay[F, String](
-                CommandBuilder
-                  .zoneGroupTopology("GetZoneGroupState")
-                  .executeOn(ip)
-              )
-              .flatMap { resp =>
-                F.delay((XML.loadString(resp) \\ "ZoneGroups" \ "ZoneGroup").flatMap { zoneGroup =>
-                  val members = (zoneGroup \ "ZoneGroupMember").flatMap { zoneGroupMember =>
-                    if (zoneGroupMember \@ "Invisible" != "1")
-                      Some(zoneGroupMember \@ "UUID" -> zoneGroupMember \@ "ZoneName")
-                    else None
-                  }
+          OptionT(Sync[F].blocking[Option[String]](Option(device.getSpeakerInfo.getIpAddress).filter(_.nonEmpty)))
+            .semiflatMap { ip =>
+              Sync[F]
+                .blocking[String](
+                  CommandBuilder
+                    .zoneGroupTopology("GetZoneGroupState")
+                    .executeOn(ip)
+                )
+                .flatMap { resp =>
+                  F.delay((XML.loadString(resp) \\ "ZoneGroups" \ "ZoneGroup").flatMap { zoneGroup =>
+                    val members = (zoneGroup \ "ZoneGroupMember").flatMap { zoneGroupMember =>
+                      if (zoneGroupMember \@ "Invisible" != "1")
+                        Some(zoneGroupMember \@ "UUID" -> zoneGroupMember \@ "ZoneName")
+                      else None
+                    }
 
-                  if (members.isEmpty) None
-                  else Some(zoneGroup \@ "Coordinator" -> members)
-                }.toMap)
-              }
-          }
+                    if (members.isEmpty) None
+                    else Some(zoneGroup \@ "Coordinator" -> members)
+                  }.toMap)
+                }
+            }
 
         def discover: F[Map[NonEmptyString, SonosDevice[F]]] = trace.span("sonos.discover") {
-          discoveryBlocker
-            .delay[F, List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
+          Sync[F]
+            .blocking[List[JSonosDevice]](sonoscontroller.SonosDiscovery.discover().asScala.toList)
             .flatTap { devices =>
               trace.put("device.count", devices.size)
             }
@@ -114,7 +100,7 @@ object SonosDiscovery {
                   trace.span("sonos.read.device") {
                     (for {
                       id <- trace.span("sonos.get.id") {
-                        discoveryBlocker.delay[F, String](device.getSpeakerInfo.getLocalUID)
+                        Sync[F].blocking(device.getSpeakerInfo.getLocalUID)
                       }
                       zoneInfo <- deviceName(device).value
                       name = zoneInfo.flatMap(_.values.flatten.toMap.get(id))
@@ -136,7 +122,6 @@ object SonosDiscovery {
                               device,
                               devicesRef,
                               config.commandTimeout,
-                              workBlocker,
                               deviceUpdate(_).flatMap(configEventPublisher.publish1),
                               switchEventPublisher.narrow
                             )
@@ -156,9 +141,9 @@ object SonosDiscovery {
         }
 
         val removedSwitches: Pipe[F, SonosDevice[F], Unit] = _.flatMap { dev =>
-          Stream.fromIterator[F](
-            SonosSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).keys.iterator
-          )
+          val removed = SonosSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).keys
+
+          Stream.fromIterator[F](removed.iterator, removed.size)
         }.map(SwitchRemovedEvent).through(switchEventPublisher.pipe)
 
         val removedRemotes: Pipe[F, SonosDevice[F], Unit] = _.evalMap(
@@ -168,9 +153,9 @@ object SonosDiscovery {
         val onDeviceRemoved: Pipe[F, SonosDevice[F], Unit] = _.broadcastThrough(removedSwitches, removedRemotes)
 
         val addedSwitches: Pipe[F, SonosDevice[F], Unit] = _.flatMap { dev =>
-          Stream.fromIterator[F](
-            SonosSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow).iterator
-          )
+          val added = SonosSwitchProvider.deviceToSwitches(config.switchDevice, dev, switchEventPublisher.narrow)
+
+          Stream.fromIterator[F](added.iterator, added.size)
         }.evalMap {
             case (key, switch) =>
               switch.getState.map { state =>

@@ -139,7 +139,7 @@ object Module {
 
     for {
       workBlocker <- Server.blocker[F]("work")
-      events <- Resource.liftF(TopicEvents[F])
+      events <- Resource.eval(TopicEvents[F])
 
       _ <- events.discovery.subscriberStream.subscribeEvent.evalMap(e => F.delay(println(e))).compile.drain.background
 
@@ -257,7 +257,7 @@ object Module {
         events.activity.publisher
       )
 
-      configService <- Resource.liftF(
+      configService <- Resource.eval(
         ConfigService(
           combinedActivityConfig,
           buttonConfig,
@@ -282,18 +282,18 @@ object Module {
         ep.toKleisli.local { case (name, headers) => (name, SpanKind.Consumer, TraceHeaders(headers)) }
       )
 
-      host <- Resource.liftF(Server.hostname[F](config.hostname))
+      host <- Resource.eval(Server.hostname[F](config.hostname))
 
       _ <- Advertiser[F](host, config.server.port, ServiceType.Coordinator)
 
-      websocketCommandSource <- Resource.liftF(Sync[F].delay(UUID.randomUUID().toString))
+      websocketCommandSource <- Resource.eval(Sync[F].delay(UUID.randomUUID().toString))
       // do not forward events from the command websocket
       (eventsState, websockets) <- ServerWs[F, G](
         events,
         _.source != websocketCommandSource,
         ep.toKleisli.local(name => (name, SpanKind.Consumer, TraceHeaders.empty))
       )
-      _ <- Resource.liftF(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
+      _ <- Resource.eval(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
     } yield
       Router(
         "/events" -> websockets,

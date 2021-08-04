@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.api.endpoint
 
 import cats.data.NonEmptyList
-import cats.effect.Sync
+import cats.effect.kernel.Async
 import cats.mtl.ApplicativeHandle
 import io.circe.refined._
 import io.janstenpickle.controller.`macro`.Macro
@@ -9,7 +9,7 @@ import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model.Command
 import org.http4s.HttpRoutes
 
-class MacroApi[F[_]: Sync](macros: Macro[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {
+class MacroApi[F[_]: Async](macros: Macro[F])(implicit ah: ApplicativeHandle[F, ControlError]) extends Common[F] {
   val routes: HttpRoutes[F] = HttpRoutes.of[F] {
     case POST -> Root / "send" / mac =>
       refineOrBadReq(mac)(m => Ok(macros.executeMacro(m)))

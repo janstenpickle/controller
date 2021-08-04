@@ -142,7 +142,7 @@ object Module {
       discoveryBlocker <- Server.blocker[F]("discovery")
       workBlocker <- Server.blocker[F]("work")
 
-      events <- Resource.liftF(TopicEvents[F])
+      events <- Resource.eval(TopicEvents[F])
 
       eventComponents <- EventDrivenComponents(events, 5.seconds, 30.seconds, ep.toKleisli.local {
         case (name, headers) => (name, SpanKind.Consumer, TraceHeaders(headers))
@@ -296,7 +296,7 @@ object Module {
         events.activity.publisher
       )
 
-      configService <- Resource.liftF(
+      configService <- Resource.eval(
         ConfigService(
           combinedActivityConfig,
           buttonConfig,
@@ -321,24 +321,24 @@ object Module {
         ep.toKleisli.local { case (name, headers) => (name, SpanKind.Consumer, TraceHeaders(headers)) }
       )
 
-      actionProcessor <- Resource.liftF(action.CommandEventProcessor[F](events.command.publisher, deconzConfig))
+      actionProcessor <- Resource.eval(action.CommandEventProcessor[F](events.command.publisher, deconzConfig))
       _ <- config.deconz.fold(Resource.pure[F, Unit](()))(
         DeconzBridge[F, G](_, actionProcessor, workBlocker, ep.toKleisli.local { name =>
           (name, SpanKind.Consumer, TraceHeaders.empty)
         })
       )
 
-      host <- Resource.liftF(Server.hostname[F](config.hostname))
+      host <- Resource.eval(Server.hostname[F](config.hostname))
 
       _ <- Advertiser[F](host, config.server.port, ServiceType.Coordinator)
 
-      websocketCommandSource <- Resource.liftF(Sync[F].delay(UUID.randomUUID().toString))
+      websocketCommandSource <- Resource.eval(Sync[F].delay(UUID.randomUUID().toString))
       // do not forward events from the command websocket
       (eventsState, websockets) <- ServerWs[F, G](events, _.source != websocketCommandSource, ep.toKleisli.local {
         name =>
           (name, SpanKind.Consumer, TraceHeaders.empty)
       })
-      _ <- Resource.liftF(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
+      _ <- Resource.eval(eventsState.completeWithComponents(allComponents, "coordinator", events.source))
     } yield
       Router(
         "/events" -> websockets,

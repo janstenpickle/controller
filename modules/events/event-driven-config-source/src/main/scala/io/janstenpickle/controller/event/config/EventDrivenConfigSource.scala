@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.event.config
 
-import cats.effect.syntax.concurrent._
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.Resource
+import cats.effect.kernel.{Async, Spawn}
+import cats.effect.syntax.spawn._
 import cats.syntax.functor._
 import cats.{Applicative, Functor}
 import fs2.Stream
@@ -17,7 +18,7 @@ import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import scala.concurrent.duration._
 
 object EventDrivenConfigSource {
-  def apply[F[_]: Concurrent: Timer, G[_]: BracketThrow, A, K, V](
+  def apply[F[_]: Async, G[_]: Spawn, A, K, V](
     subscriber: EventSubscriber[F, A],
     name: String,
     source: String,

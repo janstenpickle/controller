@@ -1,7 +1,7 @@
 package io.janstenpickle.controller.events
 
-import cats.effect.Bracket
-import cats.{~>, Applicative, Defer}
+import cats.effect.MonadCancelThrow
+import cats.~>
 import io.janstenpickle.controller.model.event._
 
 case class Events[F[_]](
@@ -14,7 +14,7 @@ case class Events[F[_]](
   `macro`: EventPubSub[F, MacroEvent],
   command: EventPubSub[F, CommandEvent]
 ) {
-  def mapK[G[_]: Defer: Applicative](fk: F ~> G, gk: G ~> F)(implicit F: Bracket[F, Throwable]): Events[G] =
+  def mapK[G[_]: MonadCancelThrow](fk: F ~> G, gk: G ~> F)(implicit F: MonadCancelThrow[F]): Events[G] =
     Events(
       source,
       remote.mapK(fk, gk),

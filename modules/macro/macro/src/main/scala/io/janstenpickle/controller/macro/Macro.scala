@@ -1,21 +1,20 @@
 package io.janstenpickle.controller.`macro`
 
-import cats.{Applicative, Monad}
 import cats.data.NonEmptyList
-import cats.effect.Timer
+import cats.effect.kernel.Temporal
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.types.string.NonEmptyString
-import io.janstenpickle.controller.events.EventPublisher
-import io.janstenpickle.controller.model.{Command, RemoteCommand, SwitchKey}
-import io.janstenpickle.controller.model.event.MacroEvent
-import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.`macro`.store.MacroStore
+import io.janstenpickle.controller.events.EventPublisher
+import io.janstenpickle.controller.model.event.MacroEvent
+import io.janstenpickle.controller.model.{Command, RemoteCommand, SwitchKey}
+import io.janstenpickle.controller.remotecontrol.RemoteControls
 import io.janstenpickle.controller.switch.Switches
 import io.janstenpickle.trace4cats.inject.Trace
-import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
+import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
 
 import scala.concurrent.duration._
 
@@ -33,7 +32,7 @@ object Macro {
     remotes: RemoteControls[F],
     switches: Switches[F],
     publisher: EventPublisher[F, MacroEvent]
-  )(implicit F: Monad[F], timer: Timer[F], errors: MacroErrors[F], trace: Trace[F])
+  )(implicit F: Temporal[F], errors: MacroErrors[F], trace: Trace[F])
       extends Macro[F] {
     def span[A](name: String, macroName: NonEmptyString, extraFields: (String, AttributeValue)*)(k: F[A]): F[A] =
       trace.span[A](name) { trace.putAll(extraFields :+ "macro.name" -> StringValue(macroName.value): _*) *> k }
@@ -49,7 +48,7 @@ object Macro {
     def executeCommand(command: Command): F[Unit] =
       (command match {
         case Command.Remote(remote, commandSource, device, n) => remotes.send(remote, commandSource, device, n)
-        case Command.Sleep(millis) => timer.sleep(millis.milliseconds)
+        case Command.Sleep(millis) => Temporal[F].sleep(millis.milliseconds)
         case Command.ToggleSwitch(device, switch) => switches.toggle(device, switch)
         case Command.SwitchOn(device, switch) => switches.switchOn(device, switch)
         case Command.SwitchOff(device, switch) => switches.switchOff(device, switch)
@@ -91,7 +90,7 @@ object Macro {
     remotes: RemoteControls[F],
     switches: Switches[F],
     publisher: EventPublisher[F, MacroEvent]
-  )(implicit F: Monad[F], timer: Timer[F], errors: MacroErrors[F], trace: Trace[F]): Macro[F] =
+  )(implicit F: Temporal[F], errors: MacroErrors[F], trace: Trace[F]): Macro[F] =
     new BaseMacro[F](macroStore, remotes, switches, publisher) {}
 
   def conditional[F[_]](
@@ -99,7 +98,7 @@ object Macro {
     remotes: RemoteControls[F],
     switches: Switches[F],
     publisher: EventPublisher[F, MacroEvent]
-  )(implicit F: Monad[F], timer: Timer[F], errors: MacroErrors[F], trace: Trace[F]): Macro[F] =
+  )(implicit F: Temporal[F], errors: MacroErrors[F], trace: Trace[F]): Macro[F] =
     new BaseMacro[F](macroStore, remotes, switches, publisher) {
       override def executeMacro(name: NonEmptyString): F[Unit] =
         macroStore.loadMacro(name).flatMap {

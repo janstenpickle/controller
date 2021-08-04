@@ -5,7 +5,6 @@ import java.util.concurrent.TimeUnit
 
 import cats.data.NonEmptySet
 import cats.effect._
-import cats.effect.concurrent.Ref
 import cats.instances.string._
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
@@ -167,7 +166,7 @@ object TplinkDevice {
     id: String,
     discovered: Json,
     eventPublisher: EventPublisher[F, SwitchStateUpdateEvent]
-  )(implicit errors: TplinkDeviceErrors[F], timer: Timer[F]): F[SmartPlug[F]] = {
+  )(implicit errors: TplinkDeviceErrors[F]): F[SmartPlug[F]] = {
     val switchKey = SwitchKey(model, tplink.deviceName)
 
     def parseState(json: Json): F[State] = decodeOrError[F, State](
@@ -180,8 +179,8 @@ object TplinkDevice {
 
     def setTime =
       for {
-        millis <- timer.clock.realTime(TimeUnit.MILLISECONDS)
-        time = Instant.ofEpochMilli(millis).atOffset(ZoneOffset.UTC)
+        instant <- Clock[F].realTimeInstant
+        time = instant.atOffset(ZoneOffset.UTC)
         timeCommand = s"""{"time":{"set_timezone":{"year":${time.getYear},"month":${time.getMonthValue},"mday":${time.getDayOfMonth},"hour":${time.getHour},"min":${time.getMinute},"sec":${time.getSecond},"index":0}}}"""
         _ <- tplink.sendCommand(timeCommand)
       } yield ()
@@ -191,7 +190,7 @@ object TplinkDevice {
     for {
       _ <- setTime
       initialState <- parseState(discovered).handleErrorWith(_ => _getState)
-      state <- Ref.of(initialState)
+      state <- Ref.of[F, State](initialState)
     } yield
       new SmartPlug[F] {
         override def refresh: F[Unit] =
@@ -374,7 +373,7 @@ object TplinkDevice {
 
     for {
       initialState <- parseSate(discovered).handleErrorWith(_ => _getState)
-      state <- Ref.of(initialState)
+      state <- Ref.of[F, BulbState](initialState)
     } yield
       new SmartBulb[F] {
         override def refresh: F[Unit] =

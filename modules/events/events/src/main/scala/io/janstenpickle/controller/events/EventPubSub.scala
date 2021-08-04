@@ -1,8 +1,8 @@
 package io.janstenpickle.controller.events
 
-import cats.effect.{Bracket, Clock, Concurrent, Resource}
+import cats.effect.{Async, MonadCancelThrow, Resource}
 import cats.syntax.functor._
-import cats.{~>, Applicative, Defer}
+import cats.~>
 import fs2.concurrent.Topic
 import io.janstenpickle.trace4cats.inject.Trace
 
@@ -10,14 +10,14 @@ trait EventPubSub[F[_], A] { outer =>
   def publisher: EventPublisher[F, A]
   def subscriberResource: Resource[F, EventSubscriber[F, A]]
   def subscriberStream: EventSubscriber[F, A]
-  def mapK[G[_]: Defer: Applicative](fk: F ~> G, gk: G ~> F)(implicit F: Bracket[F, Throwable]): EventPubSub[G, A] =
+  def mapK[G[_]: MonadCancelThrow](fk: F ~> G, gk: G ~> F)(implicit F: MonadCancelThrow[F]): EventPubSub[G, A] =
     EventPubSub.mapK(fk, gk)(this)
 }
 
 object EventPubSub {
 
-  def topicNonBlocking[F[_]: Concurrent: Clock: Trace, A](maxQueued: Int, source: String): F[EventPubSub[F, A]] =
-    Topic[F, Option[Event[A]]](None).map { topic =>
+  def topicNonBlocking[F[_]: Async: Trace, A](maxQueued: Int, source: String): F[EventPubSub[F, A]] =
+    Topic[F, Option[Event[A]]].map { topic =>
       new EventPubSub[F, A] {
         override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic, source)
         override def subscriberResource: Resource[F, EventSubscriber[F, A]] =
@@ -28,8 +28,8 @@ object EventPubSub {
       }
     }
 
-  def topicBlocking[F[_]: Concurrent: Clock: Trace, A](maxQueued: Int, source: String): F[EventPubSub[F, A]] =
-    Topic[F, Option[Event[A]]](None).map { topic =>
+  def topicBlocking[F[_]: Async: Trace, A](maxQueued: Int, source: String): F[EventPubSub[F, A]] =
+    Topic[F, Option[Event[A]]].map { topic =>
       new EventPubSub[F, A] {
         override val publisher: EventPublisher[F, A] = EventPublisher.fromTopic(topic, source)
         override def subscriberResource: Resource[F, EventSubscriber[F, A]] =
@@ -40,7 +40,7 @@ object EventPubSub {
       }
     }
 
-  private def mapK[F[_]: Bracket[*[_], Throwable], G[_]: Defer: Applicative, A](fk: F ~> G, gk: G ~> F)(
+  private def mapK[F[_]: MonadCancelThrow, G[_]: MonadCancelThrow, A](fk: F ~> G, gk: G ~> F)(
     pubSub: EventPubSub[F, A]
   ): EventPubSub[G, A] =
     new EventPubSub[G, A] {

@@ -36,7 +36,8 @@ object EventPublisher {
     def pub(src: String): EventPublisher[F, A] = new EventPublisher[F, A] {
       override def publish1(a: A): F[Unit] = Trace[F].span("publish1", SpanKind.Producer) {
         trace.headers.flatMap { headers =>
-          Event(a, src, headers.values).flatMap(evt => topic.publish1(Some(evt)))
+          Event(a, src, headers.values)
+            .flatMap(evt => topic.publish1(Some(evt)).void)
         }
       }
 
@@ -54,7 +55,9 @@ object EventPublisher {
 
       override def publish1Event(a: Event[A]): F[Unit] = Trace[F].span("publish1Event", SpanKind.Producer) {
         trace.headers.flatMap { headers =>
-          topic.publish1(Some(a.copy(headers = headers.values ++ a.headers)))
+          topic
+            .publish1(Some(a.copy(headers = headers.values ++ a.headers)))
+            .void
         }
       }
 

@@ -2,7 +2,7 @@ package io.janstenpickle.controller.http4s.error
 
 import cats.Apply
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import cats.syntax.apply._
 import io.janstenpickle.controller.errors.ErrorHandler
 

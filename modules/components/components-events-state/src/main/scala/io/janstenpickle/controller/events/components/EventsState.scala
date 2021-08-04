@@ -1,10 +1,7 @@
 package io.janstenpickle.controller.events.components
 
-import java.time.Instant
-import java.util.concurrent.TimeUnit
-
 import cats.Monad
-import cats.effect.concurrent.Deferred
+import cats.effect.kernel.Deferred
 import cats.effect.{Clock, Concurrent}
 import cats.syntax.apply._
 import cats.syntax.flatMap._
@@ -29,9 +26,9 @@ case class EventsState[F[_]](
   )(implicit F: Monad[F], clock: Clock[F], trace: Trace[F]): F[Unit] = {
     def addTrace[A](as: List[A]): F[List[Event[A]]] =
       for {
-        millis <- clock.realTime(TimeUnit.MILLISECONDS)
+        instant <- clock.realTimeInstant
         headers <- trace.headers
-      } yield as.map(Event[A](_, Instant.ofEpochMilli(millis), eventSource, headers.values))
+      } yield as.map(Event[A](_, instant, eventSource, headers.values))
 
     config.complete(
       (
@@ -45,7 +42,7 @@ case class EventsState[F[_]](
     ) *> macros(components.macroConfig).flatMap(addTrace) *> discovery.complete(
       ComponentsStateToEvents.discovery(components.rename).flatMap(addTrace)
     )
-  }
+  }.void
 }
 
 object EventsState {

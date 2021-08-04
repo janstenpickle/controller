@@ -1,7 +1,5 @@
 package io.janstenpickle.controller.cache
 
-import java.util.concurrent.TimeUnit
-
 import cats.effect.{Async, Resource, Sync}
 import cats.syntax.applicativeError._
 import cats.syntax.functor._
@@ -9,13 +7,14 @@ import com.github.benmanes.caffeine.cache.Caffeine
 import scalacache.caffeine.CaffeineCache
 import scalacache.{Entry, Cache => ScalaCache}
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters._
 
 object CacheResource {
   def apply[F[_], A](timeout: FiniteDuration, valueClass: Class[A])(
     implicit F: Async[F]
-  ): Resource[F, ScalaCache[A]] = {
+  ): Resource[F, ScalaCache[F, A]] = {
     val underlyingCaffeineCache =
       F.delay(Caffeine.newBuilder().expireAfterWrite(timeout.toMillis, TimeUnit.MILLISECONDS).build[String, Entry[A]])
 

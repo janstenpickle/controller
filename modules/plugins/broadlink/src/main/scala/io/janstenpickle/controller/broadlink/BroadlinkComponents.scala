@@ -1,7 +1,8 @@
 package io.janstenpickle.controller.broadlink
 
 import cats.Parallel
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.Resource
+import cats.effect.kernel.Async
 import cats.kernel.Monoid
 import io.janstenpickle.control.switch.polling.PollingSwitchErrors
 import io.janstenpickle.controller.broadlink.remote.{RmRemoteConfig, RmRemoteControls}
@@ -30,13 +31,11 @@ object BroadlinkComponents {
     remotesCacheTimeout: FiniteDuration = 10.seconds
   )
 
-  def apply[F[_]: Concurrent: Parallel: ContextShift: Timer: PollingSwitchErrors: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
+  def apply[F[_]: Async: Parallel: PollingSwitchErrors: Trace: RemoteControlErrors, G[_]: Async](
     config: Config,
     remoteStore: RemoteCommandStore[F, CommandPayload],
     switchStore: SwitchStateStore[F],
     nameMapping: WritableConfigSource[F, DiscoveredDeviceKey, DiscoveredDeviceValue],
-    workBlocker: Blocker,
-    discoveryBlocker: Blocker,
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
@@ -50,8 +49,6 @@ object BroadlinkComponents {
         discovery <- BroadlinkDiscovery
           .dynamic[F, G](
             config.discovery,
-            workBlocker,
-            discoveryBlocker,
             switchStore,
             remoteStore,
             nameMapping,

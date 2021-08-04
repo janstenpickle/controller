@@ -1,21 +1,20 @@
 package io.janstenpickle.controller.trace.prometheus
 
-import java.util.concurrent.ConcurrentHashMap
-
-import cats.{Applicative, Foldable}
 import cats.data.NonEmptyList
-import cats.effect.{Blocker, ContextShift, Resource, Sync}
+import cats.effect.{Resource, Sync}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
-import cats.syntax.functor._
 import cats.syntax.foldable._
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import cats.syntax.functor._
+import cats.{Applicative, Foldable}
 import io.janstenpickle.trace4cats.kernel.SpanExporter
 import io.janstenpickle.trace4cats.model.AttributeValue.{BooleanValue, DoubleValue, LongValue, StringValue}
-import io.janstenpickle.trace4cats.model.{Batch, CompletedSpan, TraceProcess}
+import io.janstenpickle.trace4cats.model.{Batch, CompletedSpan}
 import io.prometheus.client.{CollectorRegistry, Counter, Gauge, Histogram}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
+import java.util.concurrent.ConcurrentHashMap
 import scala.jdk.CollectionConverters._
 import scala.util.Try
 
@@ -37,13 +36,12 @@ object PrometheusSpanExporter {
     gauges: ConcurrentHashMap[String, Gauge]
   )
 
-  def apply[F[_]: ContextShift, G[_]: Foldable](
+  def apply[F[_], G[_]: Foldable](
     registry: CollectorRegistry,
-    blocker: Blocker,
     histogramBuckets: NonEmptyList[Double] = DefaultHistogramBuckets
   )(implicit F: Sync[F]) =
     Resource
-      .liftF(Slf4jLogger.create[F])
+      .eval(Slf4jLogger.create[F])
       .flatMap { logger =>
         Resource
           .make(
@@ -95,30 +93,29 @@ object PrometheusSpanExporter {
               lazy val labelValues = labels.values.toList
 
               def recordNumberLabels =
-                blocker
-                  .delay {
-                    doubleValues.foreach {
-                      case (label, number) =>
-                        val metricName = s"${sanitisedName}_${sanitise(label)}"
-                        val key = makeKey(metricName, labelKeys: _*)
+                Sync[F].blocking {
+                  doubleValues.foreach {
+                    case (label, number) =>
+                      val metricName = s"${sanitisedName}_${sanitise(label)}"
+                      val key = makeKey(metricName, labelKeys: _*)
 
-                        val gauge = metrics.gauges.getOrDefault(
-                          key,
-                          Gauge
-                            .build(metricName, s"Gauge of numeric label value $label")
-                            .labelNames(labelKeys: _*)
-                            .create()
-                        )
+                      val gauge = metrics.gauges.getOrDefault(
+                        key,
+                        Gauge
+                          .build(metricName, s"Gauge of numeric label value $label")
+                          .labelNames(labelKeys: _*)
+                          .create()
+                      )
 
-                        Try(gauge.register(registry))
-                        metrics.gauges.put(key, gauge)
-                        gauge.labels(labelValues: _*).set(number)
-                    }
+                      Try(gauge.register(registry))
+                      metrics.gauges.put(key, gauge)
+                      gauge.labels(labelValues: _*).set(number)
                   }
+                }
 
               def recordTime =
-                blocker
-                  .delay {
+                Sync[F]
+                  .blocking {
                     val key = makeKey(sanitisedName, labelKeys: _*)
 
                     val histogram =

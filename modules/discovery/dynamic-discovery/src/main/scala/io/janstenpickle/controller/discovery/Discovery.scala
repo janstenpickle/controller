@@ -1,10 +1,6 @@
 package io.janstenpickle.controller.discovery
 
 import cats.effect._
-import cats.instances.long._
-import cats.instances.map._
-import cats.instances.string._
-import cats.instances.tuple._
 import cats.kernel.Semigroup
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -12,7 +8,6 @@ import cats.syntax.semigroup._
 import cats.{Eq, FlatMap, Parallel}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.{Pipe, Stream}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.events.EventPublisher
 import io.janstenpickle.controller.model.DiscoveredDeviceKey
 import io.janstenpickle.controller.model.event.DeviceDiscoveryEvent
@@ -21,8 +16,8 @@ import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-import java.util.concurrent.TimeUnit
 import scala.concurrent.duration._
 
 trait Discovery[F[_], K, V] {
@@ -48,7 +43,7 @@ object Discovery {
       override def combine(x: Discovery[F, K, V], y: Discovery[F, K, V]): Discovery[F, K, V] = combined(x, y)
     }
 
-  def apply[F[_]: Parallel: ContextShift, G[_]: Timer: Concurrent, K: Eq, V <: DiscoveredDevice[F]: Eq](
+  def apply[F[_]: Parallel, G[_]: Async, K: Eq, V <: DiscoveredDevice[F]: Eq](
     deviceType: String,
     config: Polling,
     doDiscovery: F[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V])],
@@ -62,12 +57,7 @@ object Discovery {
     discoveryEventProducer: EventPublisher[F, DeviceDiscoveryEvent],
     k: ResourceKleisli[G, SpanName, Span[G]],
     traceParams: V => List[(String, AttributeValue)] = (_: V) => List.empty
-  )(
-    implicit F: Concurrent[F],
-    timer: Timer[F],
-    trace: Trace[F],
-    provide: Provide[G, F, Span[G]]
-  ): Resource[F, Discovery[F, K, V]] = {
+  )(implicit F: Async[F], trace: Trace[F], provide: Provide[G, F, Span[G]]): Resource[F, Discovery[F, K, V]] = {
     lazy val timeout: Long = (config.discoveryInterval * 3).toMillis
 
     implicit val empty: Empty[(Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long])] =
@@ -88,7 +78,7 @@ object Discovery {
                 trace.putAll("discovered.count" -> d.size, "unmapped.count" -> u.size, "device.type" -> deviceType)
             }
           }
-          now <- timer.clock.realTime(TimeUnit.MILLISECONDS)
+          now <- Clock[F].realTime.map(_.toMillis)
           updatedExpiry = discovered
             .foldLeft(current._3) {
               case (exp, (k, _)) => exp.updated(k, now)
@@ -121,15 +111,15 @@ object Discovery {
 
     def removeDevices(unmapped: Map[DiscoveredDeviceKey, Map[String, String]], devices: Map[K, V]) =
       Stream
-        .fromIterator[F]((unmapped.keys ++ devices.values.map(_.key)).iterator)
+        .fromIterator[F]((unmapped.keys ++ devices.values.map(_.key)).iterator, devices.size)
         .map(DeviceDiscoveryEvent.DeviceRemoved)
         .through(discoveryEventProducer.pipe)
-        .merge(Stream.fromIterator[F](devices.values.iterator).through(onDeviceRemoved))
+        .merge(Stream.fromIterator[F](devices.values.iterator, devices.size).through(onDeviceRemoved))
         .compile
         .drain
 
     Resource
-      .liftF(Slf4jLogger.fromName[F](s"discovery-$deviceType"))
+      .eval(Slf4jLogger.fromName[F](s"discovery-$deviceType"))
       .flatMap { implicit logger =>
         DataPoller
           .traced[F, G, (Map[DiscoveredDeviceKey, Map[String, String]], Map[K, V], Map[K, Long]), Discovery[F, K, V]](

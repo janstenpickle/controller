@@ -39,7 +39,7 @@
 //    liftLower: ContextualLiftLower[G, F, String],
 //    timer: Timer[G],
 //    trace: Trace[F]
-//  ): Resource[F, Unit] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+//  ): Resource[F, Unit] = Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
 //    val pipe: Pipe[F, String, Unit] =
 //      _.evalMap[F, Option[Event[A]]] { str =>
 //        parse(str).flatMap(_.as[Event[A]]) match {

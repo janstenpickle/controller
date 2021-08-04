@@ -58,12 +58,12 @@ object KafkaEvents {
     )
 
     for {
-      logger <- Resource.liftF(Slf4jLogger.create[F])
+      logger <- Resource.eval(Slf4jLogger.create[F])
       admin <- adminClientResource(
         AdminClientSettings[F].withBootstrapServers(updatedConfig.bootstrapServers.toList.mkString(","))
       )
       topics = Topics()
-      _ <- Resource.liftF(
+      _ <- Resource.eval(
         admin
           .createTopics(
             List(

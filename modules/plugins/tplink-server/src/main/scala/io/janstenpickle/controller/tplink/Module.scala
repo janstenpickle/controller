@@ -122,11 +122,11 @@ object Module {
     }
 
     for {
-      events <- Resource.liftF(TopicEvents[F])
+      events <- Resource.eval(TopicEvents[F])
       discoveryBlocker <- makeBlocker("discovery")
       workBlocker <- makeBlocker("work")
 
-      host <- Resource.liftF(Server.hostname[F](config.host))
+      host <- Resource.eval(Server.hostname[F](config.host))
 
       jmdns <- JmDNSResource[F](host)
       coordinator <- config.coordinator.fold(
@@ -152,7 +152,7 @@ object Module {
         k
       )
 
-      _ <- Resource.liftF(eventsState.completeWithComponents(components, "tplink", events.source))
+      _ <- Resource.eval(eventsState.completeWithComponents(components, "tplink", events.source))
 
       switches = Switches[F](components.switches)
 
@@ -172,7 +172,7 @@ object Module {
       )
 
       _ <- Advertiser[F](jmdns, config.server.port, ServiceType.Plugin, NonEmptyString("Tplink"))
-      api <- Resource.liftF(PluginApi[F, G](events, components, switches, mac, ep.toKleisli.local { name =>
+      api <- Resource.eval(PluginApi[F, G](events, components, switches, mac, ep.toKleisli.local { name =>
         (name, SpanKind.Server, TraceHeaders.empty)
       }))
     } yield api

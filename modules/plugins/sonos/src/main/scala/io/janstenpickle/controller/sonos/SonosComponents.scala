@@ -2,7 +2,8 @@ package io.janstenpickle.controller.sonos
 
 import cats.Parallel
 import cats.data.NonEmptyList
-import cats.effect.{Blocker, Concurrent, ContextShift, Resource, Timer}
+import cats.effect.Resource
+import cats.effect.kernel.Async
 import cats.kernel.Monoid
 import eu.timepit.refined.types.string.NonEmptyString
 import io.janstenpickle.controller.cache.CacheResource
@@ -40,10 +41,8 @@ object SonosComponents {
       activity.copy(remoteName = remote, combinedDeviceName = combinedDevice)
   }
 
-  def apply[F[_]: Concurrent: ContextShift: Timer: Parallel: Trace: RemoteControlErrors, G[_]: Concurrent: Timer](
+  def apply[F[_]: Async: Parallel: Trace: RemoteControlErrors, G[_]: Async](
     config: Config,
-    workBlocker: Blocker,
-    discoveryBlocker: Blocker,
     remoteEventPublisher: EventPublisher[F, RemoteEvent],
     switchEventPublisher: EventPublisher[F, SwitchEvent],
     configEventPublisher: EventPublisher[F, ConfigEvent],
@@ -56,15 +55,13 @@ object SonosComponents {
         discovery <- SonosDiscovery
           .polling[F, G](
             config,
-            workBlocker,
-            discoveryBlocker,
             remoteEventPublisher,
             switchEventPublisher,
             configEventPublisher,
             discoveryEventPublisher,
             k
           )
-        remote <- Resource.liftF(
+        remote <- Resource.eval(
           SonosRemoteControl[F](config.remote, config.combinedDevice, discovery, remoteEventPublisher)
         )
       } yield {

@@ -61,7 +61,7 @@ object DeconzBridge {
       mappingSource <- ConfigFileSource
         .polling[F, G](config.configDir.resolve("deconz"), config.polling.pollInterval, blocker, config.writeTimeout, k)
       mapping <- CirceButtonMappingConfigSource[F, G](mappingSource, config.polling, _ => Applicative[F].unit, k)
-      actionProcessor <- Resource.liftF(CommandEventProcessor[F](commandPublisher, mapping))
+      actionProcessor <- Resource.eval(CommandEventProcessor[F](commandPublisher, mapping))
       _ <- apply[F, G](config.api, actionProcessor, blocker, k)
     } yield ()
 
@@ -71,7 +71,7 @@ object DeconzBridge {
     blocker: Blocker,
     k: ResourceKleisli[G, SpanName, Span[G]]
   )(implicit F: Sync[F], G: ConcurrentEffect[G], provide: Provide[G, F, Span[G]], trace: Trace[F]): Resource[F, Unit] =
-    Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+    Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
       val uri = new URI(s"ws://${config.host}:${config.port}")
 
       def recieve(queue: Queue[F, String]): F[Unit] =
@@ -124,7 +124,7 @@ object DeconzBridge {
           .drain
 
       for {
-        queue <- Resource.liftF(Queue.unbounded[F, String])
+        queue <- Resource.eval(Queue.unbounded[F, String])
         _ <- JavaWebSocketClient.receiveString[F, G, Span[G]](uri, blocker, k, queue.enqueue1)
         _ <- Stream.retry(recieve(queue), 5.seconds, _ + 1.second, Int.MaxValue).compile.drain.background
       } yield ()

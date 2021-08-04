@@ -1,28 +1,31 @@
 package io.janstenpickle.controller.events.commands
 
 import cats.Show
-import cats.effect.syntax.concurrent._
-import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
+import cats.effect.kernel.{Async, Outcome}
+import cats.effect.syntax.spawn._
+import cats.effect.syntax.temporal._
+import cats.effect.{MonadCancelThrow, Resource, Temporal}
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.functor._
 import cats.syntax.show._
 import fs2.Stream
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.janstenpickle.controller.`macro`.Macro
 import io.janstenpickle.controller.activity.Activity
 import io.janstenpickle.controller.context.Context
 import io.janstenpickle.controller.discovery.DeviceRename
 import io.janstenpickle.controller.errors.ErrorHandler
 import io.janstenpickle.controller.events.EventSubscriber
+import io.janstenpickle.controller.events.syntax.stream._
 import io.janstenpickle.controller.model.Command
 import io.janstenpickle.controller.model.Command.{Remote, Sleep, SwitchOff, SwitchOn, ToggleSwitch}
 import io.janstenpickle.controller.model.event.CommandEvent
 import io.janstenpickle.controller.remotecontrol.RemoteControls
-import io.janstenpickle.controller.events.syntax.stream._
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
+import org.typelevel.ci.CIString
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
 
@@ -37,24 +40,25 @@ object EventCommands {
     case Command.Macro(name) => s"Execute macro ${name.value}"
   }
 
-  def apply[F[_]: Concurrent, G[_]: BracketThrow](
+  def apply[F[_]: Async, G[_]: MonadCancelThrow](
     subscriber: EventSubscriber[F, CommandEvent],
     context: Context[F],
     `macro`: Macro[F],
     activity: Activity[F],
     remotes: RemoteControls[F],
     devices: DeviceRename[F],
-    k: ResourceKleisli[G, (SpanName, Map[String, String]), Span[G]],
+    k: ResourceKleisli[G, (SpanName, Map[CIString, String]), Span[G]],
   )(
-    implicit timer: Timer[F],
-    trace: Trace[F],
+    implicit trace: Trace[F],
     errorHandler: ErrorHandler[F],
     provide: Provide[G, F, Span[G]]
-  ): Resource[F, F[Unit]] =
-    Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+  ): Resource[F, F[Outcome[F, Throwable, Unit]]] =
+    Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
       def repeatStream(stream: Stream[F, Unit]): F[Unit] =
         stream.compile.drain.handleErrorWith { th =>
-          logger.error(th)("Event command stream failed, restarting") *> timer.sleep(15.seconds) *> repeatStream(stream)
+          logger.error(th)("Event command stream failed, restarting") *> Temporal[F].sleep(15.seconds) *> repeatStream(
+            stream
+          )
         }
 
       def handleErrors(fa: F[Unit], message: String, timeout: FiniteDuration = 10.seconds): F[Unit] = {

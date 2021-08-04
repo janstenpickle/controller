@@ -2,7 +2,7 @@ package io.janstenpickle.controller.events.mqtt
 
 import cats.data.Reader
 import cats.effect.{Concurrent, Resource}
-import cats.effect.syntax.concurrent._
+import cats.effect.syntax.spawn._
 import io.circe.{Decoder, Encoder}
 import io.circe.generic.extras.Configuration
 import io.circe.generic.extras.auto._

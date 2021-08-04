@@ -28,7 +28,7 @@ object KafkaSubscriber {
     settings: F[ConsumerSettings[F, Option[V], Option[V]]],
     headerMatchesFilter: Map[String, String],
     headerNonMatchesFilter: Map[String, String]
-  ): Resource[F, EventSubscriber[F, V]] = Resource.liftF(Slf4jLogger.create[F]).flatMap { logger =>
+  ): Resource[F, EventSubscriber[F, V]] = Resource.eval(Slf4jLogger.create[F]).flatMap { logger =>
     def accumulate(
       consumer: KafkaConsumer[F, Option[V], Option[V]]
     ): Resource[F, Queue[F, CommittableConsumerRecord[F, Option[V], Option[V]]]] = {
@@ -80,21 +80,21 @@ object KafkaSubscriber {
             .map(_._2)
 
       for {
-        queue <- Resource.liftF(Queue.unbounded[F, CommittableConsumerRecord[F, Option[V], Option[V]]])
-        deferred <- Resource.liftF(Deferred[F, Boolean])
+        queue <- Resource.eval(Queue.unbounded[F, CommittableConsumerRecord[F, Option[V], Option[V]]])
+        deferred <- Resource.eval(Deferred[F, Boolean])
         _ <- consumer.stream
           .broadcastThrough(queue.enqueue, fulfillPromise(deferred), waitForMessage(deferred))
           .compile
           .drain
           .background
-        _ <- Resource.liftF(deferred.get)
+        _ <- Resource.eval(deferred.get)
       } yield queue
     }
 
     for {
-      s <- Resource.liftF(settings)
+      s <- Resource.eval(settings)
       consumer <- consumerResource(s)
-      _ <- Resource.liftF(consumer.subscribeTo(topic.value))
+      _ <- Resource.eval(consumer.subscribeTo(topic.value))
       queue <- accumulate(consumer)
     } yield
       new EventSubscriber[F, V] {

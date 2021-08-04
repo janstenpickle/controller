@@ -1,13 +1,14 @@
 package io.janstenpickle.controller.server
 
-import cats.effect.{Concurrent, ExitCode, Timer}
+import cats.effect.kernel.Temporal
+import cats.effect.{Async, ExitCode}
 import cats.syntax.applicative._
 import cats.syntax.apply._
 import cats.syntax.flatMap._
 import fs2.Stream
 import fs2.concurrent.SignallingRef
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
 
@@ -17,14 +18,14 @@ object Reloader {
 
   def apply[F[_]](
     makeStream: (ReloadSignal[F], ExitSignal[F]) => Stream[F, ExitCode]
-  )(implicit F: Concurrent[F], timer: Timer[F]): Stream[F, ExitCode] = {
+  )(implicit F: Async[F]): Stream[F, ExitCode] = {
     def repeatStream(reload: ReloadSignal[F], signal: ExitSignal[F], logger: Logger[F]): Stream[F, ExitCode] =
       makeStream(reload, signal)
         .handleErrorWith(
           th =>
             Stream
               .eval(logger.error(th)("Failed to start Controller"))
-              .evalMap(_ => timer.sleep(10.seconds))
+              .evalMap(_ => Temporal[F].sleep(10.seconds))
               .flatMap(_ => repeatStream(reload, signal, logger))
         )
         .onComplete(repeatStream(reload, signal, logger))

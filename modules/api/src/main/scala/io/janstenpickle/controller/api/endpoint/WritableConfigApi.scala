@@ -2,7 +2,7 @@ package io.janstenpickle.controller.api.endpoint
 
 import cats.Semigroupal
 import cats.data.ValidatedNel
-import cats.effect.{Concurrent, Timer}
+import cats.effect.kernel.Async
 import cats.mtl.{ApplicativeHandle, FunctorRaise}
 import cats.syntax.either._
 import cats.syntax.flatMap._
@@ -15,8 +15,8 @@ import io.janstenpickle.controller.http4s.error.ControlError
 import io.janstenpickle.controller.model._
 import org.http4s._
 
-class WritableConfigApi[F[_]: Timer](service: WritableConfigService[F])(
-  implicit F: Concurrent[F],
+class WritableConfigApi[F[_]](service: WritableConfigService[F])(
+  implicit F: Async[F],
   fr: FunctorRaise[F, ControlError],
   ah: ApplicativeHandle[F, ControlError]
 ) extends Common[F] {

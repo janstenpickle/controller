@@ -1,36 +1,34 @@
 package io.janstenpickle.controller.poller
 
 import cats.effect._
-import cats.effect.concurrent.Ref
 import cats.syntax.applicativeError._
 import cats.syntax.apply._
 import cats.syntax.eq._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.{~>, Applicative, Apply, Eq}
+import cats.{~>, Applicative, Apply, Eq, Functor}
 import eu.timepit.refined.types.numeric.PosInt
 import fs2.Stream
-import io.chrisdavenport.log4cats.Logger
 import io.janstenpickle.trace4cats.Span
 import io.janstenpickle.trace4cats.base.context.Provide
 import io.janstenpickle.trace4cats.inject.{ResourceKleisli, SpanName, Trace}
 import io.janstenpickle.trace4cats.model.AttributeValue.StringValue
 import io.janstenpickle.trace4cats.model.{AttributeValue, SpanStatus}
+import org.typelevel.log4cats.Logger
 
-import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.FiniteDuration
 
 object DataPoller {
   case class Data[A](value: A, updated: Long, errorCount: Int = 0, error: Option[Throwable] = None)
 
-  private def timeNow[F[_]](implicit timer: Timer[F]): F[Long] = timer.clock.realTime(TimeUnit.MILLISECONDS)
+  private def timeNow[F[_]: Functor](implicit clock: Clock[F]): F[Long] = clock.realTime.map(_.toMillis)
 
   private def poller[F[_], A: Eq](
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     dataRef: Ref[F, Data[A]],
     onUpdate: (A, A) => F[Unit]
-  )(implicit F: Concurrent[F], timer: Timer[F], logger: Logger[F], trace: Trace[F]): F[Fiber[F, Unit]] = {
+  )(implicit F: Async[F], logger: Logger[F], trace: Trace[F]) = {
 
     def update(now: Long): F[Unit] =
       trace
@@ -64,7 +62,7 @@ object DataPoller {
     F.start(stream.compile.drain)
   }
 
-  private def reader[F[_]: Timer, A](
+  private def reader[F[_], A](
     dataRef: Ref[F, Data[A]],
     handleError: (Data[A], Throwable) => F[A]
   )(implicit F: Sync[F], trace: Trace[F]): F[A] =
@@ -87,14 +85,14 @@ object DataPoller {
     }
   }
 
-  private def make[F[_]: Timer, A: Eq, B](
+  private def make[F[_], A: Eq, B](
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     read: Ref[F, Data[A]] => F[A],
     onUpdate: (A, A) => F[Unit]
   )(
     create: (() => F[A], A => F[Unit]) => B
-  )(implicit F: Concurrent[F], empty: Empty[A], logger: Logger[F], trace: Trace[F]): Resource[F, B] = {
+  )(implicit F: Async[F], empty: Empty[A], logger: Logger[F], trace: Trace[F]): Resource[F, B] = {
     def update(dataRef: Ref[F, Data[A]])(a: A): F[Unit] = trace.span("update.poller.state") {
       for {
         current <- dataRef.get
@@ -117,7 +115,7 @@ object DataPoller {
         _ <- logger.info("Finished initialising poller")
       } yield
         create(() => read(dataRef), update(dataRef)) -> trace.span("poller.stop") {
-          F.suspend(logger.info("Stopping poller") *> p.cancel)
+          F.defer(logger.info("Stopping poller") *> p.cancel)
         }
     })
   }
@@ -141,8 +139,7 @@ object DataPoller {
       )(create: (() => F[A], A => F[Unit]) => B)(
         implicit F: Sync[F],
         trace: Trace[F],
-        G: Concurrent[G],
-        timer: Timer[G],
+        G: Async[G],
         empty: Empty[A],
         eq: Eq[A],
         logger: Logger[F],
@@ -176,8 +173,7 @@ object DataPoller {
       )(create: (() => F[A], A => F[Unit]) => B)(
         implicit F: Sync[F],
         trace: Trace[F],
-        G: Concurrent[G],
-        timer: Timer[G],
+        G: Async[G],
         empty: Empty[A],
         eq: Eq[A],
         logger: Logger[F],
@@ -224,8 +220,7 @@ object DataPoller {
     )(create: (() => F[A], A => F[Unit]) => B)(
       implicit F: Sync[F],
       trace: Trace[F],
-      G: Concurrent[G],
-      timer: Timer[G],
+      G: Async[G],
       empty: Empty[A],
       eq: Eq[A],
       logger: Logger[F],
@@ -242,8 +237,7 @@ object DataPoller {
     )(create: (() => F[A], A => F[Unit]) => B)(
       implicit F: Sync[F],
       trace: Trace[F],
-      G: Concurrent[G],
-      timer: Timer[G],
+      G: Async[G],
       empty: Empty[A],
       eq: Eq[A],
       logger: Logger[F],
@@ -251,12 +245,12 @@ object DataPoller {
     ): Resource[F, B]
   }
 
-  def apply[F[_]: Timer, A: Empty: Eq, B](
+  def apply[F[_], A: Empty: Eq, B](
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
     onUpdate: (A, A) => F[Unit]
-  )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Concurrent[F], logger: Logger[F]): Resource[F, B] = {
+  )(create: (() => F[A], A => F[Unit]) => B)(implicit F: Async[F], logger: Logger[F]): Resource[F, B] = {
     import Trace.Implicits.noop
 
     make[F, A, B](
@@ -274,7 +268,7 @@ object DataPoller {
     )(create)
   }
 
-  def apply[F[_]: Timer: Logger, A: Empty: Eq, B](
+  def apply[F[_]: Async: Logger, A: Empty: Eq, B](
     getData: Data[A] => F[A],
     pollInterval: FiniteDuration,
     errorThreshold: PosInt,
