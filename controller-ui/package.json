@@ -29,7 +29,7 @@
     "@types/react-scroll": "^1.5.1",
     "@types/styled-components": "^4.4.1",
     "@types/webpack": "^4.41.0",
-    "ajv": "^6.10.2",
+    "ajv": "^6.12.3",
     "antd": "^3.26.4",
     "aphrodite": "^2.4.0",
     "babel-loader": "^8.0.6",
